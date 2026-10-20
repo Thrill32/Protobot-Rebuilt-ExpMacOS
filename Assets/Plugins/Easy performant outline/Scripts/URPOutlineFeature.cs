@@ -11,6 +11,9 @@ using UnityEngine.Rendering.Universal;
 #else
 using UnityEngine.Rendering.LWRP;
 #endif
+#if UNITY_6000_0_OR_NEWER
+using UnityEngine.Rendering.RenderGraphModule;
+#endif
 
 public class URPOutlineFeature : ScriptableRendererFeature
 {
@@ -18,7 +21,9 @@ public class URPOutlineFeature : ScriptableRendererFeature
     {
         private static List<Outlinable> temporaryOutlinables = new List<Outlinable>();
 
+#if !UNITY_6000_0_OR_NEWER
         public ScriptableRenderer Renderer;
+#endif
 
         public bool UseColorTargetForDepth;
 
@@ -33,6 +38,7 @@ public class URPOutlineFeature : ScriptableRendererFeature
             Parameters.CheckInitialization();
         }
 
+#if !UNITY_6000_0_OR_NEWER
         private FieldInfo nameId = typeof(RenderTargetIdentifier).GetField("m_NameID", BindingFlags.NonPublic | BindingFlags.Instance);
 
         private bool IsDepthTextureAvailable(ScriptableRenderer renderer)
@@ -112,6 +118,93 @@ public class URPOutlineFeature : ScriptableRendererFeature
 
             context.ExecuteCommandBuffer(Parameters.Buffer);
         }
+#else
+        private class PassData
+        {
+            public SRPOutline Pass;
+            public Camera Camera;
+            public bool IsSceneViewCamera;
+            public RenderTextureDescriptor Descriptor;
+            public TextureHandle ColorTarget;
+            public TextureHandle DepthTarget;
+        }
+
+        public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+        {
+            var resourceData = frameData.Get<UniversalResourceData>();
+            var cameraData = frameData.Get<UniversalCameraData>();
+
+            using (var builder = renderGraph.AddUnsafePass<PassData>("Easy Performant Outline", out var passData))
+            {
+                passData.Pass = this;
+                passData.Camera = cameraData.camera;
+                passData.IsSceneViewCamera = cameraData.isSceneViewCamera;
+                passData.Descriptor = cameraData.cameraTargetDescriptor;
+                passData.ColorTarget = resourceData.activeColorTexture;
+                passData.DepthTarget = resourceData.activeDepthTexture;
+
+                builder.UseTexture(passData.ColorTarget, AccessFlags.ReadWrite);
+                if (passData.DepthTarget.IsValid())
+                    builder.UseTexture(passData.DepthTarget, AccessFlags.Read);
+
+                builder.AllowPassCulling(false);
+                builder.AllowGlobalStateModification(true);
+                builder.SetRenderFunc(static (PassData data, UnsafeGraphContext context) =>
+                {
+                    var commandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                    data.Pass.Render(data.Camera, data.IsSceneViewCamera, data.Descriptor,
+                        data.ColorTarget,
+                        data.DepthTarget.IsValid() ? (RenderTargetIdentifier)data.DepthTarget : data.ColorTarget,
+                        commandBuffer);
+                });
+            }
+        }
+
+        private void Render(Camera camera, bool isSceneViewCamera, RenderTextureDescriptor descriptor,
+            RenderTargetIdentifier colorTarget, RenderTargetIdentifier depthTarget, CommandBuffer commandBuffer)
+        {
+            if (Outliner == null || !Outliner.enabled)
+                return;
+
+            Parameters.Buffer = commandBuffer;
+            Outlinable.GetAllActiveOutlinables(camera, Parameters.OutlinablesToRender);
+            Outliner.UpdateSharedParameters(Parameters, camera, isSceneViewCamera);
+            RendererFilteringUtility.Filter(camera, Parameters);
+
+            Parameters.TargetWidth = descriptor.width;
+            Parameters.TargetHeight = descriptor.height;
+            Parameters.Antialiasing = descriptor.msaaSamples;
+
+            var useCustomRenderTarget = Outliner.HasCutomRenderTarget && !isSceneViewCamera;
+            Parameters.Target = RenderTargetUtility.ComposeTarget(Parameters,
+                useCustomRenderTarget ? Outliner.GetRenderTarget(Parameters) : colorTarget);
+            Parameters.DepthTarget = RenderTargetUtility.ComposeTarget(Parameters, depthTarget);
+
+            if (Outliner.RenderingStrategy == OutlineRenderingStrategy.Default)
+            {
+                OutlineEffect.SetupOutline(Parameters);
+                Parameters.BlitMesh = null;
+                Parameters.MeshPool.ReleaseAllMeshes();
+            }
+            else
+            {
+                temporaryOutlinables.Clear();
+                temporaryOutlinables.AddRange(Parameters.OutlinablesToRender);
+
+                Parameters.OutlinablesToRender.Clear();
+                Parameters.OutlinablesToRender.Add(null);
+
+                foreach (var outlinable in temporaryOutlinables)
+                {
+                    Parameters.OutlinablesToRender[0] = outlinable;
+                    OutlineEffect.SetupOutline(Parameters);
+                    Parameters.BlitMesh = null;
+                }
+
+                Parameters.MeshPool.ReleaseAllMeshes();
+            }
+        }
+#endif
     }
 
     private class Pool
@@ -210,7 +303,9 @@ public class URPOutlineFeature : ScriptableRendererFeature
 
             outline.Outliner = outliner;
 
+#if !UNITY_6000_0_OR_NEWER
             outline.Renderer = renderer;
+#endif
 
             outline.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
 
