@@ -404,7 +404,7 @@ namespace EPOOutline
 
         private void OnPreRender()
         {
-            if (GraphicsSettings.renderPipelineAsset != null)
+            if (GraphicsSettings.defaultRenderPipeline != null)
                 return;
 
             parameters.OutlinablesToRender.Clear();

@@ -258,7 +258,7 @@ namespace Hierarchy2
             if (resources is null) return;
             resources.GenerateKeyForAssets();
 
-            EditorApplication.hierarchyWindowItemOnGUI += HierarchyOnGUI;
+            EditorApplication.hierarchyWindowItemByEntityIdOnGUI += HierarchyOnGUI;
 
             if (settings.activeHierarchy)
                 Invoke();
@@ -370,7 +370,7 @@ namespace Hierarchy2
                 
                 foreach (EditorWindow window in GetAllSceneHierarchyWindowsDelegate())
                 {
-                    if (!HierarchyWindow.instances.ContainsKey(window.GetInstanceID()))
+                    if (!HierarchyWindow.instances.ContainsKey(window.GetEntityId()))
                     {
                         var hierarchyWindow = new HierarchyWindow(window);
                         hierarchyWindow.SetWindowTitle("Hierarchy 2");
@@ -507,7 +507,7 @@ namespace Hierarchy2
             return hierarchyLocalDataObject.GetComponent<HierarchyLocalData>();
         }
 
-        void HierarchyOnGUI(int selectionID, Rect selectionRect)
+        void HierarchyOnGUI(EntityId selectionID, Rect selectionRect)
         {
             currentEvent = Event.current;
 
@@ -548,7 +548,7 @@ namespace Hierarchy2
 
             rowItem.Dispose();
             rowItem.ID = selectionID;
-            rowItem.gameObject = EditorUtility.InstanceIDToObject(rowItem.ID) as GameObject;
+            rowItem.gameObject = EditorUtility.EntityIdToObject(rowItem.ID) as GameObject;
             rowItem.rect = selectionRect;
             rowItem.rowIndex = GetRowIndex(selectionRect);
             rowItem.isSelected = InSelection(selectionID);
@@ -1535,9 +1535,9 @@ namespace Hierarchy2
 
         int GetRowIndex(Rect rect) => (int) (rect.y / rect.height);
 
-        bool InSelection(int ID) => Selection.Contains(ID) ? true : false;
+        bool InSelection(EntityId ID) => Selection.Contains(ID) ? true : false;
 
-        bool IsElementDirty(int ID) => EditorUtility.IsDirty(ID);
+        bool IsElementDirty(EntityId ID) => EditorUtility.IsDirty(ID);
 
         Rect RectFromRight(Rect rect, float width, float usedWidth)
         {
@@ -1624,10 +1624,10 @@ namespace Hierarchy2
 
         sealed class HierarchyWindow
         {
-            public static Dictionary<int, EditorWindow> instances = new Dictionary<int, EditorWindow>();
+            public static Dictionary<EntityId, EditorWindow> instances = new Dictionary<EntityId, EditorWindow>();
             public static List<HierarchyWindow> windows = new List<HierarchyWindow>();
 
-            public int instanceID = Int32.MinValue;
+            public EntityId instanceID = EntityId.None;
             public EditorWindow editorWindow;
             public object treeview;
 
@@ -1635,7 +1635,7 @@ namespace Hierarchy2
             {
                 this.editorWindow = editorWindow;
                 
-                instanceID = this.editorWindow.GetInstanceID();
+                instanceID = this.editorWindow.GetEntityId();
                 
                 instances.Add(instanceID, this.editorWindow);
                 windows.Add(this);
@@ -1660,6 +1660,7 @@ namespace Hierarchy2
                 // Debug.Log(string.Format("HierarchyWindow {0} Disposed.", instanceID));
             }
 
+            [Obsolete("Obsolete")]
             public TreeViewItem GetItemAndRowIndex(int id, out int row)
             {
                 row = -1;
@@ -1680,7 +1681,7 @@ namespace Hierarchy2
         
         sealed class RowItem
         {
-            public int ID = int.MinValue;
+            public EntityId ID = EntityId.None; //this *should* work
             public Rect rect;
             public Rect nameRect;
             public int rowIndex = 0;
@@ -1726,7 +1727,7 @@ namespace Hierarchy2
 
             public void Dispose()
             {
-                ID = int.MinValue;
+                ID = EntityId.None;
                 gameObject = null;
                 rect = Rect.zero;
                 nameRect = Rect.zero;
@@ -1883,10 +1884,10 @@ namespace Hierarchy2
 
             internal static GUIStyle TreeBoldLabel
             {
-                get { return TreeView.DefaultStyles.boldLabel; }
+                get { return TreeView<int>.DefaultStyles.boldLabel; }
             }
 
-            internal static GUIStyle TreeLabel = new GUIStyle(TreeView.DefaultStyles.label)
+            internal static GUIStyle TreeLabel = new GUIStyle(TreeView<int>.DefaultStyles.label)
             {
                 richText = true,
                 normal = new GUIStyleState() {textColor = Color.white}

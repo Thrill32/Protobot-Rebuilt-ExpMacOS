@@ -16,23 +16,39 @@ public class InstanceCombiner : MonoBehaviour
     private void CombineMesh()
     {
         // Key: shared mesh instance ID, Value: arguments to combine meshes
-        var helper = new Dictionary<int, List<CombineInstance>>();
+        var helper = new Dictionary<EntityId, List<CombineInstance>>();
 
         // Build combine instances for each type of mesh
+        // foreach (var m in listMeshFilter)
+        // {
+        //     List<CombineInstance> tmp;
+        //     if (!helper.TryGetValue(m.sharedMesh.GetEntityId(), out tmp))
+        //     {
+        //         tmp = new List<CombineInstance>();
+        //         helper.Add(m.sharedMesh.GetEntityId(), tmp);
+        //     }
+        //     var ci = new CombineInstance();
+        //     ci.mesh = m.sharedMesh;
+        //     ci.transform = m.transform.localToWorldMatrix;
+        //     tmp.Add(ci);
+        // }
+        
         foreach (var m in listMeshFilter)
         {
-            List<CombineInstance> tmp;
-            if (!helper.TryGetValue(m.sharedMesh.GetInstanceID(), out tmp))
+            var meshId = m.sharedMesh.GetEntityId();
+
+            if (!helper.TryGetValue(meshId, out var tmp))
             {
                 tmp = new List<CombineInstance>();
-                helper.Add(m.sharedMesh.GetInstanceID(), tmp);
+                helper.Add(meshId, tmp);
             }
+
             var ci = new CombineInstance();
             ci.mesh = m.sharedMesh;
             ci.transform = m.transform.localToWorldMatrix;
             tmp.Add(ci);
         }
-
+        
         // Combine meshes and build combine instance for combined meshes
         var list = new List<CombineInstance>();
         foreach (var e in helper)

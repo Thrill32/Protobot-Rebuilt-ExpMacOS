@@ -20,10 +20,10 @@ namespace Protobot.UI {
         public float activeRot;
         public float inactiveRot;
 
-        [SerializeField]
+        [field: SerializeField]
         public float targetRot {get; private set;}
 
-        [SerializeField]
+        [field: SerializeField]
         public float initRot {get; private set;}
 
         private RectTransform rTransform;

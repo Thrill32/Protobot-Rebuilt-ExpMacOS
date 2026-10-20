@@ -7,7 +7,7 @@ namespace Protobot.Tools {
         [SerializeField] private MovementManager movementManager;
 
         [SerializeField] private ObjectLink hoverObjectLink; //the object being hovered over by mousecast
-        [SerializeField] private GameObject HoverObj => hoverObjectLink?.obj; //the object being hovered over by mousecast
+        [field: SerializeField] private GameObject HoverObj => hoverObjectLink?.obj; //the object being hovered over by mousecast
 
         [SerializeField] private HoleFace selectedHoleFace;
         [SerializeField] private HoleFace hoverHoleFace;

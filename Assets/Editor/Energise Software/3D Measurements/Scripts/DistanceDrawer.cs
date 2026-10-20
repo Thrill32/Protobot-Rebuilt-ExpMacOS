@@ -200,10 +200,10 @@ namespace Measure
 			if (hit1.Transform == null || hit2.Transform == null) return;
 			if (hit1.GameObject == hit2.GameObject) return;
 
-			var ids = new List<int>
+			var ids = new List<EntityId>
 			{
-				hit1.GameObject.GetInstanceID(),
-				hit2.GameObject.GetInstanceID()
+				hit1.GameObject.GetEntityId(),
+				hit2.GameObject.GetEntityId()
 			};
 			ids.Sort();
 			var pairId = $"{ids[0]}_{ids[1]}";
@@ -291,10 +291,10 @@ namespace Measure
 			if (hitA.GameObject == hitB.GameObject) return;
 			if (hitA.GameObject == null || hitA.Transform == null) return;
 			if (hitB.GameObject == null || hitB.Transform == null) return;
-			var ids = new List<int>
+			var ids = new List<EntityId>
 			{
-				hitA.GameObject.GetInstanceID(),
-				hitB.GameObject.GetInstanceID()
+				hitA.GameObject.GetEntityId(),
+				hitB.GameObject.GetEntityId()
 			};
 			ids.Sort();
 			var pairId = $"{ids[0]}_{ids[1]}";

@@ -5,7 +5,7 @@ namespace Protobot.Tools {
     public class MoveShaftTool : MonoBehaviour {
 
         [SerializeField] private MovementManager movementManager;
-        [SerializeField] private GameObject CurShaft => movementManager.MovingObj;
+        [field: SerializeField] private GameObject CurShaft => movementManager.MovingObj;
 
         [SerializeField] private ObjectLink targetObjLink;
         [SerializeField] private HoleFace targetHoleFace;

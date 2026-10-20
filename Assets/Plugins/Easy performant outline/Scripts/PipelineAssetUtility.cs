@@ -31,7 +31,7 @@ namespace EPOOutline
 #if UNITY_2019_3_OR_NEWER
                 var pipeline = QualitySettings.renderPipeline;
                 if (pipeline == null)
-                    pipeline = GraphicsSettings.renderPipelineAsset;
+                    pipeline = GraphicsSettings.defaultRenderPipeline;
 #else
                     var pipeline = GraphicsSettings.renderPipelineAsset;
 #endif
