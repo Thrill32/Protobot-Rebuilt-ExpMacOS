@@ -2,7 +2,10 @@ using UnityEditor;
 using UnityEditor.Rendering;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.Rendering.Universal;
+using Protobot;
+using Protobot.InputEvents;
 
 namespace ProtobotEditorTools
 {
@@ -120,6 +123,122 @@ namespace ProtobotEditorTools
             AssetDatabase.ImportAsset(rendererPath, ImportAssetOptions.ForceUpdate);
 
             Debug.Log("Protobot URP outline renderer feature configured.");
+        }
+
+        public static void ConfigureNoclipCamera()
+        {
+            const string keybindingsPath = "Assets/Prefabs/Keybindings.prefab";
+            const string shortcutPath = "Assets/Prefabs/Shortcut Container.prefab";
+            const string scenePath = "Assets/Scenes/Main.unity";
+
+            var keybindingsRoot = PrefabUtility.LoadPrefabContents(keybindingsPath);
+            try
+            {
+                Transform cameraGroup = null;
+                foreach (var candidate in keybindingsRoot.GetComponentsInChildren<Transform>(true))
+                {
+                    if (candidate.name == "Camera")
+                    {
+                        cameraGroup = candidate;
+                        break;
+                    }
+                }
+                if (cameraGroup == null)
+                    throw new System.InvalidOperationException(
+                        "The Keybindings prefab does not contain a Camera group.");
+
+                var noclipTransform = cameraGroup.Find("Noclip Camera");
+                if (noclipTransform == null)
+                {
+                    var noclipObject = new GameObject("Noclip Camera");
+                    noclipObject.transform.SetParent(cameraGroup, false);
+
+                    var inputEvent = noclipObject.AddComponent<InputEvent>();
+                    inputEvent.defaultAction = new InputAction("Default", InputActionType.Button);
+                    inputEvent.defaultAction.AddBinding("<Keyboard>/shift");
+
+                    var serializedInput = new SerializedObject(inputEvent);
+                    serializedInput.FindProperty("allowModifierOnly").boolValue = true;
+                    serializedInput.ApplyModifiedPropertiesWithoutUndo();
+                }
+
+                PrefabUtility.SaveAsPrefabAsset(keybindingsRoot, keybindingsPath);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(keybindingsRoot);
+            }
+
+            var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            var pivotObject = GameObject.Find("Main Camera Pivot");
+            if (pivotObject == null)
+                throw new System.InvalidOperationException(
+                    "Main.unity does not contain 'Main Camera Pivot'.");
+
+            InputEvent noclipInput = null;
+            foreach (var input in Object.FindObjectsByType<InputEvent>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (input.name == "Noclip Camera")
+                {
+                    noclipInput = input;
+                    break;
+                }
+            }
+
+            if (noclipInput == null)
+                throw new System.InvalidOperationException(
+                    "The Noclip Camera input was not instantiated in Main.unity.");
+
+            var controller = pivotObject.GetComponent<NoclipCameraInput>();
+            if (controller == null)
+                controller = pivotObject.AddComponent<NoclipCameraInput>();
+
+            var serializedController = new SerializedObject(controller);
+            serializedController.FindProperty("activationInput").objectReferenceValue = noclipInput;
+            serializedController.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(controller);
+
+            RebindUI noclipUi = null;
+            RebindUI orbitUi = null;
+            foreach (var ui in Object.FindObjectsByType<RebindUI>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                var serializedUi = new SerializedObject(ui);
+                var input = serializedUi.FindProperty("inputEvent").objectReferenceValue as InputEvent;
+                if (input == null)
+                    continue;
+
+                if (input.name == "Noclip Camera")
+                    noclipUi = ui;
+                else if (input.name == "Orbit")
+                    orbitUi = ui;
+            }
+
+            if (noclipUi == null)
+            {
+                if (orbitUi == null)
+                    throw new System.InvalidOperationException(
+                        "Unable to locate the Camera keybinding section in Preferences.");
+
+                var shortcutPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(shortcutPath);
+                var shortcut = PrefabUtility.InstantiatePrefab(
+                    shortcutPrefab, orbitUi.transform.parent) as GameObject;
+                shortcut.name = "Noclip Camera Shortcut";
+                shortcut.transform.SetSiblingIndex(orbitUi.transform.GetSiblingIndex() + 1);
+
+                noclipUi = shortcut.GetComponentInChildren<RebindUI>(true);
+                var serializedUi = new SerializedObject(noclipUi);
+                serializedUi.FindProperty("inputEvent").objectReferenceValue = noclipInput;
+                serializedUi.ApplyModifiedPropertiesWithoutUndo();
+                PrefabUtility.RecordPrefabInstancePropertyModifications(noclipUi);
+            }
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            AssetDatabase.SaveAssets();
+
+            Debug.Log("Protobot noclip camera configured with a rebindable Shift shortcut.");
         }
     }
 }

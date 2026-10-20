@@ -10,16 +10,20 @@ namespace Protobot.InputEvents {
         public InputAction defaultAction;
         public RebindAction rebindAction;
 
+        [SerializeField] private bool allowModifierOnly;
+
         public Action performed;
         public Action canceled;
         public bool IsPressed = false;
+
+        public static bool IsWasdCaptured { get; private set; }
 
         private bool prevPressStatus = false;
 
         public void Awake() {
             //performed += () => Debug.Log("Performed " + name + " input event!");
 
-            rebindAction = new RebindAction(name);
+            rebindAction = new RebindAction(name, allowModifierOnly);
 
             rebindAction.OnCompleteRebind += () => defaultAction.Disable();
             rebindAction.OnSaveRebinds += () => defaultAction.Disable();
@@ -39,8 +43,11 @@ namespace Protobot.InputEvents {
 
         public void Update() {
             if (RebindAction.Rebinding) return;
-            
-            IsPressed = defaultAction.AllControlsPressed() || rebindAction.action.AllControlsPressed();
+
+            IsPressed = IsCurrentlyPressed;
+
+            if (IsWasdCaptured && UsesWasdBinding())
+                IsPressed = false;
 
             if (IsPressed != prevPressStatus) {
                 if (IsPressed)
@@ -50,6 +57,32 @@ namespace Protobot.InputEvents {
             }
 
             prevPressStatus = IsPressed;
+        }
+
+        public bool IsCurrentlyPressed => !RebindAction.Rebinding &&
+            (defaultAction.AllControlsPressed() || rebindAction.action.AllControlsPressed());
+
+        public static void SetWasdCapture(bool active) {
+            IsWasdCaptured = active;
+        }
+
+        private bool UsesWasdBinding() {
+            var activeAction = rebindAction != null && !rebindAction.IsEmpty
+                ? rebindAction.action
+                : defaultAction;
+
+            foreach (var binding in activeAction.bindings) {
+                var path = binding.effectivePath;
+                if (string.IsNullOrEmpty(path))
+                    continue;
+
+                path = path.ToLowerInvariant();
+                if (path == "<keyboard>/w" || path == "<keyboard>/a" ||
+                    path == "<keyboard>/s" || path == "<keyboard>/d")
+                    return true;
+            }
+
+            return false;
         }
 
         public void OnDisable() {

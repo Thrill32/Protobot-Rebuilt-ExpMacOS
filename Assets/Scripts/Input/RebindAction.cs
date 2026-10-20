@@ -11,6 +11,7 @@ namespace Protobot.InputEvents {
     public class RebindAction {
         public InputAction action;
         private readonly string id;
+        private readonly bool allowModifierOnly;
         private string SavedRebinds => PlayerPrefs.GetString(id);
         public bool IsEmpty => string.IsNullOrEmpty(SavedRebinds);
 
@@ -24,20 +25,28 @@ namespace Protobot.InputEvents {
         
         public static bool Rebinding { get; private set; }
         
-        private List<InputControl> IgnoredInputs => new() {
-            Keyboard.current.leftCtrlKey,
-            Keyboard.current.rightCtrlKey,
-            Keyboard.current.leftShiftKey,
-            Keyboard.current.rightShiftKey,
-            Keyboard.current.leftAltKey,
-            Keyboard.current.rightAltKey,
-            Mouse.current.leftButton
-        };
+        private List<InputControl> IgnoredInputs {
+            get {
+                var inputs = new List<InputControl> { Mouse.current.leftButton };
+
+                if (!allowModifierOnly) {
+                    inputs.Add(Keyboard.current.leftCtrlKey);
+                    inputs.Add(Keyboard.current.rightCtrlKey);
+                    inputs.Add(Keyboard.current.leftShiftKey);
+                    inputs.Add(Keyboard.current.rightShiftKey);
+                    inputs.Add(Keyboard.current.leftAltKey);
+                    inputs.Add(Keyboard.current.rightAltKey);
+                }
+
+                return inputs;
+            }
+        }
         
         private InputControl CancelInput => Keyboard.current.escapeKey;
         
-        public RebindAction(string _id) {
+        public RebindAction(string _id, bool allowModifierOnly = false) {
             id = _id;
+            this.allowModifierOnly = allowModifierOnly;
 
             action = new InputAction();
 
@@ -73,24 +82,40 @@ namespace Protobot.InputEvents {
                     AttemptRebind();
                 }
                 else {
-                    var keyPaths = GetPressedModifiers();
-                        
-                    for (int i = 0; i <= 2; i++) {
-                        if (i < keyPaths.Count) {
-                            action.ApplyBindingOverride(i, keyPaths[i]);
-                        }
-                        else {
+                    if (allowModifierOnly && IsModifier(input)) {
+                        for (int i = 0; i <= 2; i++) {
                             action.RemoveBindingOverride(i);
                         }
-                    }
 
-                    action.ApplyBindingOverride(3, ConvertToBindingPath(input.path));
+                        action.ApplyBindingOverride(3, ConvertToBindingPath(input.path));
+                    }
+                    else {
+                        var keyPaths = GetPressedModifiers();
+
+                        for (int i = 0; i <= 2; i++) {
+                            if (i < keyPaths.Count) {
+                                action.ApplyBindingOverride(i, keyPaths[i]);
+                            }
+                            else {
+                                action.RemoveBindingOverride(i);
+                            }
+                        }
+
+                        action.ApplyBindingOverride(3, ConvertToBindingPath(input.path));
+                    }
                     
                     SaveRebinds();
                     OnCompleteRebind?.Invoke();
                     OnEndRebind?.Invoke();
                 }
             });
+        }
+
+        private static bool IsModifier(InputControl input) {
+            var keyboard = Keyboard.current;
+            return input == keyboard.leftCtrlKey || input == keyboard.rightCtrlKey ||
+                   input == keyboard.leftShiftKey || input == keyboard.rightShiftKey ||
+                   input == keyboard.leftAltKey || input == keyboard.rightAltKey;
         }
 
         public string ConvertToBindingPath(string path) {

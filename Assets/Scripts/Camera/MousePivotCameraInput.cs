@@ -46,6 +46,9 @@ namespace Protobot {
         }
 
         private void Update() {
+            if (InputEvent.IsWasdCaptured)
+                return;
+
             if (orbitInput.IsPressed && !disableOrbitInput) {
                 Orbit();
             }
