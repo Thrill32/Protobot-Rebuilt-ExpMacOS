@@ -19,6 +19,7 @@ namespace Protobot.InputEvents {
         public static bool IsNoclipMovementCaptured { get; private set; }
 
         private bool prevPressStatus = false;
+        private bool suppressedUntilRelease;
 
         public void Awake() {
             //performed += () => Debug.Log("Performed " + name + " input event!");
@@ -45,6 +46,14 @@ namespace Protobot.InputEvents {
             if (RebindAction.Rebinding) return;
 
             IsPressed = IsCurrentlyPressed;
+
+            if (!IsPressed)
+                suppressedUntilRelease = false;
+            else if (!Protobot.Tools.KeyboardTransformTool.AllowsInput(this))
+                suppressedUntilRelease = true;
+
+            if (suppressedUntilRelease)
+                IsPressed = false;
 
             if (IsNoclipMovementCaptured && UsesNoclipMovementBinding())
                 IsPressed = false;
