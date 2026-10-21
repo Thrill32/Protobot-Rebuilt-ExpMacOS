@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Protobot.StateSystems;
 using Protobot.InputEvents;
@@ -18,13 +19,14 @@ namespace Protobot {
         private bool duplicatedOnMove;
         private GameObject duplicateIndicator;
 
+        // Poll the binding itself so G/R works even when its InputEvent updates
+        // earlier than the Duplicate modifier or modal capture is active.
+        public bool IsDuplicateHeld => input != null && input.IsCurrentlyPressed &&
+            !(Keyboard.current != null && Keyboard.current.tabKey.isPressed && input.GetCurrentKeybind() == "Alt");
+
         public void Awake() {
             movementManager.OnStartMoving += () => {
-                if (input.IsPressed) {
-                    if (input.IsKeyPressed("Tab") && input.GetCurrentKeybind() == "Alt") {
-                        print("ohyeahj");
-                        return;
-                    }
+                if (IsDuplicateHeld) {
                     DuplicateObject();
                     
                     foreach (GameObject obj in prevDuplicatedObjs) {
@@ -138,19 +140,42 @@ namespace Protobot {
         private void DuplicateObject() {
             if (movementManager.MovingObj != null) {
                 var movingObjs = movementManager.MovingObj.GetConnectedObjects(true, true);
-
-                prevDuplicatedObjs = new List<GameObject>();
-
-                foreach (GameObject obj in movingObjs) {
-                    GameObject clone = Instantiate(obj, obj.transform.position, obj.transform.rotation);
-                    clone.DisableOutline();
-                    if(clone.name != "MultiPivot(Clone)")
-                    {
-                        clone.GetComponent<Renderer>().material = new Material(obj.GetComponent<Renderer>().material);
-                    }
-                    prevDuplicatedObjs.Add(clone);
-                }
+                prevDuplicatedObjs = CreateCopies(movingObjs);
             }
+        }
+
+        /// <summary>Shared by axis dragging and keyboard transforms. Copy each
+        /// part once, leaving selection pivots out of the cloned hierarchy.</summary>
+        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects) {
+            var parts = objects.Where(obj => obj != null)
+                .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>())
+                .Select(saved => saved.gameObject).Distinct().ToList();
+            var sourceRoots = parts.Where(part => !parts.Any(other =>
+                other != part && part.transform.IsChildOf(other.transform))).ToList();
+            var copies = new List<GameObject>();
+            foreach (var part in sourceRoots) {
+                var copy = Instantiate(part, part.transform.position, part.transform.rotation);
+                copy.DisableOutline();
+                foreach (var renderer in copy.GetComponentsInChildren<Renderer>(true))
+                    renderer.sharedMaterials = renderer.sharedMaterials.Select(material =>
+                        material != null ? new Material(material) : null).ToArray();
+                copies.Add(copy);
+            }
+            return copies;
+        }
+
+        public static void DiscardCopies(List<GameObject> copies) {
+            foreach (var copy in copies.Where(copy => copy != null)) {
+                copy.SetActive(false);
+                foreach (var material in copy.GetComponentsInChildren<Renderer>(true)
+                             .SelectMany(renderer => renderer.sharedMaterials).Where(material => material != null).Distinct()) {
+                    if (Application.isPlaying) Destroy(material);
+                    else DestroyImmediate(material);
+                }
+                if (Application.isPlaying) Destroy(copy);
+                else DestroyImmediate(copy);
+            }
+            copies.Clear();
         }
     }
 }

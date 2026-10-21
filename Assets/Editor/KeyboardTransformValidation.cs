@@ -12,6 +12,9 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using KeyboardState = UnityEngine.InputSystem.LowLevel.KeyboardState;
 using UnityEngine.UI;
+using UnityEngine.Events;
+using System.Collections.Generic;
+using Protobot.StateSystems;
 using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
@@ -36,12 +39,12 @@ namespace ProtobotEditorTools {
                 ValidatePrimaryRotationAxes(camera);
                 camera.transform.SetPositionAndRotation(new Vector3(0f, 0f, -20f), Quaternion.identity);
                 ValidateRigidSelectionAndCancel(camera);
-                ValidateInputCaptureAndBypass();
+                ValidateInputCaptureAndBypass(camera);
             }
             finally {
                 Object.DestroyImmediate(cameraObject);
             }
-            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, perspective/orthographic grab, primary rotation axes, XYZ constraints, snapping, smoothed rigid movement/rotation, pivot restoration, cancellation, input capture, and Ctrl/Command snap bypass.");
+            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, primary rotation axes, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Ctrl/Command snap bypass.");
         }
 
         private static void ValidateScene() {
@@ -49,8 +52,14 @@ namespace ProtobotEditorTools {
             var controller = Object.FindFirstObjectByType<KeyboardTransformTool>();
             Require(controller != null, "Main scene has no keyboard transform controller.");
             var serialized = new SerializedObject(controller);
-            foreach (var property in new[] { "selectionManager", "placement", "refCamera", "grabInput", "rotateInput" })
+            foreach (var property in new[] { "selectionManager", "placement", "refCamera", "grabInput", "rotateInput", "duplicator" })
                 Require(serialized.FindProperty(property).objectReferenceValue != null, "Missing controller reference: " + property);
+
+            foreach (var name in new[] { "Transform Tool Toggle", "Move Tool Toggle" }) {
+                var tool = Object.FindObjectsByType<ToolToggle>(FindObjectsSortMode.None).Single(tool => tool.name == name);
+                Require(new SerializedObject(tool).FindProperty("hideDuringKeyboardTransform").boolValue,
+                    "Mouse handles are not configured to hide: " + name);
+            }
 
             var inputs = Object.FindObjectsByType<InputEvent>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var binding in new[] {
@@ -263,7 +272,7 @@ namespace ProtobotEditorTools {
             }
         }
 
-        private static void ValidateInputCaptureAndBypass() {
+        private static void ValidateInputCaptureAndBypass(Camera camera) {
             var controller = Object.FindFirstObjectByType<KeyboardTransformTool>();
             var instanceField = typeof(KeyboardTransformTool).GetField("instance", BindingFlags.NonPublic | BindingFlags.Static);
             var frameField = typeof(KeyboardTransformTool).GetField("finishedFrame", BindingFlags.NonPublic | BindingFlags.Static);
@@ -306,6 +315,32 @@ namespace ProtobotEditorTools {
 
                 input.defaultAction.Disable();
                 input.defaultAction.Dispose();
+                input.name = "Duplicate";
+                input.defaultAction = new InputAction("Validation duplicate", binding: keyboard.leftAltKey.path);
+                input.defaultAction.Enable();
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.LeftAlt));
+                UpdateInput();
+                var duplicator = Get<ObjectDuplicator>(controller, "duplicator");
+                var previousDuplicateInput = Get<InputEvent>(duplicator, "input");
+                Set(duplicator, "input", input);
+                try {
+                    Require(duplicator.IsDuplicateHeld, "Duplicate modifier was not read directly from its binding.");
+                    ValidateDuplicateGestures(controller, duplicator, camera, false);
+                    // Check a rebound modifier without saving or changing Preferences.
+                    input.defaultAction.Disable();
+                    input.rebindAction.action.AddBinding(keyboard.cKey.path);
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.C));
+                    UpdateInput();
+                    Require(duplicator.IsDuplicateHeld, "Rebound Duplicate modifier was ignored.");
+                    ValidateDuplicateGestures(controller, duplicator, camera, true);
+                    ValidateHandleVisibility(controller, frameField);
+                }
+                finally {
+                    Set(duplicator, "input", previousDuplicateInput);
+                }
+
+                input.defaultAction.Disable();
+                input.defaultAction.Dispose();
                 input.defaultAction = new InputAction("Validation bypass", binding: keyboard.ctrlKey.path);
                 input.defaultAction.AddBinding(keyboard.leftMetaKey.path);
                 input.defaultAction.AddBinding(keyboard.rightMetaKey.path);
@@ -332,6 +367,157 @@ namespace ProtobotEditorTools {
                 input.defaultAction.Dispose();
                 InputSystem.RemoveDevice(keyboard);
                 runInEditMode.SetValue(inputManager, previousRunInEditMode);
+            }
+        }
+
+        private static void ValidateDuplicateGestures(KeyboardTransformTool controller, ObjectDuplicator duplicator, Camera camera, bool rotate) {
+            var root = new GameObject("Duplicate validation pivot");
+            var pivot = root.AddComponent<Pivot>();
+            var first = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var second = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            first.AddComponent<SavedObject>();
+            second.AddComponent<SavedObject>();
+            var hiddenDetail = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            hiddenDetail.name = "Inactive detail";
+            hiddenDetail.transform.SetParent(first.transform);
+            hiddenDetail.SetActive(false);
+            var hiddenSourceMaterial = hiddenDetail.GetComponent<Renderer>().sharedMaterial;
+            first.transform.position = Vector3.left;
+            second.transform.position = Vector3.right;
+            pivot.AddObjects(new List<GameObject> { first, second }, false);
+            var copies = Get<List<GameObject>>(controller, "duplicates");
+            try {
+                var sharedCopies = duplicator.CreateCopies(new[] { root, first, first, second });
+                Require(sharedCopies.Count == 2 && sharedCopies.All(copy => copy.GetComponent<Pivot>() == null),
+                    "Shared duplication cloned a pivot or copied a part twice.");
+                Require(sharedCopies[0].transform.Find(hiddenDetail.name).GetComponent<Renderer>().sharedMaterial != hiddenSourceMaterial,
+                    "Inactive duplicate details share materials with the source.");
+                ObjectDuplicator.DiscardCopies(sharedCopies);
+                Require(hiddenDetail.GetComponent<Renderer>().sharedMaterial == hiddenSourceMaterial && hiddenSourceMaterial != null,
+                    "Discarding copies destroyed a source material.");
+                var roots = Get<List<Transform>>(controller, "roots");
+                roots.Clear();
+                roots.Add(root.transform);
+                var positions = Get<List<Vector3>>(controller, "positions");
+                positions.Clear();
+                positions.Add(Vector3.zero);
+                var rotations = Get<List<Quaternion>>(controller, "rotations");
+                rotations.Clear();
+                rotations.Add(Quaternion.identity);
+                Set(controller, "bodies", new List<GameObject> { first, second });
+                Set(controller, "origin", Vector3.zero);
+                Set(controller, "active", true);
+                Set(controller, "settling", false);
+                Set(controller, "rotating", rotate);
+                Set(controller, "axis", rotate ? Vector3.forward : Vector3.right);
+                Set(controller, "displayedOffset", Vector3.zero);
+                Set(controller, "targetOffset", Vector3.zero);
+                Set(controller, "displayedRotation", Quaternion.identity);
+                Set(controller, "targetRotation", Quaternion.identity);
+                Set(controller, "before", Capture(controller));
+                Invoke(controller, "BeginDuplication");
+                Require(copies.Count == 2, "Keyboard transform did not duplicate the selected set.");
+                Require(KeyboardTransformTool.AllowsInput(Get<InputEvent>(duplicator, "input")), "Modal capture blocked the Duplicate modifier.");
+                Require(copies[0].GetComponent<Renderer>().sharedMaterial != first.GetComponent<Renderer>().sharedMaterial,
+                    "Duplicate material is shared with the source.");
+                var before = Get<List<IElement>>(controller, "before");
+                Require(copies.All(copy => before.OfType<ObjectElement>().Any(element => element.obj == copy && !element.existing)),
+                    "Undo snapshot does not remove the duplicate copies.");
+                var center = (Vector2)camera.WorldToScreenPoint(Vector3.zero);
+                Get<TransformGesture>(controller, "gesture").Begin(camera, Vector3.zero, rotate ? center + Vector2.right * 100f : center);
+                Invoke(controller, "Apply", rotate ? center + Vector2.up * 100f : (Vector2)camera.WorldToScreenPoint(Vector3.right * 2.3f));
+                Get<Tween>(controller, "smoothingTween").Complete();
+                Near(copies[0].transform.position, Vector3.left, "First copy must stay at the starting pose");
+                Near(copies[1].transform.position, Vector3.right, "Second copy must stay at the starting pose");
+                var finalPosition = first.transform.position;
+                var finalRotation = first.transform.rotation;
+                var after = Capture(controller);
+                new State(before).Load();
+                CompleteObjectTweens(new[] { first, second }.Concat(copies));
+                Require(copies.All(copy => !copy.activeSelf), "Undo did not hide the copies.");
+                Near(first.transform.position, Vector3.left, "Undo did not restore the original part");
+                new State(after).Load();
+                CompleteObjectTweens(new[] { first, second }.Concat(copies));
+                Require(copies.All(copy => copy.activeSelf), "Redo did not restore the copies.");
+                Near(first.transform.position, finalPosition, "Redo lost the transformed position");
+                Near(first.transform.rotation, finalRotation, "Redo lost the transformed rotation");
+                var discarded = copies.ToArray();
+                Invoke(controller, "Finish", false);
+                Require(copies.Count == 0 && discarded.All(copy => copy == null), "Cancel left temporary copies in the scene.");
+                Near(first.transform.position, Vector3.left, "Cancel did not restore the original part");
+                Near(first.transform.rotation, Quaternion.identity, "Cancel did not restore the original orientation");
+                // Confirming without changing the transform must not leave stacked copies.
+                Set(controller, "active", true);
+                Set(controller, "targetOffset", Vector3.zero);
+                Set(controller, "targetRotation", Quaternion.identity);
+                Set(controller, "before", Capture(controller));
+                Invoke(controller, "BeginDuplication");
+                discarded = copies.ToArray();
+                Invoke(controller, "Finish", true);
+                Require(discarded.All(copy => copy == null), "No-op confirmation kept overlapping copies.");
+            }
+            finally {
+                Invoke(controller, "Finish", false);
+                ObjectDuplicator.DiscardCopies(copies);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        private static void ValidateHandleVisibility(KeyboardTransformTool controller, FieldInfo frameField) {
+            var handle = new GameObject("Validation mouse handles");
+            foreach (var name in new[] { "Transform Tool Toggle", "Move Tool Toggle" }) {
+                var tool = Object.FindObjectsByType<ToolToggle>(FindObjectsSortMode.None).Single(tool => tool.name == name);
+                var requirements = Get<IToolRequirement[]>(tool, "requirements");
+                var activate = tool.OnActivate;
+                var deactivate = tool.OnDeactivate;
+                bool toggled = tool.toggled;
+                bool previousActivity = Get<bool>(tool, "prevActivity");
+                try {
+                    Set(tool, "requirements", new IToolRequirement[0]);
+                    tool.OnActivate = new UnityEvent();
+                    tool.OnDeactivate = new UnityEvent();
+                    tool.OnActivate.AddListener(() => handle.SetActive(true));
+                    tool.OnDeactivate.AddListener(() => handle.SetActive(false));
+                    tool.toggled = true;
+                    Set(tool, "prevActivity", false);
+                    Set(controller, "active", false);
+                    frameField.SetValue(null, -1);
+                    Invoke(tool, "LateUpdate");
+                    Require(handle.activeSelf, "Mouse handles did not appear for the selected tool.");
+                    Set(controller, "active", true);
+                    Invoke(tool, "LateUpdate");
+                    Require(!handle.activeSelf && tool.toggled, "Modal transform failed to hide handles while retaining the tool choice.");
+                    Set(controller, "settling", true);
+                    Invoke(tool, "LateUpdate");
+                    Require(!handle.activeSelf, "Mouse handles reappeared during easing.");
+                    Set(controller, "active", false);
+                    frameField.SetValue(null, Time.frameCount);
+                    Invoke(tool, "LateUpdate");
+                    Require(!handle.activeSelf, "Mouse handles reappeared during confirmation.");
+                    frameField.SetValue(null, -1);
+                    Invoke(tool, "LateUpdate");
+                    Require(handle.activeSelf, "Mouse handles did not return after the modal operation.");
+                }
+                finally {
+                    tool.OnActivate = activate;
+                    tool.OnDeactivate = deactivate;
+                    tool.toggled = toggled;
+                    Set(tool, "requirements", requirements);
+                    Set(tool, "prevActivity", previousActivity);
+                    Set(controller, "active", false);
+                    Set(controller, "settling", false);
+                }
+            }
+            Object.DestroyImmediate(handle);
+        }
+
+        private static List<IElement> Capture(KeyboardTransformTool controller) =>
+            (List<IElement>)controller.GetType().GetMethod("CaptureState", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(controller, null);
+
+        private static void CompleteObjectTweens(IEnumerable<GameObject> objects) {
+            foreach (var obj in objects) {
+                foreach (var tween in DOTween.TweensByTarget(obj.transform) ?? new List<Tween>())
+                    tween.Complete();
             }
         }
 

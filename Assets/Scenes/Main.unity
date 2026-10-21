@@ -24454,6 +24454,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier:
   toggled: 0
+  hideDuringKeyboardTransform: 1
   toggleOnInput: {fileID: 552366236}
   OnToggle:
     m_PersistentCalls:
@@ -45305,6 +45306,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier:
   toggled: 0
+  hideDuringKeyboardTransform: 1
   toggleOnInput: {fileID: 1492655898}
   OnToggle:
     m_PersistentCalls:
@@ -52073,6 +52075,7 @@ MonoBehaviour:
   refCamera: {fileID: 963194227}
   grabInput: {fileID: 246119430474503461}
   rotateInput: {fileID: 246119430474503458}
+  duplicator: {fileID: 449735652}
 --- !u!114 &246119430474503461 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 904000000000000003, guid: 214af0adb0da0994783eb710d8530bed, type: 3}

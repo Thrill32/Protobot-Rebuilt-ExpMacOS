@@ -8,9 +8,12 @@ namespace Protobot.Tools {
     public class ToolToggle : MonoBehaviour {
         public bool toggled; //refers to when a tool is toggled
         [SerializeField] private InputEvent toggleOnInput;
+        [SerializeField] private bool hideDuringKeyboardTransform;
 
         public bool active {
             get {
+                if (hideDuringKeyboardTransform && KeyboardTransformTool.IsCapturingInput)
+                    return false;
                 if (toggled) {
                     foreach (IToolRequirement req in requirements) {
                         if (!req.isValid) {
@@ -43,6 +46,18 @@ namespace Protobot.Tools {
         }
 
         void Update() {
+            if (!hideDuringKeyboardTransform)
+                UpdateActivity();
+        }
+
+        // Keyboard shortcuts start during Update. Refresh transform handles
+        // afterward so they are hidden before this frame is rendered.
+        void LateUpdate() {
+            if (hideDuringKeyboardTransform)
+                UpdateActivity();
+        }
+
+        private void UpdateActivity() {
             bool acivity = active;
 
             if (toggled && prevActivity != acivity) {

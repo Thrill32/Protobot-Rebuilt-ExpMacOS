@@ -51,6 +51,7 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 | `H` | Toggle grid visibility |
 | `J` | Toggle holes only |
 | Hold `Ctrl` / `Command` | Temporarily bypass snapping |
+| Hold Duplicate (default `Alt`) when starting an axis drag or `G` / `R` | Leave copies at the starting pose while transforming the selected parts |
 | Hold `Shift` | Noclip camera mode |
 | Noclip `W/A/S/D` | Horizontal camera movement |
 | Noclip `E/Q` | Camera up/down |
@@ -58,6 +59,8 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 Bindings are rebindable in Preferences. While noclip mode is active, its movement keys are captured so unrelated bindings do not also fire.
 
 Grab and rotation use the shared 0.5-unit / 15-degree snapping and Snap Bypass binding. Both ease toward their targets over 0.25 seconds with DOTween's standard easing, matching axis dragging. Confirmation lets the easing finish before capturing the exact final transform for undo; cancellation kills the tween and restores the starting pose. The shared rigid displacement is interpolated so multi-selection spacing stays fixed during rotation. Rotation starts on the nearest primary world axis (largest absolute camera-forward component), captured when R is pressed; it never rotates about an arbitrary camera axis. Placement rotation is deprecated: its old handler and implementation remain under `#if false`, and its legacy public entry points are inert and marked obsolete. The existing `Rotate Placement` binding ID is retained for saved preferences and appears as `Rotate Selection` in Preferences. Modal transforms capture unrelated input through settling and the confirmation frame and consume held inputs until release. Multi-selection transforms use the existing MultiPivot directly.
+
+Axis dragging and keyboard transforms share `ObjectDuplicator.CreateCopies`, which clones each part once without cloning a selection pivot and gives copies their own materials. Keyboard transforms read the existing rebindable Duplicate modifier when the operation starts. Copies stay stationary; confirmation records their existence and the selected parts' transforms in one undo step. Cancellation or confirmation without a transform discards temporary copies. Transform and move/pivot `ToolToggle`s opt into `hideDuringKeyboardTransform`; their handle roots deactivate in LateUpdate while G/R captures input, including settling and the confirmation frame, then reactivate according to the retained toolbar selection.
 
 ## Connect tool contract
 
@@ -103,4 +106,4 @@ Build the macOS player:
 
 After scene/prefab edits, check for C# errors, missing serialized references, runtime exceptions, and a clean `git diff --check`. Existing convex-mesh import warnings are known and are not compilation failures.
 
-For modal transform regression checks, add `-executeMethod ProtobotEditorTools.KeyboardTransformValidation.Validate` to the headless compile command (or use Tools > Protobot > Validate Keyboard Transforms). This checks Main scene wiring and Preferences, disabled placement rotation, perspective/orthographic mouse projection, primary rotation axes, XYZ anchoring, snapping, smoothing, rigid MultiPivot behavior, pivot restoration, and cancellation.
+For modal transform regression checks, add `-executeMethod ProtobotEditorTools.KeyboardTransformValidation.Validate` to the headless compile command (or use Tools > Protobot > Validate Keyboard Transforms). This checks Main scene wiring and Preferences, disabled placement rotation, perspective/orthographic mouse projection, primary rotation axes, XYZ anchoring, snapping, smoothing, rigid MultiPivot behavior, duplication with undo/redo and cancellation, handle visibility, and input capture.

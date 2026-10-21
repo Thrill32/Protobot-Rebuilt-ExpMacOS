@@ -18,6 +18,7 @@ namespace Protobot.Tools {
         [SerializeField] private Camera refCamera;
         [SerializeField] private InputEvent grabInput;
         [SerializeField] private InputEvent rotateInput;
+        [SerializeField] private ObjectDuplicator duplicator;
 
         private static KeyboardTransformTool instance;
         private static int finishedFrame = -1;
@@ -27,6 +28,7 @@ namespace Protobot.Tools {
         private readonly List<Quaternion> rotations = new();
         private List<GameObject> bodies;
         private List<IElement> before;
+        private readonly List<GameObject> duplicates = new();
         private ISelection selection;
         private Vector3 origin;
         private Vector3 axis;
@@ -49,7 +51,7 @@ namespace Protobot.Tools {
             if (!IsCapturingInput || instance == null)
                 return true;
             if (input == instance.grabInput || input == instance.rotateInput ||
-                input.name == "Snap Bypass" || input.name == "Toggle Grid")
+                input.name == "Snap Bypass" || input.name == "Toggle Grid" || input.name == "Duplicate")
                 return true;
             return false;
         }
@@ -120,7 +122,9 @@ namespace Protobot.Tools {
             }
             foreach (var body in bodies)
                 body.transform.DOKill();
+            duplicates.Clear();
             before = CaptureState();
+            BeginDuplication();
             rotating = rotate;
             active = true;
             settling = false;
@@ -128,6 +132,14 @@ namespace Protobot.Tools {
             displayedRotation = targetRotation = Quaternion.identity;
             gesture.Begin(refCamera, origin, MouseInput.Position);
             axis = rotate ? gesture.DefaultRotationAxis : Vector3.zero;
+        }
+
+        private void BeginDuplication() {
+            if (duplicator == null || !duplicator.IsDuplicateHeld)
+                return;
+            duplicates.AddRange(duplicator.CreateCopies(bodies));
+            foreach (var copy in duplicates)
+                before.Add(new ObjectElement(copy) { existing = false });
         }
 
         private void AddBodies(GameObject obj) {
@@ -224,6 +236,7 @@ namespace Protobot.Tools {
                     if (roots[i] != null)
                         roots[i].SetPositionAndRotation(positions[i], rotations[i]);
                 }
+                ObjectDuplicator.DiscardCopies(duplicates);
             }
             active = false;
             settling = false;
@@ -242,6 +255,10 @@ namespace Protobot.Tools {
                 StateSystem.AddEmptyState();
                 StateSystem.AddElements(CaptureState());
             }
+            else {
+                ObjectDuplicator.DiscardCopies(duplicates);
+            }
+            duplicates.Clear();
             smoothingTween = null;
             active = false;
             settling = false;
@@ -252,6 +269,7 @@ namespace Protobot.Tools {
             var elements = roots.Where(root => root != null && root.GetComponent<SavedObject>() == null)
                 .Select(root => (IElement)new RootElement(root)).ToList();
             elements.AddRange(bodies.Where(body => body != null).Select(body => (IElement)new ObjectElement(body)));
+            elements.AddRange(duplicates.Where(copy => copy != null).Select(copy => (IElement)new ObjectElement(copy)));
             return elements;
         }
 
