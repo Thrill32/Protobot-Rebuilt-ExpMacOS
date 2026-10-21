@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.StateSystems;
 
@@ -18,6 +19,7 @@ namespace Protobot.Tools {
         [SerializeField] private MouseCast mouseCast;
         [SerializeField] private SelectionManager selectionManager;
         [SerializeField] private Toggle toolbarToggle;
+        [SerializeField] private InputEvent activateInput;
 
         public static bool IsCapturingPoints { get; private set; }
 
@@ -26,7 +28,9 @@ namespace Protobot.Tools {
         private bool toolActive;
         private bool hadSelectionOnActivation;
         private bool hasSource;
+        private bool isMoving;
         private Vector3 sourcePosition;
+        private Tween moveTween;
         private GameObject sourceMarker;
         private GameObject statusRoot;
         private TextMeshProUGUI statusText;
@@ -47,7 +51,17 @@ namespace Protobot.Tools {
             if (toolbarToggle != null)
                 toolbarToggle.onValueChanged.AddListener(SetActive);
 
+            if (activateInput != null)
+                activateInput.performed += ActivateFromShortcut;
+
             CreateStatusHud();
+        }
+
+        private void ActivateFromShortcut() {
+            if (toolbarToggle != null)
+                toolbarToggle.isOn = true;
+            else
+                SetActive(true);
         }
 
         private void Update() {
@@ -90,7 +104,7 @@ namespace Protobot.Tools {
         }
 
         private void TryPickPoint() {
-            if (mouseCast == null)
+            if (mouseCast == null || isMoving)
                 return;
 
             var hit = mouseCast.hit;
@@ -235,19 +249,36 @@ namespace Protobot.Tools {
                 return;
 
             var stateBodies = movingBodies.Where(body => body != null).Distinct().ToList();
-            var roots = movingRoots.Where(root => root != null).Distinct().ToList();
+            var roots = GetIndependentMovingRoots();
+            if (stateBodies.Count == 0 || roots.Count == 0)
+                return;
+
+            var translation = targetPosition - sourcePosition;
 
             ObjectElement.AddObjectElements(stateBodies);
 
-            var movePivot = Pivot.Create("Connect Tool Pivot");
-            movePivot.transform.position = sourcePosition;
-            movePivot.AddObjects(roots);
+            isMoving = true;
+            var sequence = DOTween.Sequence();
+            foreach (var root in roots)
+                sequence.Join(root.transform.DOMove(root.transform.position + translation, 0.25f));
 
-            movePivot.transform.DOMove(targetPosition, 0.25f).OnComplete(() => {
-                movePivot.Destroy();
+            moveTween = sequence.OnComplete(() => {
+                isMoving = false;
+                moveTween = null;
                 StateSystem.AddEmptyState();
                 ObjectElement.AddObjectElements(stateBodies);
             });
+        }
+
+        /// <summary>
+        /// Returns only top-level movement roots. Multi-selections already have
+        /// a stable pivot, so moving that pivot directly keeps every selected
+        /// body at the same relative offset without nesting another pivot.
+        /// </summary>
+        private List<GameObject> GetIndependentMovingRoots() {
+            var roots = movingRoots.Where(root => root != null).Distinct().ToList();
+            return roots.Where(candidate => !roots.Any(other =>
+                other != candidate && candidate.transform.IsChildOf(other.transform))).ToList();
         }
 
         private void ResetSource() {
@@ -352,6 +383,11 @@ namespace Protobot.Tools {
         private void OnDestroy() {
             if (toolbarToggle != null)
                 toolbarToggle.onValueChanged.RemoveListener(SetActive);
+
+            if (activateInput != null)
+                activateInput.performed -= ActivateFromShortcut;
+
+            moveTween?.Kill();
 
             if (IsCapturingPoints)
                 IsCapturingPoints = false;

@@ -16,8 +16,10 @@ https://github.com/user-attachments/assets/7b37e938-61f8-463c-8c47-1981fb4ccd90
 
 Pull requests are welcome and very much appreciated. You can also contribute by submitting issues for problems you find in the software.
 
+For a current architecture and workflow overview, see [CONTEXT_MAP.md](CONTEXT_MAP.md).
+
 #### Notes
-- Protobot Rebuilt 1.3.7 uses Unity **2021.3.45f2**. Please use this version for changes to the project; [`ProjectVersion.txt`](ProjectSettings/ProjectVersion.txt) should list `m_EditorVersion: 2021.3.45f2`.
+- This branch uses Unity **6000.6.6f1**. Please use this version for changes to the project; [`ProjectVersion.txt`](ProjectSettings/ProjectVersion.txt) is authoritative.
 - Documentation for the code itself is limited and there may be unused sections of code, this should be expected.
 Used code sections are well commented and organized modularly to be easily understood and used.
  

@@ -284,6 +284,17 @@ namespace ProtobotEditorTools
                     snapTransform.gameObject.AddComponent<SnapBypassInput>();
                 }
 
+                var connectInputTransform = generalGroup.Find("Enable Connect Tool");
+                if (connectInputTransform == null)
+                {
+                    var connectInputObject = new GameObject("Enable Connect Tool");
+                    connectInputObject.transform.SetParent(generalGroup, false);
+
+                    var inputEvent = connectInputObject.AddComponent<InputEvent>();
+                    inputEvent.defaultAction = new InputAction("Default", InputActionType.Button);
+                    inputEvent.defaultAction.AddBinding("<Keyboard>/4");
+                }
+
                 PrefabUtility.SaveAsPrefabAsset(keybindingsRoot, keybindingsPath);
             }
             finally
@@ -294,13 +305,18 @@ namespace ProtobotEditorTools
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
             InputEvent snapInput = null;
+            InputEvent connectInput = null;
             RebindUI snapUi = null;
+            RebindUI connectInputUi = null;
+            RebindUI colorToolUi = null;
             RebindUI duplicateUi = null;
             foreach (var input in Object.FindObjectsByType<InputEvent>(
                          FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (input.name == "Snap Bypass")
                     snapInput = input;
+                else if (input.name == "Enable Connect Tool")
+                    connectInput = input;
             }
 
             foreach (var ui in Object.FindObjectsByType<RebindUI>(
@@ -313,6 +329,10 @@ namespace ProtobotEditorTools
 
                 if (input.name == "Snap Bypass")
                     snapUi = ui;
+                else if (input.name == "Enable Connect Tool")
+                    connectInputUi = ui;
+                else if (input.name == "Enable Color Tool")
+                    colorToolUi = ui;
                 else if (input.name == "Duplicate")
                     duplicateUi = ui;
             }
@@ -320,6 +340,10 @@ namespace ProtobotEditorTools
             if (snapInput == null)
                 throw new System.InvalidOperationException(
                     "The Snap Bypass input was not instantiated in Main.unity.");
+
+            if (connectInput == null)
+                throw new System.InvalidOperationException(
+                    "The Enable Connect Tool input was not instantiated in Main.unity.");
 
             if (snapUi == null)
             {
@@ -338,6 +362,25 @@ namespace ProtobotEditorTools
                 serializedUi.FindProperty("inputEvent").objectReferenceValue = snapInput;
                 serializedUi.ApplyModifiedPropertiesWithoutUndo();
                 PrefabUtility.RecordPrefabInstancePropertyModifications(snapUi);
+            }
+
+            if (connectInputUi == null)
+            {
+                if (colorToolUi == null)
+                    throw new System.InvalidOperationException(
+                        "Unable to locate the tool keybinding section in Preferences.");
+
+                var shortcutPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(shortcutPath);
+                var shortcut = PrefabUtility.InstantiatePrefab(
+                    shortcutPrefab, colorToolUi.transform.parent) as GameObject;
+                shortcut.name = "Enable Connect Tool Shortcut";
+                shortcut.transform.SetSiblingIndex(colorToolUi.transform.GetSiblingIndex() + 1);
+
+                connectInputUi = shortcut.GetComponentInChildren<RebindUI>(true);
+                var serializedUi = new SerializedObject(connectInputUi);
+                serializedUi.FindProperty("inputEvent").objectReferenceValue = connectInput;
+                serializedUi.ApplyModifiedPropertiesWithoutUndo();
+                PrefabUtility.RecordPrefabInstancePropertyModifications(connectInputUi);
             }
 
             var sidebar = GameObject.Find("Tools Sidebar")?.transform;
@@ -399,6 +442,7 @@ namespace ProtobotEditorTools
             serializedConnectTool.FindProperty("mouseCast").objectReferenceValue = mouseCast;
             serializedConnectTool.FindProperty("selectionManager").objectReferenceValue = primarySelection;
             serializedConnectTool.FindProperty("toolbarToggle").objectReferenceValue = toggle;
+            serializedConnectTool.FindProperty("activateInput").objectReferenceValue = connectInput;
             serializedConnectTool.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(connectObject);
@@ -409,7 +453,7 @@ namespace ProtobotEditorTools
             AssetDatabase.SaveAssets();
 
             Debug.Log(
-                "Configured Ctrl/Cmd snap bypass and the fourth Connect toolbar tool.");
+                "Configured Ctrl/Cmd snap bypass and the fourth Connect toolbar tool with key 4.");
         }
     }
 }
