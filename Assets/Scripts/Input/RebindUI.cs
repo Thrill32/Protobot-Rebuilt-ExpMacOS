@@ -31,6 +31,8 @@ namespace Protobot.InputEvents {
         
         void UpdateDisplayUI() {
             actionNameText.text = inputEvent.name;
+            if (inputEvent.name == "Rotate Placement")
+                actionNameText.text = "Rotate Selection";
 
             if (inputEvent.name == "Snap Bypass" && EventRebindAction.IsEmpty)
                 rebindText.text = "Ctrl / Cmd";

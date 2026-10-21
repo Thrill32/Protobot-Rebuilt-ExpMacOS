@@ -62,6 +62,9 @@ namespace Protobot.SelectionSystem {
         #endregion
 
         private bool PassedAllConditions(ISelection sel, bool clearing = false) {
+            if (Protobot.Tools.KeyboardTransformTool.IsCapturingInput)
+                return false;
+
             if (conditions != null) {
                 foreach (SelectionCondition condition in conditions) {
                     if (!condition.GetValue(sel) && ((clearing && !condition.allowClearing) || !clearing)) {

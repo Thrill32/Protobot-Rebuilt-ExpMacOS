@@ -18,6 +18,7 @@ This is the quick orientation document for both human contributors and coding ag
 | Selection | `Assets/Scripts/Selection` | Single, hole, box, and multi-selection. `SelectionManager.current` is the authoritative active selection. A `MultiSelection` owns a `MultiPivot`. |
 | Movement | `Assets/Scripts/Movement`, `Assets/Scripts/Parenting/Pivot.cs` | Moves objects and rigid sets through temporary or selection pivots. Preserve world transforms when changing parents. |
 | Tools | `Assets/Scripts/Tools` | Transform, move/pivot, color, Connect, and their handles/options. Toolbar buttons belong to one `ToggleGroup`. |
+| Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
 | Placement | `Assets/Scripts/Placement` | Preview and final placement of parts. Free placement uses the shared transform snapping rules. |
 | Snapping | `Assets/Scripts/Tools/TransformSnapping.cs` | Shared 0.5-unit movement and 15-degree rotation snapping. Holding Snap Bypass temporarily disables it. |
 | Undo/redo | `Assets/Scripts/StateSystem` | Capture affected `SavedObject` transforms before a change, create a state, then capture the resulting transforms. |
@@ -42,12 +43,21 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 | `2` | Move/pivot tool |
 | `3` | Color tool |
 | `4` | Connect tool |
+| `G` | Grab selected parts in the camera plane |
+| `R` | Rotate placed selections about the world axis closest to the camera's viewing direction; disabled during placement |
+| `X` / `Y` / `Z` during grab/rotation | Constrain to a world axis through the starting position; repeat to restore free grab or rotation's initial primary axis |
+| Click / `Enter` during selection grab/rotation | Confirm as one undoable operation |
+| `Escape` / right-click during selection grab/rotation | Cancel and restore the starting transforms |
+| `H` | Toggle grid visibility |
+| `J` | Toggle holes only |
 | Hold `Ctrl` / `Command` | Temporarily bypass snapping |
 | Hold `Shift` | Noclip camera mode |
 | Noclip `W/A/S/D` | Horizontal camera movement |
 | Noclip `E/Q` | Camera up/down |
 
 Bindings are rebindable in Preferences. While noclip mode is active, its movement keys are captured so unrelated bindings do not also fire.
+
+Grab and rotation use the shared 0.5-unit / 15-degree snapping and Snap Bypass binding. Both ease toward their targets over 0.25 seconds with DOTween's standard easing, matching axis dragging. Confirmation lets the easing finish before capturing the exact final transform for undo; cancellation kills the tween and restores the starting pose. The shared rigid displacement is interpolated so multi-selection spacing stays fixed during rotation. Rotation starts on the nearest primary world axis (largest absolute camera-forward component), captured when R is pressed; it never rotates about an arbitrary camera axis. Placement rotation is deprecated: its old handler and implementation remain under `#if false`, and its legacy public entry points are inert and marked obsolete. The existing `Rotate Placement` binding ID is retained for saved preferences and appears as `Rotate Selection` in Preferences. Modal transforms capture unrelated input through settling and the confirmation frame and consume held inputs until release. Multi-selection transforms use the existing MultiPivot directly.
 
 ## Connect tool contract
 
@@ -92,3 +102,5 @@ Build the macOS player:
 ```
 
 After scene/prefab edits, check for C# errors, missing serialized references, runtime exceptions, and a clean `git diff --check`. Existing convex-mesh import warnings are known and are not compilation failures.
+
+For modal transform regression checks, add `-executeMethod ProtobotEditorTools.KeyboardTransformValidation.Validate` to the headless compile command (or use Tools > Protobot > Validate Keyboard Transforms). This checks Main scene wiring and Preferences, disabled placement rotation, perspective/orthographic mouse projection, primary rotation axes, XYZ anchoring, snapping, smoothing, rigid MultiPivot behavior, pivot restoration, and cancellation.

@@ -45,13 +45,9 @@ namespace Protobot {
 
         [SerializeField] private Camera refCamera = null; //used for dot product angle comparison
 
-        private Vector3 rotVector => transform.forward;
-
-        private Vector3 initRotVector; //the initial Vector to rotate about
-
-        private Vector3 initMouseVector; //the initial Vector between the mouse position and the selection position
-        private Vector3 MouseVector => (MouseInput.Position - refCamera.WorldToScreenPoint(transform.position)).normalized;
-        private Quaternion initRot; //the intiial rotation of the selection
+        private readonly TransformGesture rotationGesture = new();
+        private Vector3 rotationAxis;
+        private Quaternion initRot;
         
         private void Awake() {
             placing = false;
@@ -62,15 +58,21 @@ namespace Protobot {
                     Place();
             };
 
+            // Deprecated: R rotates placed selections only. Retain the former
+            // placement-rotation handler for reference, but do not subscribe it.
+#if false
             toggleRotateInput.performed += () => {
-                InitRotation();
                 if (placing && !MouseInput.overUI) {
                     rotating = !rotating;
 
-                    if (rotating) OnStartRotate?.Invoke();
+                    if (rotating) {
+                        InitRotation();
+                        OnStartRotate?.Invoke();
+                    }
                     else OnStopRotate?.Invoke();
                 }
             };
+#endif
 
             /*dupInput.performed += () => {
                 if (currentPlacementData != null && placing) {
@@ -99,30 +101,16 @@ namespace Protobot {
 
         void Update() {
             if (placing) {
+                // Deprecated placement rotation: preview movement always runs.
+#if false
                 if (rotating) {
-                    /*
-                    if (Keyboard.current.xKey.wasPressedThisFrame) {
-                        initRotVector = transform.right;
-                        initRot = transform.rotation;
-                    }
-                    */
-
-                    /*
-                    if (Keyboard.current.zKey.wasPressedThisFrame) {
-                        initRotVector = transform.forward;
-                        initRot = transform.rotation;
-                    }
-                    */
-
-                    /*
-                    if (Keyboard.current.yKey.wasPressedThisFrame) {
-                        initRotVector = transform.up;
-                        initRot = transform.rotation;
-                    }*/
-                    
+                    if (TransformGesture.TryReadAxis(out var axis))
+                        rotationAxis = rotationAxis == axis ? Vector3.zero : axis;
                     Rotate();
                 }
                 else {
+#endif
+                {
                     foreach (PlaceDisplacement placePosition in placePositions) {
                         if (placePosition.TryGetDisplacement(currentPlacementData, out Displacement displacement)) {
                             var newDisplacement = displacement;
@@ -171,6 +159,8 @@ namespace Protobot {
                 SetPlacementLayer(objPlaceData.GetGameObject(), true);
             }
 
+            currentDisplacement = new Displacement(transform);
+
             OnStartPlacing?.Invoke();
         }
 
@@ -195,12 +185,17 @@ namespace Protobot {
                 SetPlacementLayer(objPlaceData.GetGameObject(), false);
             
             transform.rotation = Quaternion.identity;
+            rotating = false;
             OnStopRotate?.Invoke();
 
             StartCoroutine(WaitStopPlacing());
         }
 
         private void Place() {
+#if false // Deprecated: placing must never invoke the legacy rotation path.
+            if (rotating)
+                Rotate();
+#endif
             bool isPartPlacement = currentPlacementData.GetType() == typeof(PartPlacementData);
             bool isGameObjectPlacement = currentPlacementData.GetType() == typeof(GameObjectPlacementData);
 
@@ -232,23 +227,24 @@ namespace Protobot {
             rotating = false;
             OnStopRotate?.Invoke();
         }
+        [Obsolete("Placement rotation is disabled. Use R on placed selections instead.", true)]
         public void InitRotation() {
-            initMouseVector = MouseVector;
-
+#if false // Retained temporarily for reference; also inert if invoked by a UnityEvent.
             initRot = transform.rotation;
-            initRotVector = transform.forward;
+            rotationAxis = Vector3.zero;
+            rotationGesture.Begin(refCamera, transform.position, MouseInput.Position);
+#endif
         }
 
+        [Obsolete("Placement rotation is disabled. Use R on placed selections instead.", true)]
         public void Rotate() {
-            float angle = Vector2.SignedAngle(MouseVector, initMouseVector);
-            if (TransformSnapping.Active)
-                angle = TransformSnapping.SnapAngle(angle);
-            float camDot = Vector3.Dot(refCamera.transform.forward, initRotVector); //finds the dot product between the camera direction vs. the look direction of this rotate ring
-            Quaternion newRot = Quaternion.AngleAxis(angle, -initRotVector * Mathf.Sign(camDot)) * initRot;
+#if false // Retained temporarily for reference; also inert if invoked by a UnityEvent.
+            Quaternion newRot = rotationGesture.Rotation(MouseInput.Position, rotationAxis, initRot, TransformSnapping.Active);
 
             Rotation rot = new Rotation(newRot);
             currentDisplacement = new Displacement(currentDisplacement.translation.Position, newRot);
             rot.Rotate(gameObject);
+#endif
         }
     }
 }
