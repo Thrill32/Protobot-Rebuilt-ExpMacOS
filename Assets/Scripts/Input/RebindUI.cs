@@ -32,7 +32,9 @@ namespace Protobot.InputEvents {
         void UpdateDisplayUI() {
             actionNameText.text = inputEvent.name;
 
-            if (!EventRebindAction.IsEmpty)
+            if (inputEvent.name == "Snap Bypass" && EventRebindAction.IsEmpty)
+                rebindText.text = "Ctrl / Cmd";
+            else if (!EventRebindAction.IsEmpty)
                 rebindText.text = GetBindingDisplayString(EventRebindAction.action);
             else
                 rebindText.text = GetBindingDisplayString(inputEvent.defaultAction);

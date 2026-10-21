@@ -42,22 +42,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 2c5d86e6-1475-433e-9819-a8588325eae1
       m_Path: <Keyboard>/h
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -106,22 +106,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: ae8e3b22-bbe6-432b-bb56-2b26ce668b53
       m_Path: <Keyboard>/delete
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -170,22 +170,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 2c5d86e6-1475-433e-9819-a8588325eae1
       m_Path: <Keyboard>/g
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -225,6 +225,99 @@ Transform:
   - {fileID: 3046583474673218312}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &398226239167774033
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6995232402956985216}
+  - component: {fileID: 5799946543615876301}
+  - component: {fileID: 3015614541267905130}
+  m_Layer: 0
+  m_Name: Snap Bypass
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6995232402956985216
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 398226239167774033}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7594549906293032880}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5799946543615876301
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 398226239167774033}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.InputEvent
+  defaultAction:
+    m_Name: Default
+    m_Type: 1
+    m_ExpectedControlType:
+    m_Id: ad616b83-7e8b-4087-9389-029c6a025f5e
+    m_Processors:
+    m_Interactions:
+    m_SingletonActionBindings:
+    - m_Name:
+      m_Id: 70b896b1-a713-42ff-b4b3-f0a825ea37a6
+      m_Path: <Keyboard>/ctrl
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    - m_Name:
+      m_Id: ba8362f8-e128-4b7f-8742-07a9521d789e
+      m_Path: <Keyboard>/leftMeta
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    - m_Name:
+      m_Id: 75e9493b-596e-4e40-a354-7c9144056de3
+      m_Path: <Keyboard>/rightMeta
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    m_Flags: 0
+    m_Priority: 0
+  allowModifierOnly: 1
+  IsPressed: 0
+--- !u!114 &3015614541267905130
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 398226239167774033}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 824108ac0023c4ee986bd801385c57ba, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.SnapBypassInput
 --- !u!1 &523953198425539502
 GameObject:
   m_ObjectHideFlags: 0
@@ -303,30 +396,30 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: fbe6fb20-c704-45c6-bf85-3cdc5b64d12d
       m_Path: <Keyboard>/ctrl
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
-    - m_Name: 
+    - m_Name:
       m_Id: 83e1bfdf-2436-4ef9-912b-5f51cffddeb1
       m_Path: <Keyboard>/a
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -375,22 +468,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 84bc585a-f6f8-4075-bff6-7bc59058f604
       m_Path: <Keyboard>/b
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -439,22 +532,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: cf1c06d7-060e-4b05-99ee-1622d948f211
       m_Path: <Keyboard>/space
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -503,22 +596,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: a6040b6c-1e28-424a-859a-20360e9a1bda
       m_Path: <Keyboard>/alt
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -567,22 +660,22 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 9f2c8a61-9fa3-473f-82e7-50618888f137
       m_Path: <Keyboard>/1
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -631,22 +724,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: ed284bd4-8b09-4856-bb6d-b9f65ef75fcd
       m_Path: <Keyboard>/o
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -695,22 +788,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 10627de7-b0d6-46d4-8d08-55d2dc393e5b
       m_Path: <Mouse>/leftButton
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -799,22 +892,22 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 234cfe40-235c-4c4f-ab7f-a58d175a66b0
       m_Path: <Keyboard>/3
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -863,30 +956,30 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: b0ed4d88-c6af-4c9a-ab6d-5202789a3f45
       m_Path: <Keyboard>/shift
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
-    - m_Name: 
+    - m_Name:
       m_Id: 550dca6b-2703-4e7d-bf76-238af877d87c
       m_Path: <Keyboard>/d
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -935,22 +1028,22 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: d9d53835-79e0-417d-82de-e5b472a04496
       m_Path: <Keyboard>/2
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -999,22 +1092,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 234cfe40-235c-4c4f-ab7f-a58d175a66b0
       m_Path: <Keyboard>/3
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1063,22 +1156,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 13df26e9-1089-491e-831e-80f4baceb387
       m_Path: <Keyboard>/f
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1127,22 +1220,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 86fc571a-4ba8-44f1-b9e1-5b30c7f663b1
       m_Path: <Keyboard>/escape
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1191,22 +1284,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: c50083b1-6764-4c8d-96e4-85c0795a66d2
       m_Path: <Mouse>/leftButton
       m_Interactions: Press(behavior=2)
-      m_Processors: 
-      m_Groups: 
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1255,22 +1348,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: ab8ee4da-6253-4f19-bc31-fef18ff52358
       m_Path: <Keyboard>/ctrl
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1319,22 +1412,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 67f4b91b-9cc5-4f49-b3a3-91d3f1aea19b
       m_Path: <Mouse>/rightButton
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1383,6 +1476,7 @@ Transform:
   - {fileID: 1712333946}
   - {fileID: 3827136025149747464}
   - {fileID: 3120418376503896266}
+  - {fileID: 6995232402956985216}
   m_Father: {fileID: 246119428735506766}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5516306830252511493
@@ -1427,30 +1521,30 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 2e09461a-ad03-4b4b-8682-564082dbde5b
       m_Path: <Keyboard>/ctrl
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
-    - m_Name: 
+    - m_Name:
       m_Id: 35aed5d3-914b-4c26-b7b3-c17b634368bb
       m_Path: <Keyboard>/s
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1499,30 +1593,30 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: ec61702a-d804-4b88-b4c7-cb4a24de54fd
       m_Path: <Keyboard>/ctrl
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
-    - m_Name: 
+    - m_Name:
       m_Id: 4c9592e0-f555-416d-88fc-344acf3479dd
       m_Path: <Keyboard>/y
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1571,22 +1665,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 86fc571a-4ba8-44f1-b9e1-5b30c7f663b1
       m_Path: <Keyboard>/r
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1635,22 +1729,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.InputEvent
   defaultAction:
     m_Name: Default
     m_Type: 1
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: 2b6c8437-e1ae-41de-822f-077affc001b6
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 35f637d5-c6b4-47c5-aef5-b8f721187688
       m_Path: <Keyboard>/shift
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1699,30 +1793,30 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 42da35bc-74e5-4f4f-b468-19c8f6dd1ee7
       m_Path: <Keyboard>/ctrl
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
-    - m_Name: 
+    - m_Name:
       m_Id: c41a2b39-c005-4010-a22d-348b1a381deb
       m_Path: <Keyboard>/z
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1771,22 +1865,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: 1dd3a601-5868-4337-88cb-522b28057eb6
       m_Path: <Mouse>/middleButton
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0
@@ -1835,22 +1929,22 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings:
-    - m_Name: 
+    - m_Name:
       m_Id: d5b483cd-41a1-421c-a362-ab2f133634dc
       m_Path: <Mouse>/leftButton
-      m_Interactions: 
-      m_Processors: 
-      m_Groups: 
+      m_Interactions:
+      m_Processors:
+      m_Groups:
       m_Action: Default
       m_Flags: 0
     m_Flags: 0

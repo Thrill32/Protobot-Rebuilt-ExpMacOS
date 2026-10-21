@@ -1,4 +1,5 @@
 using UnityEngine;
+using Protobot.InputEvents;
 
 namespace Protobot.Tools {
     /// <summary>
@@ -11,6 +12,7 @@ namespace Protobot.Tools {
         public const float RotationIncrement = 15f;
 
         public static bool Enabled { get; set; } = true;
+        public static bool Active => Enabled && !SnapBypassInput.IsHeld;
 
         public static Vector3 SnapPosition(Vector3 position, Vector3 origin) {
             return origin + (position - origin).Round(MovementIncrement);

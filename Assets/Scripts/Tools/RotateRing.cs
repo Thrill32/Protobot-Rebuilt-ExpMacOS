@@ -25,7 +25,7 @@ namespace Protobot.Tools {
             Vector3 curMouseVector = MouseVector;
             float angle = Vector2.SignedAngle(curMouseVector, initMouseVector);
             
-            if (TransformSnapping.Enabled)
+            if (TransformSnapping.Active)
                 angle = TransformSnapping.SnapAngle(angle);
 
             float camDot = Vector3.Dot(refCamera.transform.forward, initRotVector); //finds the dot product between the camera direction vs. the look direction of this rotate ring

@@ -62,6 +62,13 @@ namespace Protobot.InputEvents {
         public bool IsCurrentlyPressed => !RebindAction.Rebinding &&
             (defaultAction.AllControlsPressed() || rebindAction.action.AllControlsPressed());
 
+        /// <summary>
+        /// Returns true when any alternative binding is pressed. This is used
+        /// for modifier actions such as Ctrl-or-Command rather than chords.
+        /// </summary>
+        public bool IsAnyBindingPressed => !RebindAction.Rebinding &&
+            (defaultAction.IsPressed() || rebindAction.action.IsPressed());
+
         public static void SetNoclipMovementCapture(bool active) {
             IsNoclipMovementCaptured = active;
         }

@@ -1,11 +1,16 @@
 using UnityEditor;
+using UnityEditor.Events;
 using UnityEditor.Rendering;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.UI;
+using System.Linq;
 using Protobot;
 using Protobot.InputEvents;
+using Protobot.SelectionSystem;
+using Protobot.Tools;
 
 namespace ProtobotEditorTools
 {
@@ -239,6 +244,172 @@ namespace ProtobotEditorTools
             AssetDatabase.SaveAssets();
 
             Debug.Log("Protobot noclip camera configured with a rebindable Shift shortcut.");
+        }
+
+        public static void ConfigureSnapBypassAndConnectTool()
+        {
+            const string keybindingsPath = "Assets/Prefabs/Keybindings.prefab";
+            const string shortcutPath = "Assets/Prefabs/Shortcut Container.prefab";
+            const string scenePath = "Assets/Scenes/Main.unity";
+
+            var keybindingsRoot = PrefabUtility.LoadPrefabContents(keybindingsPath);
+            try
+            {
+                var generalGroup = keybindingsRoot.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(candidate => candidate.name == "General");
+                if (generalGroup == null)
+                    throw new System.InvalidOperationException(
+                        "The Keybindings prefab does not contain a General group.");
+
+                var snapTransform = generalGroup.Find("Snap Bypass");
+                if (snapTransform == null)
+                {
+                    var snapObject = new GameObject("Snap Bypass");
+                    snapObject.transform.SetParent(generalGroup, false);
+
+                    var inputEvent = snapObject.AddComponent<InputEvent>();
+                    inputEvent.defaultAction = new InputAction("Default", InputActionType.Button);
+                    inputEvent.defaultAction.AddBinding("<Keyboard>/ctrl");
+                    inputEvent.defaultAction.AddBinding("<Keyboard>/leftMeta");
+                    inputEvent.defaultAction.AddBinding("<Keyboard>/rightMeta");
+
+                    var serializedInput = new SerializedObject(inputEvent);
+                    serializedInput.FindProperty("allowModifierOnly").boolValue = true;
+                    serializedInput.ApplyModifiedPropertiesWithoutUndo();
+
+                    snapObject.AddComponent<SnapBypassInput>();
+                }
+                else if (snapTransform.GetComponent<SnapBypassInput>() == null)
+                {
+                    snapTransform.gameObject.AddComponent<SnapBypassInput>();
+                }
+
+                PrefabUtility.SaveAsPrefabAsset(keybindingsRoot, keybindingsPath);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(keybindingsRoot);
+            }
+
+            var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+
+            InputEvent snapInput = null;
+            RebindUI snapUi = null;
+            RebindUI duplicateUi = null;
+            foreach (var input in Object.FindObjectsByType<InputEvent>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (input.name == "Snap Bypass")
+                    snapInput = input;
+            }
+
+            foreach (var ui in Object.FindObjectsByType<RebindUI>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                var serializedUi = new SerializedObject(ui);
+                var input = serializedUi.FindProperty("inputEvent").objectReferenceValue as InputEvent;
+                if (input == null)
+                    continue;
+
+                if (input.name == "Snap Bypass")
+                    snapUi = ui;
+                else if (input.name == "Duplicate")
+                    duplicateUi = ui;
+            }
+
+            if (snapInput == null)
+                throw new System.InvalidOperationException(
+                    "The Snap Bypass input was not instantiated in Main.unity.");
+
+            if (snapUi == null)
+            {
+                if (duplicateUi == null)
+                    throw new System.InvalidOperationException(
+                        "Unable to locate the Selection keybinding section in Preferences.");
+
+                var shortcutPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(shortcutPath);
+                var shortcut = PrefabUtility.InstantiatePrefab(
+                    shortcutPrefab, duplicateUi.transform.parent) as GameObject;
+                shortcut.name = "Snap Bypass Shortcut";
+                shortcut.transform.SetSiblingIndex(duplicateUi.transform.GetSiblingIndex() + 1);
+
+                snapUi = shortcut.GetComponentInChildren<RebindUI>(true);
+                var serializedUi = new SerializedObject(snapUi);
+                serializedUi.FindProperty("inputEvent").objectReferenceValue = snapInput;
+                serializedUi.ApplyModifiedPropertiesWithoutUndo();
+                PrefabUtility.RecordPrefabInstancePropertyModifications(snapUi);
+            }
+
+            var sidebar = GameObject.Find("Tools Sidebar")?.transform;
+            var transformTool = GameObject.Find("Transform Tool");
+            var primarySelection = GameObject.Find("Primary Selection Manager")?
+                .GetComponent<SelectionManager>();
+            var mouseCast = GameObject.Find("Main Camera")?.GetComponent<MouseCast>();
+
+            if (sidebar == null || transformTool == null ||
+                primarySelection == null || mouseCast == null)
+            {
+                throw new System.InvalidOperationException(
+                    "Main.unity is missing a required object for the Connect tool.");
+            }
+
+            var connectObject = GameObject.Find("Connect Tool");
+            if (connectObject == null)
+            {
+                connectObject = Object.Instantiate(transformTool, sidebar);
+                connectObject.name = "Connect Tool";
+
+                var rect = connectObject.GetComponent<RectTransform>();
+                rect.anchoredPosition = new Vector2(20.000061f, -145.5f);
+
+                var options = connectObject.transform.Find("Transform Tool Options");
+                if (options != null)
+                    Object.DestroyImmediate(options.gameObject);
+
+                var mouseEvents = connectObject.GetComponent<MouseButtonEvents>();
+                if (mouseEvents != null)
+                    Object.DestroyImmediate(mouseEvents);
+
+                var tooltip = connectObject.GetComponent<Protobot.UI.Tooltip>();
+                if (tooltip != null)
+                    tooltip.text = "Connect";
+
+                var icon = connectObject.GetComponentsInChildren<Image>(true)
+                    .FirstOrDefault(image => image.name == "Transform Icon");
+                if (icon != null)
+                {
+                    icon.name = "Connect Icon";
+                    icon.sprite = AssetDatabase.LoadAllAssetsAtPath(
+                            "Assets/Sprites/Tools Icons/Connect Mode.png")
+                        .OfType<Sprite>()
+                        .FirstOrDefault();
+                }
+            }
+
+            var toggle = connectObject.GetComponent<Toggle>();
+            var connectTool = connectObject.GetComponent<ConnectTool>();
+            if (connectTool == null)
+                connectTool = connectObject.AddComponent<ConnectTool>();
+
+            while (toggle.onValueChanged.GetPersistentEventCount() > 0)
+                UnityEventTools.RemovePersistentListener(toggle.onValueChanged, 0);
+            toggle.SetIsOnWithoutNotify(false);
+
+            var serializedConnectTool = new SerializedObject(connectTool);
+            serializedConnectTool.FindProperty("mouseCast").objectReferenceValue = mouseCast;
+            serializedConnectTool.FindProperty("selectionManager").objectReferenceValue = primarySelection;
+            serializedConnectTool.FindProperty("toolbarToggle").objectReferenceValue = toggle;
+            serializedConnectTool.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorUtility.SetDirty(connectObject);
+            EditorUtility.SetDirty(connectTool);
+            EditorUtility.SetDirty(toggle);
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            AssetDatabase.SaveAssets();
+
+            Debug.Log(
+                "Configured Ctrl/Cmd snap bypass and the fourth Connect toolbar tool.");
         }
     }
 }

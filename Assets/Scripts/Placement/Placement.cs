@@ -129,7 +129,7 @@ namespace Protobot {
 
                             // Hole and shaft placement already provide exact mechanical alignment.
                             // Only quantize free plane placement to the structural hole pitch.
-                            if (TransformSnapping.Enabled && placePosition is PlanePlaceDisplacement) {
+                            if (TransformSnapping.Active && placePosition is PlanePlaceDisplacement) {
                                 var snappedPosition = TransformSnapping.SnapPosition(
                                     displacement.translation.Position,
                                     placementSnapOrigin);
@@ -241,7 +241,7 @@ namespace Protobot {
 
         public void Rotate() {
             float angle = Vector2.SignedAngle(MouseVector, initMouseVector);
-            if (TransformSnapping.Enabled)
+            if (TransformSnapping.Active)
                 angle = TransformSnapping.SnapAngle(angle);
             float camDot = Vector3.Dot(refCamera.transform.forward, initRotVector); //finds the dot product between the camera direction vs. the look direction of this rotate ring
             Quaternion newRot = Quaternion.AngleAxis(angle, -initRotVector * Mathf.Sign(camDot)) * initRot;

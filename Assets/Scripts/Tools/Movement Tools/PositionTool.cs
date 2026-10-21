@@ -26,7 +26,7 @@ namespace Protobot.Tools {
         }
         public Vector3 MoveToPos(Vector3 pos)
         {
-            if (TransformSnapping.Enabled)
+            if (TransformSnapping.Active)
                 pos = TransformSnapping.SnapPosition(pos, snapOrigin);
 
             movementManager.MoveTo(pos);
