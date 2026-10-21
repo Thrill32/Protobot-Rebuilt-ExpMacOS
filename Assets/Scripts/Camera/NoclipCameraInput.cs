@@ -41,7 +41,7 @@ namespace Protobot {
             else if (!shouldBeActive && active)
                 EndNoclip();
 
-            InputEvent.SetWasdCapture(active);
+            InputEvent.SetNoclipMovementCapture(active);
 
             if (active)
                 UpdateNoclip();
@@ -76,7 +76,7 @@ namespace Protobot {
 
         private void EndNoclip() {
             active = false;
-            InputEvent.SetWasdCapture(false);
+            InputEvent.SetNoclipMovementCapture(false);
             Cursor.lockState = previousLockMode;
             Cursor.visible = previousCursorVisibility;
         }
@@ -98,6 +98,8 @@ namespace Protobot {
             if (keyboard.sKey.isPressed) movement -= rotation * Vector3.forward;
             if (keyboard.dKey.isPressed) movement += rotation * Vector3.right;
             if (keyboard.aKey.isPressed) movement -= rotation * Vector3.right;
+            if (keyboard.eKey.isPressed) movement += Vector3.up;
+            if (keyboard.qKey.isPressed) movement -= Vector3.up;
 
             if (movement.sqrMagnitude > 1f)
                 movement.Normalize();
@@ -122,7 +124,7 @@ namespace Protobot {
             if (active)
                 EndNoclip();
             else
-                InputEvent.SetWasdCapture(false);
+                InputEvent.SetNoclipMovementCapture(false);
         }
     }
 }

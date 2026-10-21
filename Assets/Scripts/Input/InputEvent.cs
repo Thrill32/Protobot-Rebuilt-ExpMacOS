@@ -16,7 +16,7 @@ namespace Protobot.InputEvents {
         public Action canceled;
         public bool IsPressed = false;
 
-        public static bool IsWasdCaptured { get; private set; }
+        public static bool IsNoclipMovementCaptured { get; private set; }
 
         private bool prevPressStatus = false;
 
@@ -46,7 +46,7 @@ namespace Protobot.InputEvents {
 
             IsPressed = IsCurrentlyPressed;
 
-            if (IsWasdCaptured && UsesWasdBinding())
+            if (IsNoclipMovementCaptured && UsesNoclipMovementBinding())
                 IsPressed = false;
 
             if (IsPressed != prevPressStatus) {
@@ -62,11 +62,11 @@ namespace Protobot.InputEvents {
         public bool IsCurrentlyPressed => !RebindAction.Rebinding &&
             (defaultAction.AllControlsPressed() || rebindAction.action.AllControlsPressed());
 
-        public static void SetWasdCapture(bool active) {
-            IsWasdCaptured = active;
+        public static void SetNoclipMovementCapture(bool active) {
+            IsNoclipMovementCaptured = active;
         }
 
-        private bool UsesWasdBinding() {
+        private bool UsesNoclipMovementBinding() {
             var activeAction = rebindAction != null && !rebindAction.IsEmpty
                 ? rebindAction.action
                 : defaultAction;
@@ -78,7 +78,8 @@ namespace Protobot.InputEvents {
 
                 path = path.ToLowerInvariant();
                 if (path == "<keyboard>/w" || path == "<keyboard>/a" ||
-                    path == "<keyboard>/s" || path == "<keyboard>/d")
+                    path == "<keyboard>/s" || path == "<keyboard>/d" ||
+                    path == "<keyboard>/e" || path == "<keyboard>/q")
                     return true;
             }
 
