@@ -1,3 +1,11 @@
+# Changes
+
+This is a highly-experimental build meant to be used by my school's Robotics Club. 
+
+This is a fork of Protobot Rebuilt that has been updated to Unity 6000.6.6f1 and had URP enabled to replace BiRP. It has a native Apple silicon port, a new connect feature, improved grid snapping, and an added pseudo-noclip camera manipulation functionality. 
+
+Shift + WASDQE is the default noclip controls. The mouse controls look direction. 
+
 # Protobot Rebuilt
 
 Protobot Rebuilt is a continuation of the Protobot project started by davegersh.
