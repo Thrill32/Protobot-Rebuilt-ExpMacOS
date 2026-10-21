@@ -7,8 +7,6 @@ using Protobot.StateSystems;
 
 namespace Protobot.Tools {
     public class RotateRing : RotationTool {
-        public static bool snapping = false;
-        
         [SerializeField] private Camera refCamera = null; //used for dot product angle comparison
 
         [SerializeField] private VectorLink rotVectorLink;
@@ -22,15 +20,13 @@ namespace Protobot.Tools {
         private Quaternion finalRotation = Quaternion.identity;
         public override Quaternion FinalRotation => finalRotation;
 
-        private const float Increment = 5;
-
         //Main functions
         public override void Rotate() {
             Vector3 curMouseVector = MouseVector;
             float angle = Vector2.SignedAngle(curMouseVector, initMouseVector);
             
-            if (snapping)
-                angle = Mathf.Round(angle * 1/Increment) * Increment; //force values to round at specific increment
+            if (TransformSnapping.Enabled)
+                angle = TransformSnapping.SnapAngle(angle);
 
             float camDot = Vector3.Dot(refCamera.transform.forward, initRotVector); //finds the dot product between the camera direction vs. the look direction of this rotate ring
             Quaternion newRot = Quaternion.AngleAxis(angle, -initRotVector * Mathf.Sign(camDot)) * initRot;

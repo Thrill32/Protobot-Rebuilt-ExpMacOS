@@ -6,8 +6,9 @@ using Protobot.StateSystems;
 
 namespace Protobot.Tools {
     public abstract class PositionTool : ClickDragTool {
-        public static bool snapping = false;
         public abstract Vector3 FinalPosition {get;}
+
+        private Vector3 snapOrigin;
 
         /// <summary> Executes right when mouse is down before dragging </summary>
         abstract public void Initialize();
@@ -15,6 +16,9 @@ namespace Protobot.Tools {
 
         //Input events
         public override void OnPointerDown() {
+            snapOrigin = movementManager.MovingObj != null
+                ? movementManager.MovingObj.transform.position
+                : Vector3.zero;
             Initialize();
         }
 
@@ -22,20 +26,8 @@ namespace Protobot.Tools {
         }
         public Vector3 MoveToPos(Vector3 pos)
         {
-            if (snapping)
-            {
-                var refObj = movementManager.MovingObj;
-                if (refObj != null)
-                {
-                    var relativePos = pos - refObj.transform.position;
-                    relativePos = relativePos.Round(0.125f);
-                    pos = refObj.transform.position + relativePos;
-                }
-                else
-                {
-                    pos = pos.Round(0.125f);
-                }
-            }
+            if (TransformSnapping.Enabled)
+                pos = TransformSnapping.SnapPosition(pos, snapOrigin);
 
             movementManager.MoveTo(pos);
             return pos;

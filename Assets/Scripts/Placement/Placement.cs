@@ -7,6 +7,7 @@ using UnityEngine.Events;
 
 using Protobot.StateSystems;
 using Protobot.InputEvents;
+using Protobot.Tools;
 using Protobot.Transformations;
 using UnityEngine.InputSystem;
 
@@ -40,6 +41,7 @@ namespace Protobot {
         [SerializeField] private UnityEvent OnStopRotate;
 
         private Displacement currentDisplacement;
+        private Vector3 placementSnapOrigin;
 
         [SerializeField] private Camera refCamera = null; //used for dot product angle comparison
 
@@ -124,8 +126,20 @@ namespace Protobot {
                     foreach (PlaceDisplacement placePosition in placePositions) {
                         if (placePosition.TryGetDisplacement(currentPlacementData, out Displacement displacement)) {
                             var newDisplacement = displacement;
+
+                            // Hole and shaft placement already provide exact mechanical alignment.
+                            // Only quantize free plane placement to the structural hole pitch.
+                            if (TransformSnapping.Enabled && placePosition is PlanePlaceDisplacement) {
+                                var snappedPosition = TransformSnapping.SnapPosition(
+                                    displacement.translation.Position,
+                                    placementSnapOrigin);
+                                newDisplacement = new Displacement(
+                                    snappedPosition,
+                                    displacement.rotation.Orientation);
+                            }
+
                             if (!placePosition.ModifyRotation) {
-                                newDisplacement = new Displacement(displacement.translation.Position,
+                                newDisplacement = new Displacement(newDisplacement.translation.Position,
                                                                    currentDisplacement.rotation.Orientation);
                             }
 
@@ -145,11 +159,13 @@ namespace Protobot {
             placing = true;
             rotating = false;
             meshFilter.mesh = newPlacementData.GetDisplayMesh();
+            placementSnapOrigin = Vector3.zero;
 
             if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData)) {
                 var objTransform = objPlaceData.GetGameObject().transform;
                 transform.rotation = objTransform.rotation;
                 transform.position = objTransform.position;
+                placementSnapOrigin = objTransform.position;
                 currentDisplacement = new Displacement(transform);
                 
                 SetPlacementLayer(objPlaceData.GetGameObject(), true);
@@ -225,7 +241,8 @@ namespace Protobot {
 
         public void Rotate() {
             float angle = Vector2.SignedAngle(MouseVector, initMouseVector);
-            angle = Mathf.Round(angle * 1 / 22.5f) * 22.5f; //force values to round at 22.5 degree increments
+            if (TransformSnapping.Enabled)
+                angle = TransformSnapping.SnapAngle(angle);
             float camDot = Vector3.Dot(refCamera.transform.forward, initRotVector); //finds the dot product between the camera direction vs. the look direction of this rotate ring
             Quaternion newRot = Quaternion.AngleAxis(angle, -initRotVector * Mathf.Sign(camDot)) * initRot;
 

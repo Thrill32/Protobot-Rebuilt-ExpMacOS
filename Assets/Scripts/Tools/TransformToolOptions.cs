@@ -17,8 +17,7 @@ namespace Protobot.Tools {
         }
 
         public void SetSnapping(bool value) {
-            PositionTool.snapping = value;
-            RotateRing.snapping = value;
+            TransformSnapping.Enabled = value;
         }
     }
 }
