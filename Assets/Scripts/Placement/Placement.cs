@@ -21,6 +21,12 @@ namespace Protobot {
         public bool rotating;
 
         private PlacementData currentPlacementData;
+        public PartPlacementData CurrentPartPlacement => placing ? currentPlacementData as PartPlacementData : null;
+
+        public void RefreshPartPreview() {
+            if (CurrentPartPlacement != null)
+                meshFilter.mesh = CurrentPartPlacement.GetDisplayMesh();
+        }
 
         [CacheComponent] private MeshRenderer meshRenderer;
 

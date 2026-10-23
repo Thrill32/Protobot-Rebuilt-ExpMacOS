@@ -55,7 +55,12 @@ namespace Protobot.SelectionSystem {
         public HoleFace holeFace;
         public HoleData holeData;
         public Vector3 faceDirection;
+        private Vector3? localFaceDirection;
         public void Select() {
+            if (holeData.part != null) {
+                localFaceDirection ??= holeData.part.transform.InverseTransformDirection(faceDirection);
+                faceDirection = holeData.part.transform.TransformDirection(localFaceDirection.Value);
+            }
             holeFace.Set(holeData, faceDirection);
             holeFace.gameObject.SetActive(true);
         }

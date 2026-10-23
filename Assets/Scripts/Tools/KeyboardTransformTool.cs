@@ -20,6 +20,9 @@ namespace Protobot.Tools {
         [SerializeField] private InputEvent rotateInput;
         [SerializeField] private ObjectDuplicator duplicator;
 
+        [Tooltip("Show a world-axis guide while G is constrained to X, Y or Z.")]
+        public bool showConstraintAxis = true;
+
         private static KeyboardTransformTool instance;
         private static int finishedFrame = -1;
         private readonly TransformGesture gesture = new();
@@ -303,6 +306,10 @@ namespace Protobot.Tools {
         private void OnGUI() {
             if (!active)
                 return;
+            if (showConstraintAxis && !rotating && axis != Vector3.zero)
+                TransformFeedback.DrawAxis(refCamera, origin, axis);
+            TransformFeedback.Draw(rotating ? $"{gesture.RotationDegrees:0.##}°" :
+                TransformFeedback.Distance(targetOffset, axis));
             string constraint = axis == Vector3.right ? "X" : axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
             string snap = TransformSnapping.Active ? "Snap on" : "Snap off";
             GUI.Box(new Rect(16f, Screen.height - 96f, 520f, 48f),

@@ -29,6 +29,7 @@ namespace Protobot.Tools {
                 angle = TransformSnapping.SnapAngle(angle);
 
             float camDot = Vector3.Dot(refCamera.transform.forward, initRotVector); //finds the dot product between the camera direction vs. the look direction of this rotate ring
+            feedbackDegrees = angle * -Mathf.Sign(camDot);
             Quaternion newRot = Quaternion.AngleAxis(angle, -initRotVector * Mathf.Sign(camDot)) * initRot;
             
             movementManager.RotateTo(newRot);

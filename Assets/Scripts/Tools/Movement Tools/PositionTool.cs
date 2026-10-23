@@ -29,6 +29,7 @@ namespace Protobot.Tools {
             if (TransformSnapping.Active)
                 pos = TransformSnapping.SnapPosition(pos, snapOrigin);
 
+            feedbackOffset = pos - startPosition;
             movementManager.MoveTo(pos);
             return pos;
         }

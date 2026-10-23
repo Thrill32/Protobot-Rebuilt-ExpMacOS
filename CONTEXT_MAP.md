@@ -19,6 +19,7 @@ This is the quick orientation document for both human contributors and coding ag
 | Movement | `Assets/Scripts/Movement`, `Assets/Scripts/Parenting/Pivot.cs` | Moves objects and rigid sets through temporary or selection pivots. Preserve world transforms when changing parents. |
 | Tools | `Assets/Scripts/Tools` | Transform, move/pivot, color, Connect, and their handles/options. Toolbar buttons belong to one `ToggleGroup`. |
 | Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
+| Part properties | `Assets/Scripts/Part Management/PartParameterEditing.cs`, `Assets/Scripts/UI/Add Menu UIs/AddPropertiesUI.cs` | Parameter stepping, pick-part placement, and undoable regeneration of a single placed part. The controller lives on Placement so hiding the add menu does not disable shortcuts. |
 | Placement | `Assets/Scripts/Placement` | Preview and final placement of parts. Free placement uses the shared transform snapping rules. |
 | Snapping | `Assets/Scripts/Tools/TransformSnapping.cs` | Shared 0.5-unit movement and 15-degree rotation snapping. Holding Snap Bypass temporarily disables it. |
 | Undo/redo | `Assets/Scripts/StateSystem` | Capture affected `SavedObject` transforms before a change, create a state, then capture the resulting transforms. |
@@ -48,6 +49,10 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 | `X` / `Y` / `Z` during grab/rotation | Constrain to a world axis through the starting position; repeat to restore free grab or rotation's initial primary axis |
 | Click / `Enter` during selection grab/rotation | Confirm as one undoable operation |
 | `Escape` / right-click during selection grab/rotation | Cancel and restore the starting transforms |
+| `P` | Pick the selected part's type and properties into normal placement |
+| `Up` / `Down` | Increase / decrease the first (top) property during placement or on a single selected part |
+| `Right` / `Left` | Increase / decrease the second (bottom) property during placement or on a single selected part |
+| Hold `Space` over a hole | Use the opposite face of that same hole; release to use the hovered face |
 | `H` | Toggle grid visibility |
 | `J` | Toggle holes only |
 | Hold `Ctrl` / `Command` | Temporarily bypass snapping |
@@ -61,6 +66,15 @@ Bindings are rebindable in Preferences. While noclip mode is active, its movemen
 Grab and rotation use the shared 0.5-unit / 15-degree snapping and Snap Bypass binding. Both ease toward their targets over 0.25 seconds with DOTween's standard easing, matching axis dragging. Confirmation lets the easing finish before capturing the exact final transform for undo; cancellation kills the tween and restores the starting pose. The shared rigid displacement is interpolated so multi-selection spacing stays fixed during rotation. Rotation starts on the nearest primary world axis (largest absolute camera-forward component), captured when R is pressed; it never rotates about an arbitrary camera axis. Placement rotation is deprecated: its old handler and implementation remain under `#if false`, and its legacy public entry points are inert and marked obsolete. The existing `Rotate Placement` binding ID is retained for saved preferences and appears as `Rotate Selection` in Preferences. Modal transforms capture unrelated input through settling and the confirmation frame and consume held inputs until release. Multi-selection transforms use the existing MultiPivot directly.
 
 Axis dragging and keyboard transforms share `ObjectDuplicator.CreateCopies`, which clones each part once without cloning a selection pivot and gives copies their own materials. Keyboard transforms read the existing rebindable Duplicate modifier when the operation starts. Copies stay stationary; confirmation records their existence and the selected parts' transforms in one undo step. Cancellation or confirmation without a transform discards temporary copies. Transform and move/pivot `ToolToggle`s opt into `hideDuringKeyboardTransform`; their handle roots deactivate in LateUpdate while G/R captures input, including settling and the confirmation frame, then reactivate according to the retained toolbar selection.
+
+## Transform feedback and part properties
+
+- Mouse handle drags and G/R show the operation's snapped target distance in inches or angle in degrees above and to the right of the pointer. G with X/Y/Z draws a red/green/blue world-axis guide through the starting pivot. Set `KeyboardTransformTool.showConstraintAxis` to false on Placement to disable that guide.
+- `HoleData` reads its source collider transform directly. `HoleFace` retains its direction relative to the owning part and refreshes in Update/LateUpdate; handle followers run in LateUpdate. Selecting, moving, rotating and undoing a hole selection retain its live pivot and face orientation.
+- Arrow shortcuts repeat while held, step lists in their displayed order, change numeric hole counts by 1 and other custom numbers by 0.5, and respect limits. Changing the first property normalizes dependent second-property options/limits. Text fields, rebinding, noclip, Connect and active transforms capture input before property shortcuts.
+- Placement property changes refresh the preview mesh without restarting placement or resetting its mechanical alignment. P uses the selected part's saved ID to start ordinary repeated placement; it does not duplicate the part or its connected group. All five new shortcuts have Preferences rows and support rebinding.
+- A single selected part exposes its properties in the existing panel. Property edits regenerate the part through its generator, retaining world pose, color and saved state. With a hole selected, the closest remaining local hole stays at the selected hole center. Regeneration rebuilds holes/colliders/detectors and saves the new parameter ID; physics discovers connections for the new geometry. Each change records old/new existence and selection as one undoable operation. These programmatic selection restorations bypass pointer selection conditions (including the UI guard), while ordinary selections retain their existing conditions. Multi-selection property editing is intentionally excluded.
+- The legacy `Select Opposite Hole` binding ID remains compatible with saved preferences and is labeled `Opposite Hole Face (Hold)` in Preferences. Space flips the hovered face normal and chooses the other end of that hole, rather than searching for another hole.
 
 ## Connect tool contract
 
@@ -107,3 +121,7 @@ Build the macOS player:
 After scene/prefab edits, check for C# errors, missing serialized references, runtime exceptions, and a clean `git diff --check`. Existing convex-mesh import warnings are known and are not compilation failures.
 
 For modal transform regression checks, add `-executeMethod ProtobotEditorTools.KeyboardTransformValidation.Validate` to the headless compile command (or use Tools > Protobot > Validate Keyboard Transforms). This checks Main scene wiring and Preferences, disabled placement rotation, perspective/orthographic mouse projection, primary rotation axes, XYZ anchoring, snapping, smoothing, rigid MultiPivot behavior, duplication with undo/redo and cancellation, handle visibility, and input capture.
+
+For property and hole-tracking checks, use `-executeMethod ProtobotEditorTools.InteractionUpdatesValidation.Validate` (or Tools > Protobot > Validate Interaction Updates). This checks the new scene references/default P binding, dependent options, numeric limits, live hole orientation/position, geometry replacement, color, undo/redo, and generator parameter isolation. `InteractionUpdatesSetup.Configure` idempotently installs the new bindings/Preferences rows and keeps property input handling on Placement.
+
+For a headless Play Mode smoke check, run Unity with `-batchmode -nographics -executeMethod ProtobotEditorTools.InteractionUpdatesValidation.Smoke` and omit `-quit`; the check exits Unity itself. It supplies virtual input devices and checks shaft geometry/detector resizing, undo/redo, persistent property input, the pick-part command, and preview updates.

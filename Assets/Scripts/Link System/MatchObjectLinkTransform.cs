@@ -10,7 +10,7 @@ namespace Protobot {
         public bool matchRotation;
         public bool matchScale;
 
-        void Update() {
+        void LateUpdate() {
             if (objectLink.active) {
                 if (matchPosition) transform.position = objectLink.tform.position;
                 if (matchRotation) transform.rotation = objectLink.tform.rotation;

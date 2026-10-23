@@ -10,6 +10,7 @@ namespace Protobot.Tools {
         private Vector2 previousVector;
         private bool useLinearRotation;
         private float angle;
+        public float RotationDegrees { get; private set; }
         public Vector3 DefaultRotationAxis { get; private set; }
 
         public void Begin(Camera camera, Vector3 origin, Vector2 mouse) {
@@ -70,7 +71,8 @@ namespace Protobot.Tools {
                 axis = DefaultRotationAxis;
             float direction = Vector3.Dot(camera.transform.forward, axis) < 0f ? -1f : 1f;
             float rotationAngle = snap ? TransformSnapping.SnapAngle(angle) : angle;
-            return Quaternion.AngleAxis(rotationAngle * direction, axis) * initialRotation;
+            RotationDegrees = rotationAngle * direction;
+            return Quaternion.AngleAxis(RotationDegrees, axis) * initialRotation;
         }
 
         public static Vector3 PrimaryAxis(Vector3 direction) {

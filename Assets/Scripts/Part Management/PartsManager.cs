@@ -41,6 +41,8 @@ namespace Protobot {
                 if (partType.id == typeId) {
                     var gen = partType.GetComponent<PartGenerator>();
                     
+                    string previousParam1 = gen.param1.value;
+                    string previousParam2 = gen.param2.value;
                     Parameter p1 = gen.param1;
                     Parameter p2 = gen.param2;
 
@@ -75,8 +77,8 @@ namespace Protobot {
 
                     partObj = gen.Generate(pos, rot);
 
-                    gen.param1.value = p1.value;
-                    gen.param2.value = p2.value;
+                    gen.param1.value = previousParam1;
+                    gen.param2.value = previousParam2;
                 }
             }
 

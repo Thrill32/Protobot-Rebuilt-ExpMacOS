@@ -88,8 +88,8 @@ namespace Protobot.SelectionSystem {
             return null;
         }
 
-        public void SetCurrent(ISelection newSelection) {
-            if (!PassedAllConditions(newSelection)) {
+        public void SetCurrent(ISelection newSelection, bool bypassConditions = false) {
+            if (!bypassConditions && !PassedAllConditions(newSelection)) {
                 if (clearOnFailConditions)
                     ClearCurrent();
                 return;
@@ -98,12 +98,12 @@ namespace Protobot.SelectionSystem {
             if (!CheckRepeatedSelection(newSelection))
                 return;
 
-            ClearCurrent(true);
+            ClearCurrent(true, false, bypassConditions);
 
             ISelection responseSelection = GetLatestResponseSelection(newSelection);
 
             if (responseSelection != null)
-                SetCurrent(responseSelection);
+                SetCurrent(responseSelection, bypassConditions);
             else {
                 current = newSelection;
                 current.Select();
@@ -111,9 +111,9 @@ namespace Protobot.SelectionSystem {
             }
         }
 
-        public void ClearCurrent(bool setting = false, bool noSelector = false) {
+        public void ClearCurrent(bool setting = false, bool noSelector = false, bool bypassConditions = false) {
             if (current?.gameObject != null) {
-                if (!PassedAllConditions(current, true)) {
+                if (!bypassConditions && !PassedAllConditions(current, true)) {
                     return;
                 }
 

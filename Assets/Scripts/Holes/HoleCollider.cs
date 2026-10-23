@@ -33,6 +33,7 @@ namespace Protobot {
             MeshCollider meshCollider = GetComponent<MeshCollider>();
 
             holeData = new HoleData {
+                source = transform,
                 position = transform.position,
                 rotation = transform.rotation,
                 forward = transform.forward,
@@ -91,9 +92,13 @@ namespace Protobot {
         public Vector2 size;
         public GameObject part;
 
-        public Vector3 position;
-        public Quaternion rotation;
-        public Vector3 forward;
+        [NonSerialized] public Transform source;
+        [SerializeField, UnityEngine.Serialization.FormerlySerializedAs("position")] private Vector3 cachedPosition;
+        [SerializeField, UnityEngine.Serialization.FormerlySerializedAs("rotation")] private Quaternion cachedRotation;
+        [SerializeField, UnityEngine.Serialization.FormerlySerializedAs("forward")] private Vector3 cachedForward;
+        public Vector3 position { get => source != null ? source.position : cachedPosition; set => cachedPosition = value; }
+        public Quaternion rotation { get => source != null ? source.rotation : cachedRotation; set => cachedRotation = value; }
+        public Vector3 forward { get => source != null ? source.forward : cachedForward; set => cachedForward = value; }
 
         public bool IsHighStrength() => size == new Vector2(0.25f, 0.25f) && shape == HoleShapes.instance.GetShapeMesh("square");
     }

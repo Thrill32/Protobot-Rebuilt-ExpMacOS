@@ -62,9 +62,8 @@ public class ShaftPartGenerator : PartGenerator {
 
         Vector3 scale = temp.transform.localScale;
         scale.z = float.Parse(param2.value);
-        temp.transform.localScale = scale;
-
         GameObject newObj = Instantiate(temp, position, rotation);
+        newObj.transform.localScale = scale;
         string shaftType;
         var partList = newObj.AddComponent<PartName>();
 

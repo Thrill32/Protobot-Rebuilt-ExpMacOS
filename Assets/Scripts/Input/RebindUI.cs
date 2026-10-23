@@ -33,6 +33,8 @@ namespace Protobot.InputEvents {
             actionNameText.text = inputEvent.name;
             if (inputEvent.name == "Rotate Placement")
                 actionNameText.text = "Rotate Selection";
+            else if (inputEvent.name == "Select Opposite Hole")
+                actionNameText.text = "Opposite Hole Face (Hold)";
 
             if (inputEvent.name == "Snap Bypass" && EventRebindAction.IsEmpty)
                 rebindText.text = "Ctrl / Cmd";

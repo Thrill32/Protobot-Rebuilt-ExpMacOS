@@ -61,10 +61,12 @@ namespace Protobot {
 
             title.text = parameter.name + ":";
             if (!sameParam) SetCustomDisplay(parameter);
+            else if (parameter.custom && !customInput.isFocused)
+                customInput.SetTextWithoutNotify(parameter.value);
 
             if (!parameter.custom) {
                 SetDropdownOptions(options);
-                dropdown.value = ParamIndex;
+                dropdown.SetValueWithoutNotify(Mathf.Max(0, ParamIndex));
             }
             
 
@@ -88,7 +90,7 @@ namespace Protobot {
 
             if (enable) {
                 customUnit.text = parameter.customUnit;
-                customInput.text = parameter.customDefault;
+                customInput.SetTextWithoutNotify(parameter.value);
 
                 if (p.customUnit == "Holes") {
                     customInput.contentType = InputField.ContentType.IntegerNumber;
