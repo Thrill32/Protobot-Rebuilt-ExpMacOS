@@ -77,3 +77,4 @@ Packages/Grpc.Core.2.31.0/native/ios/universal/libgrpc.a
 WebGL/*
 
 *.DS_Store
+**/*BackUpThisFolder_ButDontShipItWithYourGame/
