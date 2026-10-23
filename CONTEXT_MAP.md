@@ -7,7 +7,7 @@ This is the quick orientation document for both human contributors and coding ag
 - Unity editor: `6000.6.6f1` (see `ProjectSettings/ProjectVersion.txt`).
 - Active scene: `Assets/Scenes/Main.unity`.
 - Rendering: Universal Render Pipeline (URP). The main 3D camera is the Base camera; `UICamera` is stacked as an Overlay camera.
-- Primary macOS development build: `siliconbuildtest6.6urp.app`.
+- Primary macOS development build: `build.app`.
 - Source namespace is mostly `Protobot`; older scripts in the project may still use the global namespace.
 
 ## Runtime architecture
@@ -18,7 +18,7 @@ This is the quick orientation document for both human contributors and coding ag
 | Selection | `Assets/Scripts/Selection` | Single, hole, box, and multi-selection. `SelectionManager.current` is the authoritative active selection. A `MultiSelection` owns a `MultiPivot`. |
 | Movement | `Assets/Scripts/Movement`, `Assets/Scripts/Parenting/Pivot.cs` | Moves objects and rigid sets through temporary or selection pivots. Preserve world transforms when changing parents. |
 | Tools | `Assets/Scripts/Tools` | Transform, move/pivot, color, Connect, and their handles/options. Toolbar buttons belong to one `ToggleGroup`. |
-| Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
+| Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs`, `TransformNumericInput.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
 | Part properties | `Assets/Scripts/Part Management/PartParameterEditing.cs`, `Assets/Scripts/UI/Add Menu UIs/AddPropertiesUI.cs` | Parameter stepping, pick-part placement, and undoable regeneration of a single placed part. The controller lives on Placement so hiding the add menu does not disable shortcuts. |
 | Placement | `Assets/Scripts/Placement` | Preview and final placement of parts. Free placement uses the shared transform snapping rules. |
 | Snapping | `Assets/Scripts/Tools/TransformSnapping.cs` | Shared 0.5-unit movement and 15-degree rotation snapping. Holding Snap Bypass temporarily disables it. |
@@ -53,13 +53,15 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 | `Up` / `Down` | Increase / decrease the first (top) property during placement or on a single selected part |
 | `Right` / `Left` | Increase / decrease the second (bottom) property during placement or on a single selected part |
 | Hold `Space` over a hole | Use the opposite face of that same hole; release to use the hovered face |
+| `/` during G/R | Open relative numeric entry on the current axis; press again for a global value, then again to return to mouse control |
+| `/` during unconstrained G | Enter a global `X, Y, Z` position directly; slash again returns to mouse control |
 | `H` | Toggle grid visibility |
 | `J` | Toggle holes only |
 | Hold `Ctrl` / `Command` | Temporarily bypass snapping |
 | Hold Duplicate (default `Alt`) when starting an axis drag or `G` / `R` | Leave copies at the starting pose while transforming the selected parts |
 | Hold `Shift` | Noclip camera mode |
 | Noclip `W/A/S/D` | Horizontal camera movement |
-| Noclip `E/Q` | Camera up/down |
+| Noclip `E/Q` | Move along the camera's screen up/down directions, including camera pitch |
 
 Bindings are rebindable in Preferences. While noclip mode is active, its movement keys are captured so unrelated bindings do not also fire.
 
@@ -69,7 +71,10 @@ Axis dragging and keyboard transforms share `ObjectDuplicator.CreateCopies`, whi
 
 ## Transform feedback and part properties
 
-- Mouse handle drags and G/R show the operation's snapped target distance in inches or angle in degrees above and to the right of the pointer. G with X/Y/Z draws a red/green/blue world-axis guide through the starting pivot. Set `KeyboardTransformTool.showConstraintAxis` to false on Placement to disable that guide.
+- Mouse handle drags and G/R show the operation's snapped target distance in inches or angle in degrees above and to the right of the pointer. `TransformFeedback` scales font sizes, boxes and offsets together against a 1600×900 reference, with a minimum readable size; the G/R help panel also wraps to the available width. G with X/Y/Z draws a red/green/blue world-axis guide through the starting pivot. Set `KeyboardTransformTool.showConstraintAxis` to false on Placement to disable that guide.
+- Slash numeric entry applies to G/R only. On an axis, slash cycles relative → global → mouse; unconstrained grab opens global `X, Y, Z` entry immediately. Numbers use decimal points, optional signs and inches/degrees. Relative values measure from the operation's starting pivot/orientation. Global movement sets the pivot's chosen world coordinate; global rotation replaces the selected world Euler component and preserves the other two components of the selection's initial orientation. Multi-selection uses its pivot as the orientation reference.
+- Enter with valid numeric input confirms one undoable operation with the exact value, bypassing snapping. Typing pauses manual targeting; third slash or invalid Enter discards the text, rebases the pointer at the existing target and resumes mouse control without a jump. Escape/right-click still cancels the entire operation. `TransformNumericInput` receives text through the Input System, supports negative values, editing and paste, and captures transform shortcuts while typing.
+- Selection Preferences rows use distinct 35-unit spacing, and the Preferences panel grows to fit them. `InteractionUpdatesSetup` lays out both existing and newly added shortcuts, including all four property arrows.
 - `HoleData` reads its source collider transform directly. `HoleFace` retains its direction relative to the owning part and refreshes in Update/LateUpdate; handle followers run in LateUpdate. Selecting, moving, rotating and undoing a hole selection retain its live pivot and face orientation.
 - Arrow shortcuts repeat while held, step lists in their displayed order, change numeric hole counts by 1 and other custom numbers by 0.5, and respect limits. Changing the first property normalizes dependent second-property options/limits. Text fields, rebinding, noclip, Connect and active transforms capture input before property shortcuts.
 - Placement property changes refresh the preview mesh without restarting placement or resetting its mechanical alignment. P uses the selected part's saved ID to start ordinary repeated placement; it does not duplicate the part or its connected group. All five new shortcuts have Preferences rows and support rebinding.
@@ -114,7 +119,7 @@ Build the macOS player:
   -batchmode -nographics -quit \
   -projectPath /absolute/path/to/Protobot-Rebuilt \
   -buildTarget StandaloneOSX \
-  -buildOSXUniversalPlayer /absolute/path/to/siliconbuildtest6.6urp.app \
+  -buildOSXUniversalPlayer /absolute/path/to/build.app \
   -logFile /tmp/protobot-build.log
 ```
 
@@ -125,3 +130,5 @@ For modal transform regression checks, add `-executeMethod ProtobotEditorTools.K
 For property and hole-tracking checks, use `-executeMethod ProtobotEditorTools.InteractionUpdatesValidation.Validate` (or Tools > Protobot > Validate Interaction Updates). This checks the new scene references/default P binding, dependent options, numeric limits, live hole orientation/position, geometry replacement, color, undo/redo, and generator parameter isolation. `InteractionUpdatesSetup.Configure` idempotently installs the new bindings/Preferences rows and keeps property input handling on Placement.
 
 For a headless Play Mode smoke check, run Unity with `-batchmode -nographics -executeMethod ProtobotEditorTools.InteractionUpdatesValidation.Smoke` and omit `-quit`; the check exits Unity itself. It supplies virtual input devices and checks shaft geometry/detector resizing, undo/redo, persistent property input, the pick-part command, and preview updates.
+
+For numeric-entry and shortcut-layout regression checks, use `-executeMethod ProtobotEditorTools.TransformEntryValidation.Validate` (or Tools > Protobot > Validate Numeric Transforms). It checks exact relative/global transforms, world Euler components, comma-separated coordinates, text input/capture, invalid-input recovery, slash cycling, pointer rebasing, rigid selection spacing, undo/redo, UI scaling and nonoverlapping visible shortcut rows.

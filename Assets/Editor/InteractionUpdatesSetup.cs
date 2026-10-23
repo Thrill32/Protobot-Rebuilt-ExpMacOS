@@ -82,10 +82,38 @@ namespace ProtobotEditorTools {
                 PrefabUtility.RecordPrefabInstancePropertyModifications(row);
             }
             serialized.ApplyModifiedPropertiesWithoutUndo();
+            LayoutSelectionShortcuts(template.transform.parent);
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
             Debug.Log("Interaction updates configured.");
+        }
+
+        public static void RepairShortcutLayout() {
+            var scene = EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
+            var row = UnityEngine.Object.FindObjectsByType<RebindUI>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .First(ui => GetInput(ui)?.name == "Increase First Property");
+            LayoutSelectionShortcuts(row.transform.parent);
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            AssetDatabase.SaveAssets();
+        }
+
+        private static void LayoutSelectionShortcuts(Transform container) {
+            int index = 0;
+            foreach (Transform child in container) {
+                if (child.GetComponentInChildren<RebindUI>(true) == null) continue;
+                var rect = (RectTransform)child;
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = Vector2.one;
+                rect.pivot = new Vector2(.5f, 1f);
+                rect.sizeDelta = new Vector2(-20f, 30f);
+                rect.anchoredPosition = new Vector2(0f, -40f - 35f * index++);
+                PrefabUtility.RecordPrefabInstancePropertyModifications(rect);
+            }
+            var preferences = (RectTransform)container.parent.parent;
+            preferences.sizeDelta = new Vector2(preferences.sizeDelta.x,
+                Mathf.Max(preferences.sizeDelta.y, 40f + 35f * index + 20f));
         }
 
         private static InputEvent GetInput(RebindUI ui) =>

@@ -98,8 +98,8 @@ namespace Protobot {
             if (keyboard.sKey.isPressed) movement -= rotation * Vector3.forward;
             if (keyboard.dKey.isPressed) movement += rotation * Vector3.right;
             if (keyboard.aKey.isPressed) movement -= rotation * Vector3.right;
-            if (keyboard.eKey.isPressed) movement += Vector3.up;
-            if (keyboard.qKey.isPressed) movement -= Vector3.up;
+            if (keyboard.eKey.isPressed) movement += rotation * Vector3.up;
+            if (keyboard.qKey.isPressed) movement -= rotation * Vector3.up;
 
             if (movement.sqrMagnitude > 1f)
                 movement.Normalize();

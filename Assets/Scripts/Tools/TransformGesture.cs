@@ -10,6 +10,8 @@ namespace Protobot.Tools {
         private Vector2 previousVector;
         private bool useLinearRotation;
         private float angle;
+        private float linearAngleBase;
+        private Vector3 resumedOffset;
         public float RotationDegrees { get; private set; }
         public Vector3 DefaultRotationAxis { get; private set; }
 
@@ -19,8 +21,19 @@ namespace Protobot.Tools {
             startMouse = mouse;
             previousVector = mouse - (Vector2)camera.WorldToScreenPoint(origin);
             useLinearRotation = previousVector.sqrMagnitude < 144f;
-            angle = 0f;
+            angle = linearAngleBase = RotationDegrees = 0f;
+            resumedOffset = Vector3.zero;
             DefaultRotationAxis = PrimaryAxis(camera.transform.forward);
+        }
+
+        public void Resume(Vector2 mouse, Vector3 offset, float degrees, Vector3 axis) {
+            startMouse = mouse;
+            previousVector = mouse - (Vector2)camera.WorldToScreenPoint(origin);
+            useLinearRotation = previousVector.sqrMagnitude < 144f;
+            resumedOffset = offset;
+            float direction = Vector3.Dot(camera.transform.forward, axis) < 0f ? -1f : 1f;
+            angle = linearAngleBase = degrees * direction;
+            RotationDegrees = degrees;
         }
 
         public Vector3 Position(Vector2 mouse, Vector3 axis, bool snap) {
@@ -36,7 +49,8 @@ namespace Protobot.Tools {
                     float distance = (mouse.y - startMouse.y) * unitsPerPixel;
                     if (snap)
                         distance = Mathf.Round(distance / TransformSnapping.MovementIncrement) * TransformSnapping.MovementIncrement;
-                    return origin + axis * distance;
+                    var endOnPosition = origin + Vector3.Project(resumedOffset, axis) + axis * distance;
+                    return snap ? TransformSnapping.SnapPosition(endOnPosition, origin) : endOnPosition;
                 }
             }
 
@@ -46,7 +60,7 @@ namespace Protobot.Tools {
             if (!plane.Raycast(startRay, out float startDistance) || !plane.Raycast(ray, out float distanceAlongRay))
                 return origin;
 
-            var delta = ray.GetPoint(distanceAlongRay) - startRay.GetPoint(startDistance);
+            var delta = resumedOffset + ray.GetPoint(distanceAlongRay) - startRay.GetPoint(startDistance);
             if (axis != Vector3.zero)
                 delta = Vector3.Project(delta, axis);
 
@@ -57,7 +71,7 @@ namespace Protobot.Tools {
         public Quaternion Rotation(Vector2 mouse, Vector3 axis, Quaternion initialRotation, bool snap) {
             if (useLinearRotation) {
                 var delta = mouse - startMouse;
-                angle = (delta.x + delta.y) * 0.5f;
+                angle = linearAngleBase + (delta.x + delta.y) * 0.5f;
             }
             else {
                 var vector = mouse - (Vector2)camera.WorldToScreenPoint(origin);

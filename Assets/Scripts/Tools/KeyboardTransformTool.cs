@@ -26,6 +26,9 @@ namespace Protobot.Tools {
         private static KeyboardTransformTool instance;
         private static int finishedFrame = -1;
         private readonly TransformGesture gesture = new();
+        private readonly TransformNumericInput numericInput = new();
+        private Quaternion initialOrientation;
+        private float rotationDegrees;
         private readonly List<Transform> roots = new();
         private readonly List<Vector3> positions = new();
         private readonly List<Quaternion> rotations = new();
@@ -53,6 +56,8 @@ namespace Protobot.Tools {
         public static bool AllowsInput(InputEvent input) {
             if (!IsCapturingInput || instance == null)
                 return true;
+            if (instance.numericInput.IsOpen)
+                return false;
             if (input == instance.grabInput || input == instance.rotateInput ||
                 input.name == "Snap Bypass" || input.name == "Toggle Grid" || input.name == "Duplicate")
                 return true;
@@ -89,6 +94,7 @@ namespace Protobot.Tools {
             rotations.Clear();
             bodies = new List<GameObject>();
             origin = selection.gameObject.transform.position;
+            initialOrientation = selection.gameObject.transform.rotation;
 
             if (selection is MultiSelection multi && multi.pivot != null) {
                 roots.Add(multi.pivot.transform);
@@ -129,6 +135,8 @@ namespace Protobot.Tools {
             before = CaptureState();
             BeginDuplication();
             rotating = rotate;
+            numericInput.Close();
+            rotationDegrees = 0f;
             active = true;
             settling = false;
             displayedOffset = targetOffset = Vector3.zero;
@@ -180,6 +188,18 @@ namespace Protobot.Tools {
             if (settling)
                 return;
 
+            if (keyboard.slashKey.wasPressedThisFrame || keyboard.numpadDivideKey.wasPressedThisFrame) {
+                numericInput.Cycle(!rotating && axis == Vector3.zero);
+                if (!numericInput.IsOpen) ResumeMouse();
+                return;
+            }
+            if (numericInput.IsOpen) {
+                numericInput.Edit(keyboard);
+                if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
+                    SubmitNumeric();
+                return;
+            }
+
             if (TransformGesture.TryReadAxis(out var pressedAxis))
                 axis = axis == pressedAxis ? (rotating ? gesture.DefaultRotationAxis : Vector3.zero) : pressedAxis;
 
@@ -194,6 +214,28 @@ namespace Protobot.Tools {
                 ? gesture.Rotation(mouse, axis, Quaternion.identity, TransformSnapping.Active)
                 : Quaternion.identity;
             var offset = rotating ? Vector3.zero : gesture.Position(mouse, axis, TransformSnapping.Active) - origin;
+            rotationDegrees = rotating ? gesture.RotationDegrees : 0f;
+            SetTarget(offset, rotation);
+        }
+
+        private void ResumeMouse() => gesture.Resume(MouseInput.Position, targetOffset, rotationDegrees, axis);
+
+        private bool SubmitNumeric() {
+            bool valid = TransformNumericInput.TryEvaluate(numericInput.Text,
+                numericInput.Mode == TransformNumericInput.InputMode.Global, rotating, axis,
+                origin, initialOrientation, out var offset, out var rotation, out float degrees);
+            numericInput.Close();
+            if (!valid) {
+                ResumeMouse();
+                return false;
+            }
+            rotationDegrees = degrees;
+            SetTarget(offset, rotation);
+            Finish(true);
+            return true;
+        }
+
+        private void SetTarget(Vector3 offset, Quaternion rotation) {
             if (Vector3.Distance(offset, targetOffset) < 0.00001f && Quaternion.Angle(rotation, targetRotation) < 0.0001f)
                 return;
 
@@ -219,6 +261,7 @@ namespace Protobot.Tools {
         }
 
         private void Finish(bool confirm) {
+            numericInput.Close();
             if (!active)
                 return;
             if (confirm) {
@@ -308,12 +351,18 @@ namespace Protobot.Tools {
                 return;
             if (showConstraintAxis && !rotating && axis != Vector3.zero)
                 TransformFeedback.DrawAxis(refCamera, origin, axis);
-            TransformFeedback.Draw(rotating ? $"{gesture.RotationDegrees:0.##}°" :
-                TransformFeedback.Distance(targetOffset, axis));
             string constraint = axis == Vector3.right ? "X" : axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
-            string snap = TransformSnapping.Active ? "Snap on" : "Snap off";
-            GUI.Box(new Rect(16f, Screen.height - 96f, 520f, 48f),
-                $"{(rotating ? "Rotate" : "Grab")} · {constraint} · {snap}\nX/Y/Z: axis · Click/Enter: confirm · Esc/Right click: cancel");
+            string snap = numericInput.IsOpen ? "Exact entry" : TransformSnapping.Active ? "Snap on" : "Snap off";
+            TransformFeedback.DrawControls($"{(rotating ? "Rotate" : "Grab")} · {constraint} · {snap}\n" +
+                "X/Y/Z: axis    /: type value\nClick / Enter: confirm    Esc / Right click: cancel");
+            if (numericInput.IsOpen) {
+                bool global = numericInput.Mode == TransformNumericInput.InputMode.Global;
+                string label = !rotating && axis == Vector3.zero ? "Global position: X, Y, Z (in)" :
+                    $"{(global ? "Global" : "Relative")} {constraint} {(rotating ? "rotation (degrees)" : "movement (in)")}";
+                string next = global ? "/: mouse control" : "/: global value";
+                TransformFeedback.DrawNumeric(label, numericInput.DisplayText, $"Enter: apply exact value\n{next}    Invalid input: mouse control");
+            }
+            else TransformFeedback.Draw(rotating ? $"{rotationDegrees:0.##}°" : TransformFeedback.Distance(targetOffset, axis));
         }
 
         private void OnDestroy() {
