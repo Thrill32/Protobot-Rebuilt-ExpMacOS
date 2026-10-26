@@ -20,7 +20,7 @@ This is the quick orientation document for both human contributors and coding ag
 | Tools | `Assets/Scripts/Tools` | Transform, move/pivot, color, Connect, and their handles/options. Toolbar buttons belong to one `ToggleGroup`. |
 | Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs`, `TransformNumericInput.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
 | Part properties | `Assets/Scripts/Part Management/PartParameterEditing.cs`, `Assets/Scripts/UI/Add Menu UIs/AddPropertiesUI.cs` | Parameter stepping, pick-part placement, and undoable regeneration of a single placed part. The controller lives on Placement so hiding the add menu does not disable shortcuts. |
-| Placement | `Assets/Scripts/Placement` | Preview and final placement of parts. Free placement uses the shared transform snapping rules. |
+| Placement | `Assets/Scripts/Placement` | Preview and final placement of parts. Initial placement snaps ordinary parts onto hovered holes after the specialized hardware rules; free placement uses the shared transform snapping rules. |
 | Snapping | `Assets/Scripts/Tools/TransformSnapping.cs` | Shared 0.5-unit movement and 15-degree rotation snapping. Holding Snap Bypass temporarily disables it. |
 | Undo/redo | `Assets/Scripts/StateSystem` | Capture affected `SavedObject` transforms before a change, create a state, then capture the resulting transforms. |
 | Outlines | `Assets/Scripts/Outlining`, `Assets/Universal RP_Renderer.asset` | URP renderer feature and selection outline behavior. |
@@ -78,6 +78,7 @@ Axis dragging and keyboard transforms share `ObjectDuplicator.CreateCopies`, whi
 - `HoleData` reads its source collider transform directly. `HoleFace` retains its direction relative to the owning part and refreshes in Update/LateUpdate; handle followers run in LateUpdate. Selecting, moving, rotating and undoing a hole selection retain its live pivot and face orientation.
 - Arrow shortcuts repeat while held, step lists in their displayed order, change numeric hole counts by 1 and other custom numbers by 0.5, and respect limits. Changing the first property normalizes dependent second-property options/limits. Text fields, rebinding, noclip, Connect and active transforms capture input before property shortcuts.
 - Placement property changes refresh the preview mesh without restarting placement or resetting its mechanical alignment. P uses the selected part's saved ID to start ordinary repeated placement; it does not duplicate the part or its connected group. All five new shortcuts have Preferences rows and support rebinding.
+- Initial placement uses `PartHolePlaceDisplacement` before the free-plane fallback. It reads the live hole collider under the pointer and honors Space for the opposite face. `PartGenerator.TryGetPlacementHole` supplies a primary or nearest local hole; plates and aluminum generators account for generated hole offsets, including even counts. The new part's mating hole face sits exactly on the target face, without grid quantization. Parts with no source hole place their origin at the target face. Attachment data refreshes with preview properties; hardware-specific placement retains priority.
 - A single selected part exposes its properties in the existing panel. Property edits regenerate the part through its generator, retaining world pose, color and saved state. With a hole selected, the closest remaining local hole stays at the selected hole center. Regeneration rebuilds holes/colliders/detectors and saves the new parameter ID; physics discovers connections for the new geometry. Each change records old/new existence and selection as one undoable operation. These programmatic selection restorations bypass pointer selection conditions (including the UI guard), while ordinary selections retain their existing conditions. Multi-selection property editing is intentionally excluded.
 - The legacy `Select Opposite Hole` binding ID remains compatible with saved preferences and is labeled `Opposite Hole Face (Hold)` in Preferences. Space flips the hovered face normal and chooses the other end of that hole, rather than searching for another hole.
 
@@ -112,18 +113,28 @@ Run a headless compile/import check:
   -logFile /tmp/protobot-compile.log
 ```
 
-Build the macOS player:
+Build the Apple Silicon macOS player as `build.app` (the helper explicitly selects ARM64 and restores the previous architecture setting):
 
 ```sh
 /Applications/Unity/Hub/Editor/6000.6.6f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -quit \
   -projectPath /absolute/path/to/Protobot-Rebuilt \
   -buildTarget StandaloneOSX \
-  -buildOSXUniversalPlayer /absolute/path/to/build.app \
+  -executeMethod ProtobotEditorTools.MacBuild.BuildAppleSilicon \
   -logFile /tmp/protobot-build.log
 ```
 
+For local macOS use, refresh and verify the app's ad hoc signature after building (copied Unity libraries can retain invalid signatures after architecture stripping):
+
+```sh
+codesign --force --deep --sign - --preserve-metadata=identifier,entitlements,flags,runtime build.app
+codesign --verify --deep --strict build.app
+```
+
 After scene/prefab edits, check for C# errors, missing serialized references, runtime exceptions, and a clean `git diff --check`. Existing convex-mesh import warnings are known and are not compilation failures.
+
+For initial hole placement checks, use `-executeMethod ProtobotEditorTools.HolePlacementValidation.Validate`. It checks scene rule ordering, serialized references, generated attachment geometry across part types and structural profiles, even hole counts, and rotated/opposite faces.
+Use `-executeMethod ProtobotEditorTools.HolePlacementValidation.Smoke` without `-quit` for a Play Mode check of pointer raycasts, opposite-face input state, preview rule priority, the committed placement pose, repeated placement, and attachment refresh after property changes.
 
 For modal transform regression checks, add `-executeMethod ProtobotEditorTools.KeyboardTransformValidation.Validate` to the headless compile command (or use Tools > Protobot > Validate Keyboard Transforms). This checks Main scene wiring and Preferences, disabled placement rotation, perspective/orthographic mouse projection, primary rotation axes, XYZ anchoring, snapping, smoothing, rigid MultiPivot behavior, duplication with undo/redo and cancellation, handle visibility, and input capture.
 

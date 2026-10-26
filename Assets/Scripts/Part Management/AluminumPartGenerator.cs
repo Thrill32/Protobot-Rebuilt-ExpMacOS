@@ -24,6 +24,24 @@ namespace Protobot {
 
         public override Mesh GetMesh() => subParts[param1Options.IndexOf(param1.value)].GetMesh(HoleCount);
 
+        public override bool TryGetPlacementHole(out Pose pose, out float depth) {
+            pose = Pose.identity;
+            depth = 0;
+            float closest = float.PositiveInfinity;
+            var parts = subParts[param1Options.IndexOf(param1.value)];
+            for (int i = 1; i <= HoleCount; i++) {
+                foreach (var hole in parts.GetSubPart(i).GetComponentsInChildren<HoleCollider>(true)) {
+                    var position = hole.transform.localPosition;
+                    position.x += parts.GetXPos(i - 1, HoleCount);
+                    if (position.sqrMagnitude >= closest) continue;
+                    closest = position.sqrMagnitude;
+                    pose = new Pose(position, hole.transform.rotation);
+                    depth = hole.transform.TransformVector(Vector3.forward).magnitude;
+                }
+            }
+            return !float.IsPositiveInfinity(closest);
+        }
+
         public override GameObject Generate(Vector3 position, Quaternion rotation) {
             if (gameObject.name == "Rails")
             {

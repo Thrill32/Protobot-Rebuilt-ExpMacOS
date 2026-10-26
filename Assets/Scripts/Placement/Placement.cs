@@ -24,8 +24,10 @@ namespace Protobot {
         public PartPlacementData CurrentPartPlacement => placing ? currentPlacementData as PartPlacementData : null;
 
         public void RefreshPartPreview() {
-            if (CurrentPartPlacement != null)
+            if (CurrentPartPlacement != null) {
                 meshFilter.mesh = CurrentPartPlacement.GetDisplayMesh();
+                CurrentPartPlacement.RefreshAttachment();
+            }
         }
 
         [CacheComponent] private MeshRenderer meshRenderer;

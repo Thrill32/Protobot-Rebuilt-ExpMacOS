@@ -31690,6 +31690,7 @@ GameObject:
   - component: {fileID: 1449685610}
   - component: {fileID: 1449685601}
   - component: {fileID: 1449685613}
+  - component: {fileID: 1449685690}
   - component: {fileID: 1449685612}
   - component: {fileID: 1449685609}
   - component: {fileID: 1449685604}
@@ -31823,6 +31824,7 @@ MonoBehaviour:
   - {fileID: 1449685607}
   - {fileID: 1449685612}
   - {fileID: 1449685613}
+  - {fileID: 1449685690}
   - {fileID: 1449685601}
   placeInput: {fileID: 2024127293}
   toggleRotateInput: {fileID: 246119430474503458}
@@ -32084,6 +32086,20 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier:
   hoverHoleFace: {fileID: 2016192960}
+--- !u!114 &1449685690
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1449685599}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 25a4313e2b06428e95840fc1f5a9e21d, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  mouseCast: {fileID: 963194229}
+  flipInput: {fileID: 1190413779}
 --- !u!1001 &1458416699
 PrefabInstance:
   m_ObjectHideFlags: 0

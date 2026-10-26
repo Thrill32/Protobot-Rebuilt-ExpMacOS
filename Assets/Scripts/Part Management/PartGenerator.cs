@@ -65,6 +65,26 @@ namespace Protobot {
             partData = null;
             return false;
         }
+
+        // Describe an attachment in generated-part coordinates without spawning a part.
+        public virtual bool TryGetPlacementHole(out Pose pose, out float depth) {
+            pose = Pose.identity;
+            depth = 0;
+            if (!TryGetPartData(out var data) || data == null) return false;
+            var hole = data.primaryHole;
+            if (hole == null) {
+                foreach (var candidate in data.GetComponentsInChildren<HoleCollider>(true)) {
+                    if (hole == null || data.transform.InverseTransformPoint(candidate.transform.position).sqrMagnitude <
+                        data.transform.InverseTransformPoint(hole.transform.position).sqrMagnitude)
+                        hole = candidate;
+                }
+            }
+            if (hole == null) return false;
+            pose = new Pose(data.transform.InverseTransformPoint(hole.transform.position),
+                Quaternion.Inverse(data.transform.rotation) * hole.transform.rotation);
+            depth = hole.transform.TransformVector(Vector3.forward).magnitude;
+            return true;
+        }
         
         public void RemoveDataScripts(GameObject obj) {
             if (obj.TryGetComponent(out PartData partData)) 

@@ -21,6 +21,15 @@ namespace Protobot {
         
         private int HoleCount => Length * Width;
 
+        public override bool TryGetPlacementHole(out Pose pose, out float depth) {
+            var position = plateHole.transform.localPosition;
+            position.x = GetPos((Length - 1) / 2, Length);
+            position.y = GetPos((Width - 1) / 2, Width);
+            pose = new Pose(position, plateHole.transform.rotation);
+            depth = plateHole.transform.TransformVector(Vector3.forward).magnitude;
+            return true;
+        }
+
         private float GetPos(int val, int max) => 0.5f * ((-max + 1) / 2f + val);
 
         public override Mesh GetMesh() {
