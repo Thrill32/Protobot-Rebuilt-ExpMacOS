@@ -61,6 +61,8 @@ namespace Protobot {
         public abstract Mesh GetMesh();
         public abstract GameObject Generate(Vector3 position, Quaternion rotation);
 
+        public virtual bool FlipPlacement => TryGetPartData(out var data) && data != null && data.flipPlacement;
+
         public virtual bool TryGetPartData(out PartData partData) {
             partData = null;
             return false;
@@ -71,7 +73,9 @@ namespace Protobot {
             pose = Pose.identity;
             depth = 0;
             if (!TryGetPartData(out var data) || data == null) return false;
-            var hole = data.primaryHole;
+            var hole = data.placementHole != null ? data.placementHole : data.primaryHole;
+            // A variant must never inherit another variant's prefab-space pivot.
+            if (hole != null && !hole.transform.IsChildOf(data.transform)) hole = null;
             if (hole == null) {
                 foreach (var candidate in data.GetComponentsInChildren<HoleCollider>(true)) {
                     if (hole == null || data.transform.InverseTransformPoint(candidate.transform.position).sqrMagnitude <

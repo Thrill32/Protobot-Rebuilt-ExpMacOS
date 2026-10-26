@@ -133,6 +133,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: 11W
   param2Value: 
+  flipPlacement: 1
+  placementHole: {fileID: 80507991746179764}
   holeData: 'shape=circle
 
     size=0.164
@@ -611,6 +613,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: 5.5W
   param2Value: 
+  flipPlacement: 1
+  placementHole: {fileID: 6707745644734486223}
   holeData: 'shape=circle
 
     size=0
@@ -629,7 +633,7 @@ MonoBehaviour:
     0, 0)
 
 '
-  primaryHole: {fileID: 80507993073605347}
+  primaryHole: {fileID: 1366689523767018891}
   allowCenterInserts: 0
 --- !u!114 &3046086505665870182
 MonoBehaviour:

@@ -1441,6 +1441,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Inner Slide Trunk
   param2Value: 
+  flipPlacement: 1
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0

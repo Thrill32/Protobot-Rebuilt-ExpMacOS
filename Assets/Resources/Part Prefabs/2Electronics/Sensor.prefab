@@ -576,6 +576,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Vision
   param2Value: V5
+  flipPlacement: 1
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1685,6 +1686,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Potentiometer
   param2Value: V5
+  flipPlacement: 1
+  placementHole: {fileID: 5190446102819052524}
   holeData: 
   primaryHole: {fileID: 2922666527457203967}
   allowCenterInserts: 0

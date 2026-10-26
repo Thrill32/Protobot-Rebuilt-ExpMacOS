@@ -10,9 +10,13 @@ namespace Protobot {
 
         public Pose attachmentPose { get; private set; }
         public float attachmentDepth { get; private set; }
+        public Quaternion initialRotation { get; private set; }
 
         public void RefreshAttachment() {
             partGenerator.TryGetPlacementHole(out var pose, out var depth);
+            initialRotation = partGenerator.FlipPlacement ? Quaternion.Euler(180, 0, 0) : Quaternion.identity;
+            // Reverse both the face normal and its up direction, retaining the hole center.
+            pose.rotation *= initialRotation;
             attachmentPose = pose;
             attachmentDepth = depth;
         }

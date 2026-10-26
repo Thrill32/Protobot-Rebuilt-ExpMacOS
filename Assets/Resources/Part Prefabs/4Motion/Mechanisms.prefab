@@ -859,6 +859,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Bevel Gear
   param2Value: 32T
+  flipPlacement: 1
   holeData: 
   primaryHole: {fileID: 8965009146210226528}
   allowCenterInserts: 0
@@ -1878,6 +1879,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Rack
   param2Value: 
+  flipPlacement: 1
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -3636,6 +3638,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Bevel Gear
   param2Value: 16T
+  flipPlacement: 1
   holeData: 
   primaryHole: {fileID: 7965862020567693694}
   allowCenterInserts: 0
@@ -5064,6 +5067,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Hand Crank
   param2Value: 
+  flipPlacement: 1
   holeData: 
   primaryHole: {fileID: 6330576256355459238}
   allowCenterInserts: 0

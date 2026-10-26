@@ -8,6 +8,12 @@ namespace Protobot {
         public string param1Value;
         public string param2Value;
 
+        [Header("Placement")]
+        [Tooltip("Turn the starting pose and mounting hole face over for this part variant.")]
+        public bool flipPlacement;
+        [Tooltip("Optional mounting hole for initial placement; primaryHole remains the shaft/mechanical hole.")]
+        public HoleCollider placementHole;
+
         [Header("Holes")]
         [Space(5)]
         [TextArea(0, 100)]

@@ -9,6 +9,7 @@ namespace Protobot {
     public class AluminumPartGenerator : PartGenerator {
         [SerializeField] private List<string> param1Options;
         [SerializeField] private List<AluminumSubParts> subParts;
+        [SerializeField] private bool flipPlacement = true;
         
         private int HoleCount {
             get {
@@ -23,6 +24,8 @@ namespace Protobot {
         public override List<string> GetParam2Options() => new List<string>{" "};
 
         public override Mesh GetMesh() => subParts[param1Options.IndexOf(param1.value)].GetMesh(HoleCount);
+
+        public override bool FlipPlacement => flipPlacement;
 
         public override bool TryGetPlacementHole(out Pose pose, out float depth) {
             pose = Pose.identity;

@@ -4402,6 +4402,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: 2x35
   param2Value: 
+  flipPlacement: 1
   holeData: 'shape=square
 
     size=0.18
@@ -10708,6 +10709,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: 2x25
   param2Value: 
+  flipPlacement: 1
   holeData: 'shape=square
 
     size=0.18

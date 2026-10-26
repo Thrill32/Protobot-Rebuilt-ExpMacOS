@@ -893,6 +893,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7957e962a0d84746a280d461064ce5b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  flipPlacement: 0
   param1:
     name: Part
     value: Rail

@@ -136,7 +136,13 @@ namespace Protobot {
 
                             if (!placePosition.ModifyRotation) {
                                 newDisplacement = new Displacement(newDisplacement.translation.Position,
-                                                                   currentDisplacement.rotation.Orientation);
+                                    currentPlacementData is PartPlacementData part
+                                        ? part.initialRotation : currentDisplacement.rotation.Orientation);
+                            }
+                            else if (placePosition is not PartHolePlaceDisplacement &&
+                                     currentPlacementData is PartPlacementData hardwarePart) {
+                                newDisplacement = new Displacement(newDisplacement.translation.Position,
+                                    newDisplacement.rotation.Orientation * hardwarePart.initialRotation);
                             }
 
                             currentDisplacement = newDisplacement;
@@ -156,6 +162,9 @@ namespace Protobot {
             rotating = false;
             meshFilter.mesh = newPlacementData.GetDisplayMesh();
             placementSnapOrigin = Vector3.zero;
+
+            if (newPlacementData is PartPlacementData partPlacement)
+                transform.rotation = partPlacement.initialRotation;
 
             if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData)) {
                 var objTransform = objPlaceData.GetGameObject().transform;
