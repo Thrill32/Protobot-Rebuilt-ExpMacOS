@@ -8,6 +8,7 @@ using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.StateSystems;
 using Protobot.Tools;
+using Protobot.UI;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -123,6 +124,9 @@ namespace ProtobotEditorTools {
                 Physics.SyncTransforms();
                 Invoke(shaft.holeDetector, "OnTriggerStay", crossHole.GetComponent<Collider>());
                 Require(!shaft.holeDetector.holes.Contains(crossHole), "A perpendicular hole formed a false shaft connection.");
+                inside.SetActive(false);
+                CheckGearEdits(objects, manager, shaft, collarA, collarB);
+                CheckOtherPartEdits(objects, manager);
                 Debug.Log("Fastener grouping passed: real screw trigger detection, idempotent hits, equal-count replacement, nut/collar removal, disable/re-enable, distinct shaft collars, bounded groups, exclusive occupancy, and Command-click individual movement.");
             }
             finally {
@@ -131,6 +135,232 @@ namespace ProtobotEditorTools {
                 Physics.simulationMode = oldSimulation;
                 foreach (var obj in objects.Where(obj => obj != null)) Object.DestroyImmediate(obj);
             }
+        }
+
+        private static void CheckOtherPartEdits(List<GameObject> objects, SelectionManager manager) {
+            var ui = Object.FindFirstObjectByType<AddPropertiesUI>();
+            var rotation = Quaternion.Euler(17, 32, 11);
+            var axis = rotation * Vector3.forward;
+            var center = new Vector3(3000, 3000, 3000);
+            var shaft = Generate("SHFT-Normal-6", center);
+            var collarA = Mount("CLMP-Normal-Normal", center - axis, HoleCollider.HoleType.Clamp);
+            var collarB = Mount("CLMP-Clamping-Normal", center + axis, HoleCollider.HoleType.Clamp);
+            var shaftMembers = new List<GameObject> { shaft, collarA, collarB };
+            foreach (var sample in new[] {
+                ("SPKT-Normal-24T", 1, "48T"),
+                ("SPKT-High Strength-24T", 0, "Normal"),
+                ("TWHL-V1-4.00in", 1, "5.00in"),
+                ("TWHL-V1-4.00in", 0, "V2"),
+                ("OMNI-V1-4.00in", 0, "V2"),
+                ("FWHL-With Adapters-3.00in", 1, "4.00in")
+            }) {
+                Debug.Log("Checking regenerated shaft part: " + sample.Item1);
+                var payload = Mount(sample.Item1, center);
+                shaftMembers.Add(payload);
+                Detect();
+                shaft.GetComponent<Shaft>().FormConnection();
+                if (!payload.TryGetGroup(out List<GameObject> _)) {
+                    var detector = shaft.GetComponent<Shaft>().holeDetector;
+                    foreach (var hole in payload.GetComponentsInChildren<HoleCollider>())
+                        Debug.Log($"Unattached hole on {payload.name}: owner={hole.holeData.part.name}, occupied={hole.IsOccupied}, " +
+                            $"intersecting={detector.IsHoleIntersecting(hole)}, aligned={Vector3.Dot(hole.transform.forward, detector.transform.up)}, " +
+                            $"detected={detector.holes.Contains(hole)}, bounds={hole.GetComponent<Collider>().bounds}");
+                }
+                Members(payload, shaftMembers.ToArray());
+                if (sample.Item1 == "SPKT-Normal-24T") {
+                    var overlapping = Mount("SPKT-Normal-24T", center);
+                    Detect(); shaft.GetComponent<Shaft>().FormConnection();
+                    Require(!overlapping.TryGetGroup(out List<GameObject> _),
+                        "Intersecting bores were allowed to share the shaft detector.");
+                    Members(payload, shaftMembers.ToArray());
+                    overlapping.SetActive(false);
+                }
+                payload = Edit(payload, sample.Item2, sample.Item3, shaftMembers, true);
+                payload.SetActive(false);
+                shaftMembers.Remove(payload);
+            }
+            var sprocket = Mount("SPKT-Normal-24T", center);
+            shaftMembers.Add(sprocket); Detect(); shaft.GetComponent<Shaft>().FormConnection();
+            collarA = Edit(collarA, 0, "Clamping", shaftMembers, true);
+            collarA = Edit(collarA, 1, "High Strength", shaftMembers, true);
+            collarB = Edit(collarB, 1, "High Strength", shaftMembers, true);
+            sprocket = Edit(sprocket, 0, "High Strength", shaftMembers, true);
+            shaft = Edit(shaft, 0, "High Strength", shaftMembers, false);
+            shaft = Edit(shaft, 1, "8", shaftMembers, false);
+            ShrinkOutOfReach(shaft, "1", shaftMembers);
+
+            // The same replacement path must work on both ends of a screw
+            // connection: through parts, threaded targets and the fastener itself.
+            center += Vector3.right * 20;
+            var screw = Generate("SCRW-1.00in", center);
+            var plate = Mount("PLTE-3-3", center - axis * .3f);
+            var nut = Mount("NUT-Hex", center - axis * .7f, HoleCollider.HoleType.Threaded);
+            var screwMembers = new List<GameObject> { screw, plate, nut };
+            Detect(); screw.GetComponent<Screw>().FormConnection();
+            Members(plate, screwMembers.ToArray());
+            plate = Edit(plate, 0, "4", screwMembers, true);
+            plate = Edit(plate, 1, "4", screwMembers, true);
+            nut = Edit(nut, 0, "Keps", screwMembers, true);
+            screw = Edit(screw, 0, "1.25in", screwMembers, false);
+            plate.SetActive(false); screwMembers.Remove(plate);
+            var channel = Mount("CCHL-1x2-5", center - axis * .3f);
+            screwMembers.Add(channel); Detect(); screw.GetComponent<Screw>().FormConnection();
+            Members(channel, screwMembers.ToArray());
+            channel = Edit(channel, 1, "6", screwMembers, true);
+            channel = Edit(channel, 0, "1x3", screwMembers, true);
+            ShrinkOutOfReach(screw, "1/2in", screwMembers);
+            Debug.Log("General part regeneration passed: sprocket, traction/omni/flex wheel, collar, shaft, plate, nut, screw and channel edits in rotated assemblies; immediate membership, anchoring, undo/redo and out-of-reach connection removal.");
+
+            GameObject Generate(string id, Vector3 position) {
+                var generator = PartsManager.GetPartType(id.Split('-')[0]).GetComponent<PartGenerator>();
+                PartParameterEditing.Load(generator, id);
+                var part = generator.Generate(position, rotation);
+                objects.Add(part);
+                return part;
+            }
+            GameObject Mount(string id, Vector3 position, HoleCollider.HoleType? holeType = null) {
+                var part = Generate(id, position);
+                var hole = NearestHole(part, position, holeType);
+                part.transform.rotation = Quaternion.FromToRotation(hole.transform.forward, axis) * part.transform.rotation;
+                part.transform.position += position - hole.transform.position;
+                return part;
+            }
+            void Detect() {
+                Physics.SyncTransforms(); Physics.Simulate(.02f); Physics.Simulate(.02f);
+            }
+            void Select(GameObject part, bool hole) {
+                if (hole) {
+                    // Keep the actual mating hole anchored when a profile
+                    // change adds/removes rows or moves a channel side wall.
+                    var source = part.GetComponentsInChildren<HoleCollider>()
+                        .OrderByDescending(candidate => candidate.detectors.Count > 0)
+                        .ThenBy(candidate => (candidate.transform.position - part.transform.position).sqrMagnitude).First();
+                    var marker = new GameObject("Regeneration hole selection", typeof(MeshFilter), typeof(HoleFace));
+                    objects.Add(marker);
+                    manager.SetCurrent(new HoleSelection {
+                        gameObject = marker, holeFace = marker.GetComponent<HoleFace>(), holeData = source.holeData,
+                        faceDirection = source.transform.forward, individual = true
+                    }, true);
+                }
+                else manager.SetCurrent(new ObjectSelection { gameObject = part }, true);
+                Invoke(ui, "ObserveSelection");
+                StateSystem.states = new List<State> { new State(new List<IElement>()) };
+                StateSystem.curIndex = 0;
+            }
+            GameObject EditedPart() => manager.current is HoleSelection hole ? hole.holeData.part : manager.current.gameObject;
+            GameObject Edit(GameObject original, int parameter, string value, List<GameObject> members, bool hole) {
+                Select(original, hole);
+                var anchor = (manager.current as HoleSelection)?.holeData.position;
+                int index = members.IndexOf(original);
+                if (parameter == 0) ui.UpdateParam1(value); else ui.UpdateParam2(value);
+                var edited = EditedPart(); objects.Add(edited);
+                Require(edited != original && original.IsDeleted(), "Part was not regenerated: " + original.name);
+                members[index] = edited;
+                Members(edited, members.ToArray());
+                Require(!original.TryGetGroup(out List<GameObject> _), "Regeneration kept deleted geometry in a group.");
+                if (anchor.HasValue) Require(manager.current.individual &&
+                    Vector3.Distance(((HoleSelection)manager.current).holeData.position, anchor.Value) < .001f,
+                    "Regeneration lost selected-hole anchoring or individual scope: " + original.name);
+                else Require(Vector3.Distance(edited.transform.position, original.transform.position) < .001f,
+                    "Regeneration moved the fastener: " + original.name);
+                StateSystem.instance.Undo();
+                members[index] = original; Members(original, members.ToArray());
+                Require(EditedPart() == original, "Undo lost the regenerated part's selection.");
+                StateSystem.instance.Redo();
+                members[index] = edited; Members(edited, members.ToArray());
+                Require(EditedPart() == edited, "Redo lost the regenerated part's selection.");
+                return edited;
+            }
+            void ShrinkOutOfReach(GameObject fastener, string length, List<GameObject> members) {
+                Select(fastener, false);
+                if (fastener.GetComponent<Shaft>() != null) ui.UpdateParam2(length); else ui.UpdateParam1(length);
+                var shorter = EditedPart(); objects.Add(shorter);
+                Require(shorter != fastener, "Fastener shortening did not replace geometry.");
+                foreach (var part in members.Where(part => part != fastener).Append(shorter))
+                    Require(!part.TryGetGroup(out List<GameObject> _), "Shortened fastener retained an out-of-reach connection.");
+                StateSystem.instance.Undo(); Members(fastener, members.ToArray());
+                StateSystem.instance.Redo();
+                Require(!shorter.TryGetGroup(out List<GameObject> _), "Redo retained an out-of-reach connection.");
+            }
+        }
+
+        private static HoleCollider NearestHole(GameObject part, Vector3 position, HoleCollider.HoleType? type = null) =>
+            part.GetComponentsInChildren<HoleCollider>().Where(hole => !type.HasValue || hole.holeType == type.Value)
+                .OrderBy(hole => (hole.transform.position - position).sqrMagnitude).First();
+
+        private static void CheckGearEdits(List<GameObject> objects, SelectionManager manager, Shaft shaft,
+            GameObject collarA, GameObject collarB) {
+            var ui = Object.FindFirstObjectByType<AddPropertiesUI>();
+            var generator = PartsManager.GetPartType("GEAR").GetComponent<PartGenerator>();
+            PartParameterEditing.Load(generator, "GEAR-Normal-36T");
+            var gear = generator.Generate(shaft.transform.position, shaft.transform.rotation);
+            objects.Add(gear);
+            var centerHole = gear.GetComponentsInChildren<HoleCollider>()
+                .OrderBy(hole => (hole.transform.position - gear.transform.position).sqrMagnitude).First();
+            gear.transform.position += shaft.transform.position - centerHole.transform.position;
+            Physics.SyncTransforms(); Physics.Simulate(.02f); Physics.Simulate(.02f);
+            shaft.FormConnection();
+            Members(gear, shaft.gameObject, collarA, collarB, gear);
+            manager.SetCurrent(new ObjectSelection { gameObject = gear }, true);
+            Invoke(ui, "ObserveSelection");
+            var shaftPose = shaft.transform.position;
+            var gearPose = gear.transform.position;
+            // No physics steps or incidental movement between editing and testing:
+            // membership must already be correct when selection is restored.
+            ui.UpdateParam2("60T");
+            var resized = manager.current.gameObject; objects.Add(resized);
+            Require(resized != gear && gear.IsDeleted(), "Gear size edit did not replace geometry.");
+            Members(resized, shaft.gameObject, collarA, collarB, resized);
+            Require(!gear.TryGetGroup(out List<GameObject> _), "Old gear kept its graph membership.");
+            StateSystem.instance.Undo();
+            Require(manager.current.gameObject == gear, "Gear edit undo lost selection.");
+            Members(gear, shaft.gameObject, collarA, collarB, gear);
+            StateSystem.instance.Redo();
+            Members(resized, shaft.gameObject, collarA, collarB, resized);
+            foreach (var variant in new[] { "High Strength", "High Strength v2", "Normal" }) {
+                Invoke(ui, "ObserveSelection");
+                ui.UpdateParam1(variant);
+                var changed = manager.current.gameObject; objects.Add(changed);
+                Members(changed, shaft.gameObject, collarA, collarB, changed);
+                Require(Vector3.Distance(changed.transform.position, gearPose) < .001f &&
+                    Vector3.Distance(shaft.transform.position, shaftPose) < .001f, "Gear edit moved its assembly.");
+            }
+            var current = manager.current.gameObject;
+            var selectedHole = current.GetComponentsInChildren<HoleCollider>()
+                .OrderBy(hole => (hole.transform.position - shaft.transform.position).sqrMagnitude).First();
+            var marker = new GameObject("Gear hole selection", typeof(MeshFilter), typeof(HoleFace)); objects.Add(marker);
+            manager.SetCurrent(new HoleSelection {
+                gameObject = marker, holeFace = marker.GetComponent<HoleFace>(), holeData = selectedHole.holeData,
+                faceDirection = selectedHole.transform.forward, individual = true
+            }, true);
+            var anchor = selectedHole.transform.position;
+            Invoke(ui, "ObserveSelection"); ui.UpdateParam2("36T");
+            var holeSelection = manager.current as HoleSelection;
+            Require(holeSelection != null && holeSelection.individual &&
+                Vector3.Distance(holeSelection.holeData.position, anchor) < .001f,
+                "Gear resize lost the selected hole, individual scope or its anchor.");
+            var holeEdited = holeSelection.holeData.part; objects.Add(holeEdited);
+            Members(holeEdited, shaft.gameObject, collarA, collarB, holeEdited);
+            StateSystem.instance.Undo();
+            Members(current, shaft.gameObject, collarA, collarB, current);
+            StateSystem.instance.Redo();
+            Members(holeEdited, shaft.gameObject, collarA, collarB, holeEdited);
+            // The normal center hole has no inserts; the high-strength hole
+            // initializes inserts after synchronous occupancy is established.
+            Invoke(ui, "ObserveSelection"); ui.UpdateParam1("High Strength");
+            var insertGear = ((HoleSelection)manager.current).holeData.part; objects.Add(insertGear);
+            foreach (var insert in insertGear.GetComponentsInChildren<HoleInsert>()) {
+                Invoke(insert, "Start");
+                var hole = insert.GetComponent<HoleCollider>();
+                if (hole.IsOccupiedBy(shaft.holeDetector))
+                    Require(Get<GameObject>(insert, "metalInserts").activeSelf, "Early reconnection lost shaft inserts.");
+            }
+            // Refresh must not blindly copy old graph edges when a clamp disappears.
+            collarB.SetActive(false);
+            Invoke(ui, "ObserveSelection"); ui.UpdateParam2("60T");
+            var unclamped = ((HoleSelection)manager.current).holeData.part; objects.Add(unclamped);
+            Require(!unclamped.TryGetGroup(out List<GameObject> _), "Gear edit retained a connection without two clamps.");
+            Debug.Log("Gear regeneration passed: stationary size/type edits, immediate shaft membership, old-geometry removal, undo/redo, stable pose and missing-clamp rejection.");
         }
 
         private static void CheckIndividual(KeyboardTransformTool tool, SelectionManager manager, GameObject plate, GameObject nut) {
@@ -194,8 +424,12 @@ namespace ProtobotEditorTools {
             obj.AddComponent<MeshCollider>().sharedMesh = obj.GetComponent<MeshFilter>().sharedMesh;
             var hole = obj.AddComponent<HoleCollider>(); hole.holeType = type; return hole;
         }
-        private static void Members(GameObject part, params GameObject[] expected) => Require(
-            part.TryGetGroup(out List<GameObject> group) && new HashSet<GameObject>(group).SetEquals(expected), "Incorrect fastener group membership.");
+        private static void Members(GameObject part, params GameObject[] expected) {
+            bool grouped = part.TryGetGroup(out List<GameObject> group);
+            Require(grouped && new HashSet<GameObject>(group).SetEquals(expected),
+                $"Incorrect fastener group for {part.name}. Expected: {string.Join(", ", expected.Select(obj => obj.name))}; " +
+                $"actual: {string.Join(", ", (group ?? new List<GameObject>()).Select(obj => obj.name))}");
+        }
         private static object Invoke(object obj, string method, params object[] args) => obj.GetType().GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance).Invoke(obj, args);
         private static T Get<T>(object obj, string name) => (T)obj.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(obj);
         private static void Set(object obj, string name, object value) => obj.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance).SetValue(obj, value);

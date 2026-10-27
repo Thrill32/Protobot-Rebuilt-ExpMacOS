@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Protobot.InputEvents;
@@ -11,6 +11,8 @@ namespace Protobot.SelectionSystem {
         private HashSet<GameObject> objs = new();
         [SerializeField] private string ignoredTags;
         [SerializeField] private InputEvent mutliSelectInput;
+
+        public bool IsMultiSelectHeld => mutliSelectInput != null && mutliSelectInput.IsPressed;
 
         private GameObject lastSelectedObj;
         private bool lastIndividual;

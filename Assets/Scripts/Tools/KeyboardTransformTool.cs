@@ -576,12 +576,13 @@ namespace Protobot.Tools {
 
         private void OnDisable() => Finish(false);
 
-        private void OnGUI() {
-            if (!active)
-                return;
-            if (showConstraintAxis && !rotating && axis != Vector3.zero)
-                TransformFeedback.DrawAxis(refCamera, gesture.Origin, axis);
-            string constraint = holeSnapping ? "Hole" : axis == Vector3.right ? "X" : axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
+        private string ConstraintLabel => holeSnapping ? "Hole" : axis == Vector3.right ? "X" :
+            axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
+
+        public static string ControlsText => instance != null && instance.isActiveAndEnabled && instance.active
+            ? instance.GetControlsText() : null;
+
+        private string GetControlsText() {
             string snap = numericInput.IsOpen ? "Exact entry" : holeSnapping ? "Exact alignment" : TransformSnapping.Active ? "Snap on" : "Snap off";
             string holeKey = holeSnapInput != null ? holeSnapInput.GetCurrentKeybind() : "H";
             string help = "X/Y/Z: axis    /: type value";
@@ -589,8 +590,16 @@ namespace Protobot.Tools {
             string oppositeKey = oppositeHoleInput != null ? oppositeHoleInput.GetCurrentKeybind() : "Space";
             if (holeSnapping) help += (hasSourceHole ? "\nHover an outside hole" : "\nClick a source hole on the selected parts") +
                 $" · Hold {oppositeKey}: opposite face\nCamera controls available";
-            TransformFeedback.DrawControls($"{(rotating ? "Rotate" : "Grab")} · {constraint} · {snap}\n" +
-                help + (holeSnapping ? "\nClick / Enter: confirm    Esc: cancel" : "\nClick / Enter: confirm    Esc / Right click: cancel"));
+            return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
+                help + (holeSnapping ? "\nClick / Enter: confirm    Esc: cancel" : "\nClick / Enter: confirm    Esc / Right click: cancel");
+        }
+
+        private void OnGUI() {
+            if (!active)
+                return;
+            if (showConstraintAxis && !rotating && axis != Vector3.zero)
+                TransformFeedback.DrawAxis(refCamera, gesture.Origin, axis);
+            string constraint = ConstraintLabel;
             if (numericInput.IsOpen) {
                 bool global = numericInput.Mode == TransformNumericInput.InputMode.Global;
                 string label = !rotating && axis == Vector3.zero ? "Global position: X, Y, Z (in)" :

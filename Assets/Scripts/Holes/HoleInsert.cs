@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Protobot {
@@ -26,6 +27,10 @@ namespace Protobot {
                 if (UsingPlastic) return;
                 metalInserts.SetActive(detector != null && detector.transform.parent.name.Contains("Normal Shaft"));
             };
+            // Regeneration can reconnect the new hole before Start installs the
+            // callback, so initialize the visual from existing occupancy too.
+            metalInserts.SetActive(holeCol.detectors.Any(detector => detector != null &&
+                detector.transform.parent.name.Contains("Normal Shaft")));
         }
 
         private GameObject InstantiateInserts(GameObject insertPrefab, string insertName) {

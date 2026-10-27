@@ -218,8 +218,11 @@ namespace Protobot.UI {
             public void Load() {
                 // This is a programmatic restoration, including edits made over UI.
                 manager.ClearCurrent(false, true, true);
+                var affected = HoleDetector.GetAffectedDetectors(oldPart, newPart);
                 if (oldPart != null) new ObjectElement(oldPart).ApplyExistence(!replaced);
                 if (newPart != null) new ObjectElement(newPart).ApplyExistence(replaced);
+                var visiblePart = replaced ? newPart : oldPart;
+                if (visiblePart != null) HoleDetector.RefreshPart(visiblePart, affected);
                 manager.SetCurrent(selection, true);
             }
         }

@@ -65,6 +65,49 @@ namespace Protobot {
             }
         }
 
+        /// <summary>Re-query stationary geometry after regeneration instead of
+        /// waiting for trigger callbacks from a moving/woken rigidbody.</summary>
+        public void RefreshOverlaps() {
+            if (!isActiveAndEnabled) return;
+            var capsule = GetComponent<CapsuleCollider>();
+            var scale = transform.lossyScale;
+            float radius = capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
+            float halfSegment = Mathf.Max(0, capsule.height * Mathf.Abs(scale.y) * .5f - radius);
+            var center = transform.TransformPoint(capsule.center);
+            var overlaps = Physics.OverlapCapsule(center - transform.up * halfSegment,
+                center + transform.up * halfSegment, radius, HoleCollider.HOLE_COLLISIONS_MASK,
+                QueryTriggerInteraction.Collide).Select(c => c.GetComponent<HoleCollider>())
+                .Where(hole => hole != null).ToHashSet();
+            foreach (var hole in holes.ToArray())
+                if (!overlaps.Contains(hole) || !Usable(hole)) RemoveHole(hole);
+            foreach (var hole in overlaps) DetectHole(hole);
+            GetComponentInParent<ConnectingPart>()?.FormConnection();
+        }
+
+        public static HashSet<HoleDetector> GetAffectedDetectors(params GameObject[] parts) {
+            var result = new HashSet<HoleDetector>();
+            foreach (var part in parts.Where(part => part != null)) {
+                result.UnionWith(part.GetComponentsInChildren<HoleDetector>(true));
+                foreach (var hole in part.GetComponentsInChildren<HoleCollider>(true))
+                    if (hole.detectors != null) result.UnionWith(hole.detectors);
+            }
+            return result;
+        }
+
+        public static void RefreshPart(GameObject part, HashSet<HoleDetector> affected) {
+            // Existence and transforms have just changed; queries must see both.
+            Physics.SyncTransforms();
+            affected.UnionWith(part.GetComponentsInChildren<HoleDetector>());
+            foreach (var hole in part.GetComponentsInChildren<HoleCollider>()) {
+                var bounds = hole.GetComponent<Collider>().bounds;
+                foreach (var collider in Physics.OverlapBox(bounds.center, bounds.extents, Quaternion.identity,
+                    HoleCollider.HOLE_COLLISIONS_MASK, QueryTriggerInteraction.Collide))
+                    if (collider.TryGetComponent<HoleDetector>(out var detector)) affected.Add(detector);
+            }
+            foreach (var detector in affected)
+                if (detector != null && detector.isActiveAndEnabled) detector.RefreshOverlaps();
+        }
+
         //Returns true if a hole is intersecting any other hole current detected by holeDetector
         public bool IsHoleIntersecting(HoleCollider otherHole) {
             if (!holes.Contains(otherHole)) {
@@ -73,7 +116,10 @@ namespace Protobot {
 
                 foreach (HoleCollider hole in holes.Where(Usable)) {
                     var holeBounds = hole.GetComponent<MeshCollider>().bounds;
-                    if (holeBounds.Intersects(otherHoleBounds))
+                    // Aligned holes can have overlapping world AABBs after
+                    // rotating an assembly despite clearance along the shaft.
+                    // Only reject them if their axial interiors overlap too.
+                    if (holeBounds.Intersects(otherHoleBounds) && AxialInteriorsOverlap(hole, otherHole))
                         return true;
                 }
             }
@@ -81,12 +127,33 @@ namespace Protobot {
             return false;
         }
 
+        private bool AxialInteriorsOverlap(HoleCollider first, HoleCollider second) {
+            var a = AxialInterval(first);
+            var b = AxialInterval(second);
+            return Mathf.Min(a.y, b.y) - Mathf.Max(a.x, b.x) > .005f;
+        }
+
+        private Vector2 AxialInterval(HoleCollider hole) {
+            var bounds = hole.GetComponent<MeshCollider>().sharedMesh.bounds;
+            var source = hole.transform;
+            var axis = transform.up;
+            float center = Vector3.Dot(source.TransformPoint(bounds.center) - transform.position, axis);
+            float radius = Mathf.Abs(Vector3.Dot(source.TransformVector(Vector3.right), axis)) * bounds.extents.x +
+                Mathf.Abs(Vector3.Dot(source.TransformVector(Vector3.up), axis)) * bounds.extents.y +
+                Mathf.Abs(Vector3.Dot(source.TransformVector(Vector3.forward), axis)) * bounds.extents.z;
+            return new Vector2(center - radius, center + radius);
+        }
+
         private void OnTriggerStay(Collider other) {
             if (other.TryGetComponent(out HoleCollider hole))
-                if (Usable(hole) && hole.holeData.part != transform.parent.gameObject &&
-                    Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f &&
-                    !hole.IsOccupied && !IsHoleIntersecting(hole))
-                    AddHole(hole);
+                DetectHole(hole);
+        }
+
+        private void DetectHole(HoleCollider hole) {
+            if (Usable(hole) && hole.holeData.part != transform.parent.gameObject &&
+                Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f &&
+                (hole.IsOccupiedBy(this) || !hole.IsOccupied) && !IsHoleIntersecting(hole))
+                AddHole(hole);
         }
 
         private void OnTriggerExit(Collider other) {

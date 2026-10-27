@@ -7,6 +7,7 @@ using Protobot;
 using Protobot.InputEvents;
 using Protobot.StateSystems;
 using Protobot.Tools;
+using Protobot.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -48,6 +49,38 @@ namespace ProtobotEditorTools {
                 Require(rows.Any(row => Get<InputEvent>(row, "inputEvent").name == name), "Missing property shortcut: " + name);
             Require(TransformFeedback.ScaleForScreen(3200f, 1800f) == 2f, "Transform UI must scale at higher resolution.");
             Require(TransformFeedback.ScaleForScreen(1280f, 720f) >= 1f, "Transform UI must remain readable in smaller windows.");
+            Require(TransformFeedback.FeedbackFont != null && TransformFeedback.FeedbackFont.dynamic,
+                "Feedback must include a portable dynamic font in player Resources.");
+            Require(TransformFeedback.FeedbackFont.HasCharacter('°') && TransformFeedback.FeedbackFont.HasCharacter('·'),
+                "Feedback font must include degree and separator glyphs.");
+            foreach (float scale in new[] { 1f, 2f }) {
+                var angle = TransformFeedback.MeasurementSize("15°", scale);
+                var distance = TransformFeedback.MeasurementSize("1.5 in", scale);
+                var large = TransformFeedback.MeasurementSize("-12345.678 in", scale);
+                Require(angle.x < 100 * scale && distance.x < 120 * scale && large.x > distance.x,
+                    "Measurements must fit their text instead of using a fixed-width box.");
+            }
+            for (int combination = 0; combination < 8; combination++) {
+                var messages = new List<string>();
+                InteractionFeedback.AddModifierMessages(messages, (combination & 1) != 0,
+                    (combination & 2) != 0, (combination & 4) != 0);
+                Require(messages.Count == ((combination & 1) != 0 ? 1 : 0) +
+                    ((combination & 2) != 0 ? 1 : 0) + ((combination & 4) != 0 ? 1 : 0), "Modifier feedback lost a held action.");
+                messages.Add("Grab controls");
+                foreach (var screen in new[] { new Vector2(320, 180), new Vector2(1280, 720), new Vector2(1920, 1080), new Vector2(3840, 2160) }) {
+                    float scale = TransformFeedback.ScaleForScreen(screen.x, screen.y);
+                    var footer = new Rect(0, screen.y - 60 * scale, 240 * scale, 60 * scale);
+                    var panels = TransformFeedback.LayoutControls(messages.Select((_, i) => (i == messages.Count - 1 ? 160 : 48) * scale).ToArray(),
+                        770 * scale, screen, scale, new[] { footer });
+                    for (int i = 0; i < panels.Length; i++) {
+                        Require(!panels[i].Overlaps(footer) && panels[i].yMin >= 0 && panels[i].yMax <= screen.y + .001f &&
+                            panels[i].xMin >= 0 && panels[i].xMax <= screen.x,
+                            "Feedback overlapped a footer or left the screen.");
+                        for (int j = i + 1; j < panels.Length; j++)
+                            Require(!panels[i].Overlaps(panels[j]), "Modifier/help messages overlap.");
+                    }
+                }
+            }
         }
 
         private static void ValidateValues() {
