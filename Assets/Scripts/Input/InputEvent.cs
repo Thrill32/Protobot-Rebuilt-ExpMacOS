@@ -69,14 +69,26 @@ namespace Protobot.InputEvents {
         }
 
         public bool IsCurrentlyPressed => !RebindAction.Rebinding &&
-            (defaultAction.AllControlsPressed() || rebindAction.action.AllControlsPressed());
+            ((defaultAction != null && defaultAction.AllControlsPressed()) ||
+             (rebindAction?.action != null && rebindAction.action.AllControlsPressed()));
 
         /// <summary>
         /// Returns true when any alternative binding is pressed. This is used
         /// for modifier actions such as Ctrl-or-Command rather than chords.
         /// </summary>
         public bool IsAnyBindingPressed => !RebindAction.Rebinding &&
-            (defaultAction.IsPressed() || rebindAction.action.IsPressed());
+            ((defaultAction != null && defaultAction.IsPressed()) ||
+             (rebindAction?.action != null && rebindAction.action.IsPressed()));
+
+        public bool UsesControl(InputControl control) => control != null &&
+            (ActionUsesControl(defaultAction, control) || ActionUsesControl(rebindAction?.action, control));
+
+        private static bool ActionUsesControl(InputAction action, InputControl control) {
+            if (action == null || !action.enabled) return false;
+            foreach (var candidate in action.controls)
+                if (candidate == control) return true;
+            return false;
+        }
 
         public static void SetNoclipMovementCapture(bool active) {
             IsNoclipMovementCaptured = active;
@@ -108,7 +120,8 @@ namespace Protobot.InputEvents {
         
         public string GetCurrentKeybind()
         {
-            return defaultAction.GetBindingDisplayString();
+            return rebindAction != null && !rebindAction.IsEmpty
+                ? rebindAction.action.GetBindingDisplayString() : defaultAction.GetBindingDisplayString();
         }
         
         public bool IsKeyPressed(string keyName)

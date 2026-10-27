@@ -5,7 +5,7 @@ namespace Protobot.InputEvents {
     public sealed class SnapBypassInput : MonoBehaviour {
         private static InputEvent input;
 
-        public static bool IsHeld => input != null && input.IsAnyBindingPressed;
+        public static bool IsHeld => input != null && Protobot.Tools.KeyboardTransformTool.AllowsInput(input) && input.IsAnyBindingPressed;
 
         private void Awake() {
             input = GetComponent<InputEvent>();

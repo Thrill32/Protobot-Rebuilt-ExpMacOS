@@ -23,7 +23,7 @@ namespace Protobot {
         }
 
         public void StartMoving() {
-            placement.StartPlacing(new GameObjectPlacementData(objectLink.obj, placement.transform));
+            placement.StartPlacing(new GameObjectPlacementData(objectLink.obj, placement.transform, objectLink.individual));
         }
     }
 }

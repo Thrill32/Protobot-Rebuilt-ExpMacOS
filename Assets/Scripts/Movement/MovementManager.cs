@@ -43,14 +43,14 @@ namespace Protobot {
             }
         }
 
-        public List<GameObject> GetMovingConnectedObjs() => MovingObj.GetConnectedObjects(true);
+        public List<GameObject> GetMovingConnectedObjs() => MovingObj.GetConnectedObjects(true, false, !objectLink.individual);
 
         public void FormPivot(List<GameObject> objs) {
             movementPivot.SetEmpty();
             movementPivot.transform.position = MovingObj.transform.position;
             movementPivot.transform.rotation = MovingObj.transform.rotation;
             
-            movementPivot.AddObjects(objs);
+            movementPivot.AddObjects(objs, !objectLink.individual);
         }
 
         public void StopContinuous() {

@@ -14,6 +14,7 @@ namespace Protobot.Tools {
         private Vector3 resumedOffset;
         public float RotationDegrees { get; private set; }
         public Vector3 DefaultRotationAxis { get; private set; }
+        public Vector3 Origin => origin;
 
         public void Begin(Camera camera, Vector3 origin, Vector2 mouse) {
             this.camera = camera;

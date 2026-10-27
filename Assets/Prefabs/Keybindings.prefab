@@ -1548,6 +1548,7 @@ Transform:
   - {fileID: 1332136064987874671}
   - {fileID: 4159185034626738024}
   - {fileID: 3399844387989864639}
+  - {fileID: 7323069966436362240}
   m_Father: {fileID: 246119428735506766}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5516306830252511493
@@ -2397,6 +2398,70 @@ MonoBehaviour:
     - m_Name:
       m_Id: f25aed21-4a12-4272-bcd5-3439798391a5
       m_Path: <Keyboard>/p
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    m_Flags: 0
+    m_Priority: 0
+  allowModifierOnly: 0
+  IsPressed: 0
+--- !u!1 &4565232690916125002
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7323069966436362240}
+  - component: {fileID: 2792480634645027836}
+  m_Layer: 0
+  m_Name: Grab Hole Snap
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7323069966436362240
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4565232690916125002}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7594549906293032880}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2792480634645027836
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4565232690916125002}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.InputEvent
+  defaultAction:
+    m_Name: Default
+    m_Type: 1
+    m_ExpectedControlType:
+    m_Id: f1db47c6-0ddc-4c54-8652-0a2c9f6ffd22
+    m_Processors:
+    m_Interactions:
+    m_SingletonActionBindings:
+    - m_Name:
+      m_Id: aad46a69-7abd-42c4-ab63-e68386e86519
+      m_Path: <Keyboard>/h
       m_Interactions:
       m_Processors:
       m_Groups:

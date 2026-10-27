@@ -25,7 +25,7 @@ namespace Protobot {
         public bool twoSided = false;
         private int MaxDetectorLimit => twoSided ? 2 : 1;
         
-        public bool IsOccupied => detectors.Count == MaxDetectorLimit;
+        public bool IsOccupied => detectors.Count >= MaxDetectorLimit;
         public bool IsEmpty => detectors.Count == 0;
 
         private void Awake() {
@@ -54,10 +54,11 @@ namespace Protobot {
         }
 
         public void RemoveDeletedDetectors() {
-            var deleteList = detectors.Where(detector => detector.gameObject.IsDeleted()).ToList();
+            var deleteList = detectors.Where(detector => detector == null || detector.gameObject.IsDeleted()).ToList();
 
             foreach (var detector in deleteList) {
-                detector.RemoveHole(this);
+                if (detector != null) detector.RemoveHole(this);
+                else detectors.Remove(detector);
             }
         }
 
@@ -66,10 +67,15 @@ namespace Protobot {
         }
         
         public void AddDetector(HoleDetector newDetector) {
-            if (IsOccupiedBy(newDetector) || IsOccupied) return;
-            
+            TryAddDetector(newDetector);
+        }
+
+        public bool TryAddDetector(HoleDetector newDetector) {
+            if (IsOccupiedBy(newDetector)) return true;
+            if (IsOccupied) return false;
             detectors.Add(newDetector);
             OnSetDetector?.Invoke(newDetector);
+            return true;
         }
 
         public void RemoveDetector(HoleDetector detector) {
@@ -77,10 +83,10 @@ namespace Protobot {
         }
 
         private void OnDisable() {
-            if (!IsEmpty && gameObject.IsDeleted()) {
-                foreach (var detector in detectors)
-                    detector.RemoveHole(this);
-            }
+            if (detectors == null) return;
+            foreach (var detector in detectors.ToArray())
+                if (detector != null) detector.RemoveHole(this);
+            detectors.Clear();
         }
     }
 

@@ -11,6 +11,7 @@ namespace Protobot {
         public override Transform placementTransform { get; set; }
 
         private GameObject gameObject;
+        public bool individual { get; }
 
         public override string objectId {
             get {
@@ -21,13 +22,14 @@ namespace Protobot {
             }
         }
 
-        public GameObjectPlacementData(GameObject gameObject, Transform placementTransform) {
+        public GameObjectPlacementData(GameObject gameObject, Transform placementTransform, bool individual = false) {
             this.gameObject = gameObject;
             this.placementTransform = placementTransform;
+            this.individual = individual;
         }
 
         public override Mesh GetDisplayMesh() {
-            var connectedObjs = gameObject.GetConnectedObjects(true);
+            var connectedObjs = gameObject.GetConnectedObjects(true, false, !individual);
             return MeshCombiner.CombineMeshes(connectedObjs, gameObject.transform.position, gameObject.transform.rotation);
         }
 

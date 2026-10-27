@@ -139,7 +139,7 @@ namespace Protobot {
 
         private void DuplicateObject() {
             if (movementManager.MovingObj != null) {
-                var movingObjs = movementManager.MovingObj.GetConnectedObjects(true, true);
+                var movingObjs = movementManager.GetMovingConnectedObjs();
                 prevDuplicatedObjs = CreateCopies(movingObjs);
             }
         }

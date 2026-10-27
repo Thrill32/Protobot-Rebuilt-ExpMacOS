@@ -13,22 +13,25 @@ namespace Protobot {
         private void Update() {
             var allHoles = new HashSet<HoleCollider>(holes);
             foreach (var holeCollider in allHoles) {
-                if (holeCollider.gameObject.IsDeleted())
+                if (!Usable(holeCollider))
                     RemoveHole(holeCollider);
             }
         }
 
         public bool TargetHoleFound => TargetHoleCount > 0;
-        public int TargetHoleCount { get; private set; } = 0;
+        public int TargetHoleCount => holes.Count(hole => Usable(hole) && IsTargetHole(hole));
 
         public Action OnAddHole; // Runs whenever any hole gets added to this hole detector
         public Action OnAddTargetHole; // Runs when a target hole is added to this hole detector
         public Action OnRemoveHole; // Runs whenever any hole gets removed from this hole detector
         public Action OnRemoveTargetHole; // Runs when a target hole is added to this hole detector
         
-        private void Start() {
-            TargetHoleCount = 0;
-            holes.Clear();
+        private static bool Usable(HoleCollider hole) => hole != null && hole.isActiveAndEnabled &&
+            hole.holeData?.part != null && !hole.gameObject.IsDeleted();
+
+        private void OnDisable() {
+            StopAllCoroutines();
+            RemoveAll();
         }
         
         /// <summary>
@@ -38,11 +41,11 @@ namespace Protobot {
         /// <returns></returns>
         IEnumerator WaitAddTargetHole() {
             yield return new WaitForEndOfFrame();
-            OnAddTargetHole?.Invoke();
+            if (TargetHoleFound) OnAddTargetHole?.Invoke();
         }
 
         public List<GameObject> GetObjects() {
-            return holes.Select(col => col.holeData.part).ToList();
+            return holes.Where(Usable).Select(col => col.holeData.part).Distinct().ToList();
         }
 
         /// <summary>
@@ -50,7 +53,7 @@ namespace Protobot {
         /// </summary>
         /// <returns></returns>
         public List<HoleCollider> GetOrderedHoles() {
-            return holes.OrderBy(x => Vector3.Distance(transform.parent.position, x.transform.position))
+            return holes.Where(Usable).OrderBy(x => Mathf.Abs(Vector3.Dot(x.transform.position - transform.parent.position, transform.parent.forward)))
                         .ToList();
         }
 
@@ -68,7 +71,7 @@ namespace Protobot {
                 var otherHoleBounds = otherHole.GetComponent<MeshCollider>().bounds;
                 otherHoleBounds.Expand(-0.01f);
 
-                foreach (HoleCollider hole in holes) {
+                foreach (HoleCollider hole in holes.Where(Usable)) {
                     var holeBounds = hole.GetComponent<MeshCollider>().bounds;
                     if (holeBounds.Intersects(otherHoleBounds))
                         return true;
@@ -80,7 +83,9 @@ namespace Protobot {
 
         private void OnTriggerStay(Collider other) {
             if (other.TryGetComponent(out HoleCollider hole))
-                if (!hole.IsOccupied && !IsHoleIntersecting(hole))
+                if (Usable(hole) && hole.holeData.part != transform.parent.gameObject &&
+                    Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f &&
+                    !hole.IsOccupied && !IsHoleIntersecting(hole))
                     AddHole(hole);
         }
 
@@ -91,11 +96,10 @@ namespace Protobot {
         }
 
         public void RemoveHole(HoleCollider hole) {
-            holes.Remove(hole);
-            hole.RemoveDetector(this);
+            if (!holes.Remove(hole)) return;
+            if (hole != null) hole.RemoveDetector(this);
 
-            if (IsTargetHole(hole)) {
-                TargetHoleCount--;
+            if (hole != null && IsTargetHole(hole)) {
                 OnRemoveTargetHole?.Invoke();
             }
             
@@ -105,11 +109,10 @@ namespace Protobot {
         public bool IsTargetHole(HoleCollider hole) => hole.holeType == targetHoleType;
 
         public void AddHole(HoleCollider hole) {
+            if (!isActiveAndEnabled || !Usable(hole) || holes.Contains(hole) || !hole.TryAddDetector(this)) return;
             holes.Add(hole);
-            hole.AddDetector(this);
 
             if (IsTargetHole(hole)) {
-                TargetHoleCount++;
                 StartCoroutine(WaitAddTargetHole());
             }
             

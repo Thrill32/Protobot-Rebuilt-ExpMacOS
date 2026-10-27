@@ -18,6 +18,7 @@ namespace Protobot.SelectionSystem {
                 colorSelectionResponse.HoleColliderException(incomingSelection);
                 return new HoleSelection {
                     gameObject = selectHoleFace.gameObject,
+                    individual = incomingSelection.individual,
                     selector = incomingSelection.selector,
                     holeData = selectHoleFace.hole,
                     holeFace = selectHoleFace,

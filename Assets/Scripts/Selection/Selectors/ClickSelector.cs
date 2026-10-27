@@ -23,6 +23,7 @@ namespace Protobot.SelectionSystem {
                 if (mouseCast.overObj) {
                     var selection = new ObjectSelection {
                         gameObject = mouseCast.gameObject,
+                        individual = SnapBypassInput.IsHeld,
                         selector = this
                     };
 

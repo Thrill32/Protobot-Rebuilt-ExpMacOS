@@ -6,12 +6,14 @@ namespace Protobot.SelectionSystem {
     public interface ISelection {
         GameObject gameObject { get; set; }
         Selector selector { get; set; }
+        bool individual { get; set; }
 
         void Select();
         void Deselect();
     }
 
     public class ObjectSelection : ISelection {
+        public bool individual { get; set; }
         public GameObject gameObject { get; set; }
         public Selector selector { get; set; }
         public void Select() { }
@@ -19,6 +21,7 @@ namespace Protobot.SelectionSystem {
     }
 
     public class MultiSelection : ISelection {
+        public bool individual { get; set; }
         public GameObject gameObject { get; set; }
         public Selector selector { get; set; }
 
@@ -38,7 +41,7 @@ namespace Protobot.SelectionSystem {
         }
 
         public void Select() {
-            pivot.AddObjects(objs);
+            pivot.AddObjects(objs, !individual);
             pivot.Center();
         }
 
@@ -49,6 +52,7 @@ namespace Protobot.SelectionSystem {
     }
 
     public class HoleSelection : ISelection {
+        public bool individual { get; set; }
         public GameObject gameObject { get; set; }
         public Selector selector { get; set; }
 

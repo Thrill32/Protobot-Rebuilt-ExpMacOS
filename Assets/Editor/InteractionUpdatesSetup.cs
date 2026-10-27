@@ -99,7 +99,7 @@ namespace ProtobotEditorTools {
             AssetDatabase.SaveAssets();
         }
 
-        private static void LayoutSelectionShortcuts(Transform container) {
+        internal static void LayoutSelectionShortcuts(Transform container) {
             int index = 0;
             foreach (Transform child in container) {
                 if (child.GetComponentInChildren<RebindUI>(true) == null) continue;

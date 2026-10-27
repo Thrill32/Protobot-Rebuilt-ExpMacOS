@@ -17,6 +17,7 @@ This is the quick orientation document for both human contributors and coding ag
 | Input | `Assets/Scripts/Input`, `Assets/Prefabs/Keybindings.prefab` | Default bindings, rebinding, mouse casting, and noclip capture. `InputEvent` is the common abstraction. |
 | Selection | `Assets/Scripts/Selection` | Single, hole, box, and multi-selection. `SelectionManager.current` is the authoritative active selection. A `MultiSelection` owns a `MultiPivot`. |
 | Movement | `Assets/Scripts/Movement`, `Assets/Scripts/Parenting/Pivot.cs` | Moves objects and rigid sets through temporary or selection pivots. Preserve world transforms when changing parents. |
+| Automatic groups | `Assets/Scripts/Parenting/GroupManager.cs`, `ConnectingPart.cs`, `Assets/Scripts/HoleDetector.cs` | Live screw/shaft connections, detector ownership, and connected part sets. |
 | Tools | `Assets/Scripts/Tools` | Transform, move/pivot, color, Connect, and their handles/options. Toolbar buttons belong to one `ToggleGroup`. |
 | Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs`, `TransformNumericInput.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
 | Part properties | `Assets/Scripts/Part Management/PartParameterEditing.cs`, `Assets/Scripts/UI/Add Menu UIs/AddPropertiesUI.cs` | Parameter stepping, pick-part placement, and undoable regeneration of a single placed part. The controller lives on Placement so hiding the add menu does not disable shortcuts. |
@@ -47,6 +48,7 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 | `G` | Grab selected parts in the camera plane |
 | `R` | Rotate placed selections about the world axis closest to the camera's viewing direction; disabled during placement |
 | `X` / `Y` / `Z` during grab/rotation | Constrain to a world axis through the starting position; repeat to restore free grab or rotation's initial primary axis |
+| `H` during grab | Switch to hole snapping; press H again for free movement, or X/Y/Z for an axis |
 | Click / `Enter` during selection grab/rotation | Confirm as one undoable operation |
 | `Escape` / right-click during selection grab/rotation | Cancel and restore the starting transforms |
 | `P` | Pick the selected part's type and properties into normal placement |
@@ -55,15 +57,24 @@ The Connect tool is slightly different: it freezes the body set when activated, 
 | Hold `Space` over a hole | Use the opposite face of that same hole; release to use the hovered face |
 | `/` during G/R | Open relative numeric entry on the current axis; press again for a global value, then again to return to mouse control |
 | `/` during unconstrained G | Enter a global `X, Y, Z` position directly; slash again returns to mouse control |
-| `H` | Toggle grid visibility |
+| `H` outside grab | Toggle grid visibility |
 | `J` | Toggle holes only |
 | Hold `Ctrl` / `Command` | Temporarily bypass snapping |
+| Hold `Ctrl` / `Command` while clicking a part/hole | Select that part individually, bypassing its connected assembly; the scope persists after release |
 | Hold Duplicate (default `Alt`) when starting an axis drag or `G` / `R` | Leave copies at the starting pose while transforming the selected parts |
 | Hold `Shift` | Noclip camera mode |
 | Noclip `W/A/S/D` | Horizontal camera movement |
 | Noclip `E/Q` | Move along the camera's screen up/down directions, including camera pitch |
 
 Bindings are rebindable in Preferences. While noclip mode is active, its movement keys are captured so unrelated bindings do not also fire.
+
+During G/R, physical X/Y/Z take priority over every conflicting binding, including rebound Grab, Rotate, grid, Duplicate and Snap Bypass actions. Held conflicting actions stay suppressed until release. `Grab Hole Snap` is a separate rebindable input (default H), with a Preferences row; during grab it consumes conflicting inputs before their handlers run, including grid visibility. It is inactive during rotation and ordinary selection.
+
+Grab hole snapping uses a selected hole face immediately, moving its connected/grouped set unless individually selected. For a multi-selection or body selection, H first accepts a source-hole click on the moving bodies. Hovering an outside hole then translates and rotates the rigid set so the source face meets the target face; Space uses the opposite target face. Target casts ignore moving colliders and reject sources outside the selection. Existing MultiPivots move directly. H again returns to free movement at the displayed pose. X/Y/Z and relative numeric entry always refer to the original grab anchor, including after H mode; selecting an axis projects back onto that original axis. The temporary source-hole pivot never replaces the operation's base position. Cancel restores the starting transforms; confirmation includes all mode changes in one undo step.
+
+Automatic groups use symmetric live graph edges. A screw connects parts between its head and its furthest threaded hole. A shaft needs two distinct clamp bodies and includes only holes between the outermost clamps. Detector additions/removals are idempotent and enforce ownership; perpendicular holes cannot attach. Every hole change refreshes the fastener graph after the frame, replacing previous membership even when counts match. Disabling/deleting holes, detectors or fasteners releases occupancy and connections; re-enabled geometry is detected again by physics. Graph traversal excludes inactive/deleted parts and resets at runtime startup.
+
+`ISelection.individual` records the Snap Bypass modifier when pointer selection occurs and follows hole selections, multi-selection membership, undo/redo and property regeneration. Selection links carry this scope to keyboard transforms, handle movement, duplication, Connect, outlines and move-tool previews; releasing the modifier does not silently re-expand the assembly.
 
 Grab and rotation use the shared 0.5-unit / 15-degree snapping and Snap Bypass binding. Both ease toward their targets over 0.25 seconds with DOTween's standard easing, matching axis dragging. Confirmation lets the easing finish before capturing the exact final transform for undo; cancellation kills the tween and restores the starting pose. The shared rigid displacement is interpolated so multi-selection spacing stays fixed during rotation. Rotation starts on the nearest primary world axis (largest absolute camera-forward component), captured when R is pressed; it never rotates about an arbitrary camera axis. Placement rotation is deprecated: its old handler and implementation remain under `#if false`, and its legacy public entry points are inert and marked obsolete. The existing `Rotate Placement` binding ID is retained for saved preferences and appears as `Rotate Selection` in Preferences. Modal transforms capture unrelated input through settling and the confirmation frame and consume held inputs until release. Multi-selection transforms use the existing MultiPivot directly.
 
@@ -139,6 +150,8 @@ For initial hole placement checks, use `-executeMethod ProtobotEditorTools.HoleP
 Use `-executeMethod ProtobotEditorTools.HolePlacementValidation.Smoke` without `-quit` for a Play Mode check of pointer raycasts, opposite-face input state, preview rule priority, the committed placement pose, repeated placement, and attachment refresh after property changes.
 
 For modal transform regression checks, add `-executeMethod ProtobotEditorTools.KeyboardTransformValidation.Validate` to the headless compile command (or use Tools > Protobot > Validate Keyboard Transforms). This checks Main scene wiring and Preferences, disabled placement rotation, perspective/orthographic mouse projection, primary rotation axes, XYZ anchoring, snapping, smoothing, rigid MultiPivot behavior, duplication with undo/redo and cancellation, handle visibility, and input capture.
+
+For grab hole snapping, run `-executeMethod ProtobotEditorTools.GrabHoleSnappingValidation.Smoke` without `-quit`. It exits Unity after checking XYZ/rebound input priority, H versus grid and rebinding, source picking, rigid face alignment, opposite faces, moving-collider exclusion, free-mode continuity, original XYZ/numeric anchors, selected-hole groups, and one-step undo/redo. It also runs `FastenerGroupingValidation.Check` for screw/collar physics detection, connection replacement, duplicate hits, occupancy, disable/re-enable, bounded shaft groups and Command-click individual movement. `FastenerGroupingValidation.ValidateRelated` runs the keyboard, numeric and property regression suites in one batch. `GrabHoleSnappingSetup.Configure` installs the binding, Preferences row and Main references idempotently.
 
 For property and hole-tracking checks, use `-executeMethod ProtobotEditorTools.InteractionUpdatesValidation.Validate` (or Tools > Protobot > Validate Interaction Updates). This checks the new scene references/default P binding, dependent options, numeric limits, live hole orientation/position, geometry replacement, color, undo/redo, and generator parameter isolation. `InteractionUpdatesSetup.Configure` idempotently installs the new bindings/Preferences rows and keeps property input handling on Placement.
 

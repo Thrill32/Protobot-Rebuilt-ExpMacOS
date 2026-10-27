@@ -7,7 +7,7 @@ namespace Protobot {
     public abstract class ConnectingPart : MonoBehaviour {
         [SerializeField] public HoleDetector holeDetector;
 
-        private List<GameObject> connectedParts = new();
+        private Coroutine pendingRefresh;
         
         public abstract bool CanFormConnection { get; }
 
@@ -21,44 +21,40 @@ namespace Protobot {
         }
 
         public void FormConnection() {
-            var attachedParts = GetAttachedParts();
-
-            if (connectedParts.Count > attachedParts.Count) {
-                var diff = connectedParts.Except(attachedParts);
-                foreach (var obj in diff) {
-                    GroupManager.BreakConnection(this, obj);
-                }
-            }
-
-            GroupManager.FormConnection(this, attachedParts);
-            connectedParts = attachedParts;
+            GroupManager.FormConnection(this, CanFormConnection ? GetAttachedParts() : null);
         }
 
         public void BreakConnection() => GroupManager.Remove(gameObject);
 
-        private void AddConnectionEvents() {
-            holeDetector.OnAddTargetHole += () => {
-                if (CanFormConnection)
-                    FormConnection();
-            };
-            holeDetector.OnRemoveTargetHole += () => {
-                if (!CanFormConnection)
-                    BreakConnection();
-                else
-                    FormConnection();
-            };
+        private void RefreshConnections() {
+            if (isActiveAndEnabled && pendingRefresh == null)
+                pendingRefresh = StartCoroutine(WaitRefresh());
+        }
+
+        private IEnumerator WaitRefresh() {
+            yield return new WaitForEndOfFrame();
+            pendingRefresh = null;
+            FormConnection();
         }
         
         public void OnEnable() {
-            AddConnectionEvents();
+            holeDetector.OnAddHole += RefreshConnections;
+            holeDetector.OnRemoveHole += RefreshConnections;
+            RefreshConnections();
         }
 
         public void OnDisable() {
-            holeDetector.ClearEvents();
+            if (pendingRefresh != null) StopCoroutine(pendingRefresh);
+            pendingRefresh = null;
+            if (holeDetector != null) {
+                holeDetector.OnAddHole -= RefreshConnections;
+                holeDetector.OnRemoveHole -= RefreshConnections;
+            }
+            BreakConnection();
         }
 
         public void OnDestroy() {
-            holeDetector.ClearEvents();
+            BreakConnection();
         }
     }
 }

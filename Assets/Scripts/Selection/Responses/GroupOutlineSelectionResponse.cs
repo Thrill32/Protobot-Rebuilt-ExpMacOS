@@ -13,7 +13,7 @@ namespace Protobot.SelectionSystem {
         public override bool RespondOnlyToSelectors => false;
 
         public void SetSelectionDisplay() {
-            if (selectionObjectLink.active) {
+            if (selectionObjectLink.active && !selectionObjectLink.individual) {
                 SetDisplay(selectionObjectLink.obj);
             }
         }
@@ -37,7 +37,7 @@ namespace Protobot.SelectionSystem {
         }
 
         public override void OnSet(ISelection selection) {
-            SetDisplay(selection.gameObject);
+            if (!selection.individual) SetDisplay(selection.gameObject);
         }
 
         public override void OnClear(ClearInfo clearInfo) {

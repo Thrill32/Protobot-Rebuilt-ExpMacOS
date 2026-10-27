@@ -32,7 +32,7 @@ namespace Protobot {
                         attachedParts.Add(orderedHoles[i].holeData.part);
                 }
 
-                return attachedParts;
+                return attachedParts.Distinct().ToList();
 
             }
             

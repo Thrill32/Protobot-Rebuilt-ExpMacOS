@@ -29,6 +29,7 @@ namespace Protobot.Tools {
         private bool hadSelectionOnActivation;
         private bool hasSource;
         private bool isMoving;
+        private bool individualSelection;
         private Vector3 sourcePosition;
         private Tween moveTween;
         private GameObject sourceMarker;
@@ -188,6 +189,7 @@ namespace Protobot.Tools {
             hadSelectionOnActivation = false;
 
             var selection = selectionManager != null ? selectionManager.current : null;
+            individualSelection = selection?.individual ?? false;
             if (selection == null)
                 return;
 
@@ -224,10 +226,10 @@ namespace Protobot.Tools {
             if (body == null)
                 return;
 
-            if (body.TryGetGroup(out List<GameObject> groupObjects))
+            if (!individualSelection && body.TryGetGroup(out List<GameObject> groupObjects))
                 AddBodies(groupObjects);
             else
-                AddBodies(body.GetConnectedObjects(true, true));
+                AddBodies(body.GetConnectedObjects(true, true, !individualSelection));
 
             movingRoots.AddRange(movingBodies);
         }

@@ -181,7 +181,7 @@ namespace Protobot.UI {
             Vector3? localHole = anchor.HasValue ? old.transform.InverseTransformPoint(anchor.Value) : null;
             var replacement = PartParameterEditing.Replace(old, generator, anchor, localHole);
             if (replacement == null) return;
-            ISelection nextSelection = new ObjectSelection { gameObject = replacement };
+            ISelection nextSelection = new ObjectSelection { gameObject = replacement, individual = previousSelection?.individual ?? false };
             if (hole != null) {
                 HoleCollider nearest = null;
                 float distance = float.PositiveInfinity;
@@ -190,6 +190,7 @@ namespace Protobot.UI {
                     if (d < distance) { nearest = candidate; distance = d; }
                 }
                 if (nearest != null) nextSelection = new HoleSelection {
+                    individual = previousSelection?.individual ?? false,
                     gameObject = hole.gameObject, holeFace = hole.holeFace, holeData = nearest.holeData,
                     faceDirection = hole.holeFace.direction
                 };

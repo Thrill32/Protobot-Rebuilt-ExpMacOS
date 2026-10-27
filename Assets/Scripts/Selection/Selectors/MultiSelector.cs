@@ -13,10 +13,13 @@ namespace Protobot.SelectionSystem {
         [SerializeField] private InputEvent mutliSelectInput;
 
         private GameObject lastSelectedObj;
+        private bool lastIndividual;
 
         public override void OnSet(ISelection selection) {
-            if (IsObjectSelection(selection))
+            if (IsObjectSelection(selection)) {
                 lastSelectedObj = selection.gameObject;
+                lastIndividual = selection.individual;
+            }
         }
 
         private bool IsObjectSelection(ISelection sel) {
@@ -27,10 +30,10 @@ namespace Protobot.SelectionSystem {
 
             if (IsObjectSelection(incomingSelection)) {
                 if (mutliSelectInput.IsPressed && lastSelectedObj != null) {
-                    incomingSelection.gameObject.GetConnectedObjects(true).ForEach(x => objs.Add(x));
-                    lastSelectedObj.GetConnectedObjects(true).ForEach(x => objs.Add(x));
+                    incomingSelection.gameObject.GetConnectedObjects(true, false, !incomingSelection.individual).ForEach(x => objs.Add(x));
+                    lastSelectedObj.GetConnectedObjects(true, false, !lastIndividual).ForEach(x => objs.Add(x));
 
-                    return new MultiSelection(incomingSelection.selector, objs.ToList());
+                    return new MultiSelection(incomingSelection.selector, objs.ToList()) { individual = incomingSelection.individual || lastIndividual };
                 }
             }
 

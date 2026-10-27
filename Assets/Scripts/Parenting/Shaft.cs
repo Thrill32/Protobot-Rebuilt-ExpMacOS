@@ -7,43 +7,21 @@ using System;
 namespace Protobot {
     public class Shaft : ConnectingPart {
         public float ShaftLength => transform.localScale.z;
-        public override bool CanFormConnection => holeDetector.TargetHoleCount >= 2;
+        public override bool CanFormConnection => holeDetector.GetOrderedHoles()
+            .Where(holeDetector.IsTargetHole).Select(hole => hole.holeData.part).Distinct().Count() >= 2;
 
         public override HoleDetector CreateHoleDetector() {
             return HoleDetector.Create(transform, ShaftLength, HoleCollider.HoleType.Clamp);
         }
 
-        private List<HoleCollider> GetOrderedHoles() {
-            var furthestPos = transform.position + transform.forward * ShaftLength;
-
-            return holeDetector
-                .holes
-                .OrderBy(x => Vector3.Distance(furthestPos, x.transform.position))
-                .ToList();
-        }
-
         public override List<GameObject> GetAttachedParts() {
             if (CanFormConnection) {
-                var orderedHoles = GetOrderedHoles();
-
-                var attachedObjs = new List<GameObject>();
-
-                bool betweenTwoTargets = false;
-                int foundTargets = 0;
-
-                foreach (var hole in orderedHoles) {
-                    bool isTarget = holeDetector.IsTargetHole(hole);
-                    
-                    if (isTarget) {
-                        foundTargets++;
-                        betweenTwoTargets = foundTargets < holeDetector.TargetHoleCount;
-                    }
-                    
-                    if (betweenTwoTargets || isTarget)
-                        attachedObjs.Add(hole.transform.parent.gameObject);
-                }
-
-                return attachedObjs;
+                var holes = holeDetector.GetOrderedHoles();
+                float Position(HoleCollider hole) => Vector3.Dot(hole.transform.position - transform.position, transform.forward);
+                var clamps = holes.Where(holeDetector.IsTargetHole).Select(Position).ToArray();
+                float min = clamps.Min(), max = clamps.Max();
+                return holes.Where(hole => Position(hole) >= min - .001f && Position(hole) <= max + .001f)
+                    .Select(hole => hole.holeData.part).Distinct().ToList();
             }
 
             return null;

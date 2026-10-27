@@ -173,7 +173,7 @@ namespace Protobot {
                 placementSnapOrigin = objTransform.position;
                 currentDisplacement = new Displacement(transform);
                 
-                SetPlacementLayer(objPlaceData.GetGameObject(), true);
+                SetPlacementLayer(objPlaceData.GetGameObject(), true, !objPlaceData.individual);
             }
 
             currentDisplacement = new Displacement(transform);
@@ -181,8 +181,8 @@ namespace Protobot {
             OnStartPlacing?.Invoke();
         }
 
-        public void SetPlacementLayer(GameObject obj, bool value) {
-            obj.GetConnectedObjects(true).ForEach(x => {
+        public void SetPlacementLayer(GameObject obj, bool value, bool includeConnections = true) {
+            obj.GetConnectedObjects(true, false, includeConnections).ForEach(x => {
                 if (value && x.layer == 0)
                     x.layer = Placement.PLACEMENT_LAYER;
                 
@@ -199,7 +199,7 @@ namespace Protobot {
 
         public void StopPlacing() {
             if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData))
-                SetPlacementLayer(objPlaceData.GetGameObject(), false);
+                SetPlacementLayer(objPlaceData.GetGameObject(), false, !objPlaceData.individual);
             
             transform.rotation = Quaternion.identity;
             rotating = false;
