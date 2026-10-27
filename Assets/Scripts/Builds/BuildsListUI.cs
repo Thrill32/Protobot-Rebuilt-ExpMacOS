@@ -1,5 +1,4 @@
 ﻿using System;
-using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -34,9 +33,10 @@ namespace Protobot.UI {
         }
 
         public void AddPath(string path) {
+            if (string.IsNullOrWhiteSpace(path)) return;
             var paths = ReadPaths();
             
-            if (ReadPaths().Contains(path)) {
+            if (paths.Contains(path)) {
                 paths.Remove(path);
             }
              
@@ -54,23 +54,15 @@ namespace Protobot.UI {
             PlayerPrefs.SetString(PrefsKey, String.Join("\n", paths));
         }
 
-        public List<string> ReadPaths() => PlayerPrefs.GetString(PrefsKey).Split("\n").ToList();
+        public List<string> ReadPaths() => PlayerPrefs.GetString(PrefsKey).Split('\n')
+            .Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal).Take(sizeLimit).ToList();
 
         public List<string> GetPaths() {
-            var paths = ReadPaths();
-
-            bool removedPaths = false;
-            foreach (string path in new List<string>(paths)) {
-                if (!File.Exists(path)) {
-                    paths.Remove(path);
-                    removedPaths = true;
-                }
-            }
-
-            if (removedPaths)
-                SavePaths(paths);
-            
-            return paths;
+            // Never probe saved network/cloud paths during startup or UI refresh.
+            // File.Exists can block the first frame while a volume/provider stalls.
+            // OpenPathAsync checks availability on a worker when a file is chosen;
+            // keep unavailable entries so they can be retried when reconnected.
+            return ReadPaths();
         }
 
         public void UpdateUI() {

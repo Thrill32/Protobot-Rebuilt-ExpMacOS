@@ -83,6 +83,7 @@ namespace Protobot.Tools {
                 offset = axis * (global ? value - Vector3.Dot(origin, axis) : value);
                 return Finite(offset);
             }
+            value = TransformSnapping.WrapAngle(value);
             degrees = value;
             if (global) {
                 var euler = initialRotation.eulerAngles;

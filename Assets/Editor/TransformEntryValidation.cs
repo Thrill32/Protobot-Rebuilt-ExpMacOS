@@ -65,6 +65,15 @@ namespace ProtobotEditorTools {
                 var expected = initial.eulerAngles;
                 expected[axis == Vector3.right ? 0 : axis == Vector3.up ? 1 : 2] = 72f;
                 Near(actual, expected, "Global rotation must preserve the other Euler components");
+                foreach (var sample in new[] { ("375", 15f), ("-375", -15f), ("720", 0f), ("-720", 0f), ("-735.25", -15.25f) }) {
+                    Require(TransformNumericInput.TryEvaluate(sample.Item1, false, true, axis, origin, initial, out _, out rotation, out float degrees), "Multi-turn relative rotation rejected.");
+                    Require(Mathf.Abs(degrees - sample.Item2) < .001f, "Relative numeric rotation did not preserve signed wrapping.");
+                    Near(rotation, Quaternion.AngleAxis(sample.Item2, axis), "Wrapped relative numeric orientation");
+                    Require(TransformNumericInput.TryEvaluate(sample.Item1, true, true, axis, origin, initial, out _, out rotation, out _), "Multi-turn global rotation rejected.");
+                    expected = initial.eulerAngles;
+                    expected[axis == Vector3.right ? 0 : axis == Vector3.up ? 1 : 2] = sample.Item2;
+                    Near(rotation * initial, Quaternion.Euler(expected), "Wrapped global numeric orientation");
+                }
             }
             Require(TransformNumericInput.TryEvaluate(" 5, -2.25, 1e1 ", true, false, Vector3.zero, origin, initial, out var xyz, out _, out _), "Global XYZ rejected.");
             Near(origin + xyz, new Vector3(5f, -2.25f, 10f), "Global XYZ position");
@@ -121,6 +130,22 @@ namespace ProtobotEditorTools {
                 Near(first.transform.position, origin + Vector3.right * .5f, "Invalid entry moved the part");
                 Invoke(controller, "Apply", (Vector2)MouseInput.Position);
                 Near(Get<Vector3>(controller, "targetOffset"), Vector3.right * .5f, "Resuming at the same pointer position jumped");
+
+                Reset(false, Vector3.right);
+                var wrappedGesture = Get<TransformGesture>(controller, "gesture");
+                var edge = (Vector2)MouseInput.Position + Vector2.right * 300;
+                var wrapped = edge - Vector2.right * 600;
+                wrappedGesture.RebasePointer(edge, wrapped);
+                UnityEngine.InputSystem.LowLevel.InputState.Change(mouse.position, wrapped, InputUpdateType.Dynamic);
+                Invoke(controller, "Apply", wrapped);
+                var wrappedOffset = Get<Vector3>(controller, "targetOffset");
+                Get<Tween>(controller, "smoothingTween")?.Complete();
+                numeric.Cycle(false); Type("invalid");
+                Require(!(bool)Invoke(controller, "SubmitNumeric"), "Invalid entry after wrapping was accepted.");
+                Invoke(controller, "Apply", wrapped);
+                Near(Get<Vector3>(controller, "targetOffset"), wrappedOffset, "Numeric-to-mouse after wrapping jumped");
+                numeric.Cycle(false); Type(".23"); SubmitAndComplete();
+                Near(first.transform.position, origin + Vector3.right * .23f, "Wrapped move changed the original relative numeric anchor");
 
                 Reset(false, Vector3.right);
                 numeric.Cycle(false); Type("0.23"); SubmitAndComplete();

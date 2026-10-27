@@ -20,11 +20,31 @@ namespace ProtobotEditorTools {
                 });
                 if (report.summary.result != BuildResult.Succeeded)
                     throw new InvalidOperationException("Apple Silicon build failed: " + report.summary.result);
-                Debug.Log("Apple Silicon build succeeded: " + report.summary.outputPath);
+                // Unity strips copied native libraries to ARM64. Refresh nested
+                // signatures afterwards so the built app is consistently valid.
+                var quotedPath = "\"" + report.summary.outputPath.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+                Codesign("--force --deep --sign - --preserve-metadata=identifier,entitlements,flags,runtime " + quotedPath);
+                Codesign("--verify --deep --strict " + quotedPath);
+                Debug.Log("Apple Silicon build succeeded and signature verified: " + report.summary.outputPath);
             }
             finally {
                 PlayerSettings.SetArchitecture(NamedBuildTarget.Standalone, previousArchitecture);
             }
+        }
+
+        private static void Codesign(string arguments) {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+                FileName = "/usr/bin/codesign",
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            });
+            if (process == null) throw new InvalidOperationException("Could not start codesign.");
+            string output = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            if (process.ExitCode != 0) throw new InvalidOperationException("macOS code signature failed: " + output);
+            if (!string.IsNullOrWhiteSpace(output)) Debug.Log(output.Trim());
         }
     }
 }

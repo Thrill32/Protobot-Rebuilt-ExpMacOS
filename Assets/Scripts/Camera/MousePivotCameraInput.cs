@@ -46,7 +46,7 @@ namespace Protobot {
         }
 
         private void Update() {
-            if (InputEvent.IsNoclipMovementCaptured || Protobot.Tools.KeyboardTransformTool.IsCapturingInput)
+            if (InputEvent.IsNoclipMovementCaptured || Protobot.Tools.KeyboardTransformTool.BlocksCameraNavigation)
                 return;
 
             if (orbitInput.IsPressed && !disableOrbitInput) {

@@ -32,6 +32,12 @@ namespace ProtobotEditorTools {
             data.FindProperty("holeSnapInput").objectReferenceValue = holeSnap;
             data.FindProperty("oppositeHoleInput").objectReferenceValue = inputs.Single(input => input.name == "Select Opposite Hole");
             data.FindProperty("mouseCast").objectReferenceValue = Object.FindFirstObjectByType<MouseCast>();
+            data.FindProperty("holePreview").objectReferenceValue = new SerializedObject(
+                Object.FindFirstObjectByType<Protobot.SelectionSystem.HoleFaceResponseSelector>())
+                .FindProperty("hoverHoleFace").objectReferenceValue;
+            data.FindProperty("orbitInput").objectReferenceValue = inputs.Single(input => input.name == "Orbit");
+            data.FindProperty("panInput").objectReferenceValue = inputs.Single(input => input.name == "Pan");
+            data.FindProperty("noclipInput").objectReferenceValue = inputs.Single(input => input.name == "Noclip Camera");
             data.ApplyModifiedPropertiesWithoutUndo();
 
             var rows = Object.FindObjectsByType<RebindUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);

@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using System.IO;
-using SFB;
 using Protobot.Builds.Windows;
 using Protobot.Builds;
 using DG.Tweening.Plugins.Core.PathCore;
 using System.Security.Cryptography;
+using System;
+using System.Threading.Tasks;
 using Parts_List;
 
 public class PartListOutput : MonoBehaviour
@@ -85,13 +86,17 @@ public class PartListOutput : MonoBehaviour
         }
         
         // New method to save the parts list to a file
-        public void SavePartsListToFile()
+        public async void SavePartsListToFile()
         {
-            string fileLocation = GetFileLocation();
-
-            if (!string.IsNullOrEmpty(fileLocation))
-            {
-                File.WriteAllText(fileLocation, partsList);
+            if (NativeFileDialogs.IsOpen) return;
+            try {
+                string fileLocation = await GetFileLocationAsync();
+                if (string.IsNullOrEmpty(fileLocation) || this == null) return;
+                var text = partsList;
+                await Task.Run(() => File.WriteAllText(fileLocation, text));
+            }
+            catch (Exception exception) {
+                Debug.LogError("Could not save parts list: " + exception.Message);
             }
         }
 
@@ -100,9 +105,9 @@ public class PartListOutput : MonoBehaviour
             return totalWeight;
         }
 
-        public string GetFileLocation()
+        public Task<string> GetFileLocationAsync()
         {
             //allows the user to specify the file path to save the txt file to
-            return StandaloneFileBrowser.SaveFilePanel("Save Parts List", "", "Parts", "txt");
+            return NativeFileDialogs.SaveFileAsync("Save Parts List", "", "Parts", "txt");
         }
 }

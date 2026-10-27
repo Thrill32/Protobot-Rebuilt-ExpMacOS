@@ -12,19 +12,31 @@ namespace SFB {
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         public delegate void AsyncCallback(string path);
 
+        // Native panels outlive the P/Invoke call. Root their delegates until
+        // completion rather than relying on temporary method-group delegates.
+        private static readonly AsyncCallback OpenFileCallback = openFileCb;
+        private static readonly AsyncCallback OpenFolderCallback = openFolderCb;
+        private static readonly AsyncCallback SaveFileCallback = saveFileCb;
+
         [AOT.MonoPInvokeCallback(typeof(AsyncCallback))]
         private static void openFileCb(string result) {
-            _openFileCb.Invoke(result.Split((char)28));
+            var callback = _openFileCb;
+            _openFileCb = null;
+            callback?.Invoke(string.IsNullOrEmpty(result) ? Array.Empty<string>() : result.Split((char)28));
         }
 
         [AOT.MonoPInvokeCallback(typeof(AsyncCallback))]
         private static void openFolderCb(string result) {
-            _openFolderCb.Invoke(result.Split((char)28));
+            var callback = _openFolderCb;
+            _openFolderCb = null;
+            callback?.Invoke(string.IsNullOrEmpty(result) ? Array.Empty<string>() : result.Split((char)28));
         }
 
         [AOT.MonoPInvokeCallback(typeof(AsyncCallback))]
         private static void saveFileCb(string result) {
-            _saveFileCb.Invoke(result);
+            var callback = _saveFileCb;
+            _saveFileCb = null;
+            callback?.Invoke(result ?? "");
         }
 
         [DllImport("StandaloneFileBrowser")]
@@ -56,7 +68,7 @@ namespace SFB {
                 directory,
                 GetFilterFromFileExtensionList(extensions),
                 multiselect,
-                openFileCb);
+                OpenFileCallback);
         }
 
         public string[] OpenFolderPanel(string title, string directory, bool multiselect) {
@@ -73,7 +85,7 @@ namespace SFB {
                 title,
                 directory,
                 multiselect,
-                openFolderCb);
+                OpenFolderCallback);
         }
 
         public string SaveFilePanel(string title, string directory, string defaultName, ExtensionFilter[] extensions) {
@@ -91,7 +103,7 @@ namespace SFB {
                 directory,
                 defaultName,
                 GetFilterFromFileExtensionList(extensions),
-                saveFileCb);
+                SaveFileCallback);
         }
 
         private static string GetFilterFromFileExtensionList(ExtensionFilter[] extensions) {

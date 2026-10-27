@@ -14,7 +14,7 @@ namespace Protobot.Tools {
         private void OnGUI() {
             if (!dragging) return;
             if (this is RotationTool)
-                TransformFeedback.Draw($"{feedbackDegrees:0.##}°");
+                TransformFeedback.Draw(TransformFeedback.Angle(feedbackDegrees));
             else if (this is PositionTool)
                 TransformFeedback.Draw(TransformFeedback.Distance(feedbackOffset, this is PositionAxis axis ? axis.normal.Vector : Vector3.zero));
         }

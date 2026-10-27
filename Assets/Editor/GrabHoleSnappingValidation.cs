@@ -51,7 +51,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 Check();
-                Debug.Log("Grab hole snapping smoke passed: XYZ priority, H/grid priority and rebinding, rigid face alignment, opposite faces, H-to-free continuity, original XYZ/numeric anchors, selected-hole groups, undo/redo, and fastener grouping/individual selection.");
+                Debug.Log("Grab hole snapping smoke passed: source/target face previews, opposite source selection, camera navigation, XYZ priority, H/grid priority and rebinding, rigid face alignment, opposite faces, H-to-free continuity, original XYZ/numeric anchors, selected-hole groups, undo/redo, and fastener grouping/individual selection.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) {
@@ -63,7 +63,7 @@ namespace ProtobotEditorTools {
         private static void Check() {
             var tool = Object.FindFirstObjectByType<KeyboardTransformTool>();
             var manager = Get<SelectionManager>(tool, "selectionManager");
-            foreach (var field in new[] { "holeSnapInput", "oppositeHoleInput", "mouseCast" })
+            foreach (var field in new[] { "holeSnapInput", "oppositeHoleInput", "mouseCast", "holePreview", "orbitInput", "panInput", "noclipInput" })
                 Require(new SerializedObject(tool).FindProperty(field).objectReferenceValue != null, "Missing reference: " + field);
             var binding = Get<InputEvent>(tool, "holeSnapInput");
             Require(binding.defaultAction.bindings[0].path == "<Keyboard>/h", "Hole mode must default to H.");
@@ -110,7 +110,10 @@ namespace ProtobotEditorTools {
                 Invoke(tool, "BeginSelection", false);
                 Invoke(tool, "ToggleHoleSnap");
                 Require(Get<bool>(tool, "holeSnapping") && !Get<bool>(tool, "hasSourceHole"), "Multi-selection must allow source picking.");
+                CheckCameraNavigation(tool, camera, source);
+                CheckSourcePreview(tool, camera, source, target);
                 Invoke(tool, "ChangeAxis", Vector3.right);
+                Require(!Get<HoleFace>(tool, "holePreview").gameObject.activeSelf, "Axis exit left a hole preview visible.");
                 Require(!Get<bool>(tool, "holeSnapping") && Get<Vector3>(tool, "axis") == Vector3.right, "X must leave source picking.");
                 Near(first.transform.position, startFirst, "Exiting source picking moved a part.");
                 Invoke(tool, "ToggleHoleSnap");
@@ -216,6 +219,110 @@ namespace ProtobotEditorTools {
             }
         }
 
+        // Batch Mode has no focused application window; exercise the same modal
+        // input path after LateUpdate's focus/lifecycle guard.
+        private static void HandleInput(KeyboardTransformTool tool) => Invoke(tool, "HandleInput", Keyboard.current, Mouse.current);
+
+        private static void CheckSourcePreview(KeyboardTransformTool tool, Camera camera, HoleCollider source, HoleCollider target) {
+            var preview = Get<HoleFace>(tool, "holePreview");
+            Point(camera, target.transform.position);
+            HandleInput(tool);
+            Require(!preview.gameObject.activeSelf, "Source preview highlighted a hole outside the selection.");
+            Point(camera, source.transform.position);
+            Keys();
+            HandleInput(tool);
+            Require(preview.gameObject.activeSelf && preview.hole == source.holeData, "Source hover did not highlight the picked hole.");
+            Near(preview.position, source.transform.position - Vector3.forward * .1f, "Source hover highlighted the wrong face.");
+            Keys(Key.Space);
+            HandleInput(tool);
+            Near(preview.position, source.transform.position + Vector3.forward * .1f, "Space did not highlight the opposite source face.");
+            Require(Vector3.Dot(preview.direction, Vector3.forward) > .999f, "Opposite source preview has the wrong direction.");
+            Keys();
+            HandleInput(tool);
+            Near(preview.position, source.transform.position - Vector3.forward * .1f, "Releasing Space did not restore the hovered source face.");
+            Keys(Key.Space);
+            Button(MouseButton.Left, true);
+            HandleInput(tool);
+            Button(MouseButton.Left, false);
+            Require(Get<bool>(tool, "hasSourceHole") && !preview.gameObject.activeSelf, "Source click did not commit and clear its hover preview.");
+            Near(Get<Vector3>(tool, "sourceHoleOrigin"), source.transform.position + Vector3.forward * .1f, "Source click ignored the held opposite-face modifier.");
+            Snap(tool, camera, target, false);
+            Near(source.transform.position + source.transform.forward * .1f,
+                target.transform.position - target.transform.forward * .1f, "Opposite source face did not meet the target face.");
+            Invoke(tool, "Finish", false);
+            Require(!preview.gameObject.activeSelf, "Cancel left the hole preview visible.");
+            Keys();
+            Invoke(tool, "BeginSelection", false);
+            Invoke(tool, "ToggleHoleSnap");
+            Point(camera, source.transform.position);
+            HandleInput(tool);
+            Require(preview.gameObject.activeSelf, "Source preview did not return after cancellation.");
+        }
+
+        private static void CheckCameraNavigation(KeyboardTransformTool tool, Camera camera, HoleCollider source) {
+            var obj = New("Grab camera input probe");
+            obj.SetActive(false);
+            var cameraInput = obj.AddComponent<MousePivotCameraInput>();
+            Set(cameraInput, "orbitInput", Get<InputEvent>(tool, "orbitInput"));
+            Set(cameraInput, "panInput", Get<InputEvent>(tool, "panInput"));
+            int orbits = 0, pans = 0, zooms = 0;
+            cameraInput.updateOrbit += _ => orbits++;
+            cameraInput.updatePan += _ => pans++;
+            cameraInput.updateZoom += _ => zooms++;
+            var noclip = Object.FindFirstObjectByType<NoclipCameraInput>();
+            var start = source.transform.position;
+            Require(KeyboardTransformTool.AllowsCameraNavigation && KeyboardTransformTool.AllowsInput(Get<InputEvent>(tool, "noclipInput")),
+                "H mode blocked camera/noclip navigation.");
+            if (Application.isFocused)
+                Require((bool)Invoke(noclip, "CanCaptureInput"), "H mode blocked noclip activation.");
+            try {
+                Point(camera, source.transform.position);
+                InputState.Change(Mouse.current.delta, new Vector2(10, 5), InputUpdateType.Dynamic);
+                Button(MouseButton.Right, true);
+                Get<InputEvent>(tool, "orbitInput").Update();
+                Invoke(cameraInput, "Update");
+                HandleInput(tool);
+                Require(orbits == 1 && Get<bool>(tool, "active"), "Right-click did not orbit or canceled H mode.");
+                Require(!Get<bool>(tool, "hasSourceHole"), "Orbit selected a source hole.");
+                Button(MouseButton.Right, false);
+                Get<InputEvent>(tool, "orbitInput").Update();
+                Button(MouseButton.Middle, true);
+                Get<InputEvent>(tool, "panInput").Update();
+                Invoke(cameraInput, "Update");
+                HandleInput(tool);
+                Require(pans == 1 && Get<bool>(tool, "active"), "H mode blocked camera pan.");
+                Button(MouseButton.Middle, false);
+                Get<InputEvent>(tool, "panInput").Update();
+                InputState.Change(Mouse.current.position, new Vector2(Screen.width / 2f, Screen.height / 2f), InputUpdateType.Dynamic);
+                InputState.Change(Mouse.current.scroll, Vector2.up, InputUpdateType.Dynamic);
+                Invoke(cameraInput, "Update");
+                Require(zooms == 1, "H mode blocked scroll zoom.");
+                InputEvent.SetNoclipMovementCapture(true);
+                Button(MouseButton.Left, true);
+                HandleInput(tool);
+                Require(!Get<bool>(tool, "hasSourceHole"), "Noclip click selected a source hole.");
+                Near(source.transform.position, start, "Camera navigation moved the selection.");
+                InputEvent.SetNoclipMovementCapture(false);
+                Button(MouseButton.Left, false);
+                Invoke(tool, "LeaveHoleSnap");
+                Require(KeyboardTransformTool.BlocksCameraNavigation && !(bool)Invoke(noclip, "CanCaptureInput"),
+                    "Free grab unexpectedly allowed camera input.");
+                Invoke(tool, "ToggleHoleSnap");
+                var numeric = Get<TransformNumericInput>(tool, "numericInput");
+                numeric.Cycle(true);
+                Require(KeyboardTransformTool.BlocksCameraNavigation, "Numeric entry allowed camera input.");
+                numeric.Close();
+            }
+            finally {
+                Button(MouseButton.Right, false);
+                Button(MouseButton.Middle, false);
+                Button(MouseButton.Left, false);
+                InputState.Change(Mouse.current.scroll, Vector2.zero, InputUpdateType.Dynamic);
+                InputState.Change(Mouse.current.delta, Vector2.zero, InputUpdateType.Dynamic);
+                InputEvent.SetNoclipMovementCapture(false);
+            }
+        }
+
         private static void CheckPriority(KeyboardTransformTool tool) {
             var grab = Get<InputEvent>(tool, "grabInput");
             var rotate = Get<InputEvent>(tool, "rotateInput");
@@ -274,6 +381,10 @@ namespace ProtobotEditorTools {
             Point(camera, target.transform.position);
             Invoke(tool, "Apply", (Vector2)MouseInput.Position);
             Require(Get<bool>(tool, "hasHoleTarget"), "Target hole was not resolved.");
+            var preview = Get<HoleFace>(tool, "holePreview");
+            Require(preview.gameObject.activeSelf && preview.hole == target.holeData, "Target preview did not highlight the target hole.");
+            Near(preview.position, target.transform.position + (opposite ? 1 : -1) * target.transform.forward * .1f,
+                "Target preview highlighted the wrong face.");
             Complete(tool);
             Physics.SyncTransforms();
         }
@@ -282,6 +393,16 @@ namespace ProtobotEditorTools {
         private static void Point(Camera camera, Vector3 point) {
             InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(point), InputUpdateType.Dynamic);
             Physics.SyncTransforms();
+        }
+        private static void Button(MouseButton button, bool pressed) {
+            var mouse = Mouse.current;
+            var state = new MouseState {
+                position = mouse.position.ReadValue(), delta = mouse.delta.ReadValue(), scroll = mouse.scroll.ReadValue()
+            }.WithButton(MouseButton.Left, mouse.leftButton.isPressed)
+                .WithButton(MouseButton.Right, mouse.rightButton.isPressed)
+                .WithButton(MouseButton.Middle, mouse.middleButton.isPressed)
+                .WithButton(button, pressed);
+            InputState.Change(mouse, state, InputUpdateType.Dynamic);
         }
         private static void Keys(params Key[] keys) {
             typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,

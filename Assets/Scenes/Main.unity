@@ -42272,7 +42272,31 @@ MonoBehaviour:
         m_CallState: 2
   OnMacStart:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1851306914}
+        m_TargetAssemblyTypeName:
+        m_MethodName: SetActive
+        m_Mode: 6
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument:
+          m_BoolArgument: 1
+        m_CallState: 2
+      - m_Target: {fileID: 1229443488}
+        m_TargetAssemblyTypeName:
+        m_MethodName: set_interactable
+        m_Mode: 6
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument:
+          m_BoolArgument: 1
+        m_CallState: 2
   OnLinuxStart:
     m_PersistentCalls:
       m_Calls: []
@@ -52197,6 +52221,10 @@ MonoBehaviour:
   holeSnapInput: {fileID: 272153409}
   oppositeHoleInput: {fileID: 1190413779}
   mouseCast: {fileID: 963194229}
+  holePreview: {fileID: 2016192960}
+  orbitInput: {fileID: 1461980130}
+  panInput: {fileID: 1725275621}
+  noclipInput: {fileID: 246119430474503456}
   duplicator: {fileID: 449735652}
   showConstraintAxis: 1
 --- !u!114 &246119430474503461 stripped

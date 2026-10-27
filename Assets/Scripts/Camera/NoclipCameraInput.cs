@@ -48,7 +48,7 @@ namespace Protobot {
         }
 
         private bool CanCaptureInput() {
-            if (RebindAction.Rebinding || !Application.isFocused || Protobot.Tools.KeyboardTransformTool.IsCapturingInput)
+            if (RebindAction.Rebinding || !Application.isFocused || Protobot.Tools.KeyboardTransformTool.BlocksCameraNavigation)
                 return false;
 
             var selected = EventSystem.current != null

@@ -21,5 +21,12 @@ namespace Protobot.Tools {
         public static float SnapAngle(float angle) {
             return Mathf.Round(angle / RotationIncrement) * RotationIncrement;
         }
+
+        /// <summary>One signed turn, measured in the direction from the starting pose.</summary>
+        public static float WrapAngle(float angle) {
+            float wrapped = angle % 360f;
+            // Pointer deltas accumulate a little float error over full turns.
+            return Mathf.Abs(wrapped) < .001f || 360f - Mathf.Abs(wrapped) < .001f ? 0f : wrapped;
+        }
     }
 }

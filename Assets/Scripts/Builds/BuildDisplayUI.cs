@@ -17,17 +17,14 @@ namespace Protobot.UI {
             buildsManager = _buildsManager;
         }
 
-        public void LoadBuild() {
-            var build = BuildsManager.ParsePath(buildPath);
-
-            if (build != null)
-                buildsManager.AttemptLoad(build, buildPath);
-            else
+        public async void LoadBuild() {
+            if (buildsManager.IsFileOperationInProgress || NativeFileDialogs.IsOpen) return;
+            if (!await buildsManager.OpenPathAsync(buildPath) && this != null)
                 StartCoroutine(DisplayLoadError());
         }
         
         IEnumerator DisplayLoadError() {
-            buildNameText.text = "File path not found...";
+            buildNameText.text = "Could not open file...";
             buildNameText.color = new Color(0.9f,0.3f,0.3f,0);
             yield return new WaitForSeconds(1);
             BuildsListUI.OnLoadError?.Invoke();

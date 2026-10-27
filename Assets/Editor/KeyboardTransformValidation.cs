@@ -37,6 +37,8 @@ namespace ProtobotEditorTools {
                 }
                 ValidateAxisEndOn(camera);
                 ValidatePrimaryRotationAxes(camera);
+                ValidateRotationWrapping(camera);
+                ValidateCursorWrapping(camera);
                 camera.transform.SetPositionAndRotation(new Vector3(0f, 0f, -20f), Quaternion.identity);
                 ValidateRigidSelectionAndCancel(camera);
                 ValidateInputCaptureAndBypass(camera);
@@ -44,7 +46,7 @@ namespace ProtobotEditorTools {
             finally {
                 Object.DestroyImmediate(cameraObject);
             }
-            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, primary rotation axes, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Ctrl/Command snap bypass.");
+            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, primary rotation axes, signed full-turn wrapping for keyboard/ring rotation, infinite axis cursor continuity and on-screen feedback bounds, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Ctrl/Command snap bypass.");
         }
 
         private static void ValidateScene() {
@@ -85,7 +87,11 @@ namespace ProtobotEditorTools {
             gesture.Begin(camera, origin, start);
 
             foreach (var axis in new[] { Vector3.right, Vector3.up, Vector3.forward }) {
-                var mouse = (Vector2)camera.WorldToScreenPoint(origin + axis * 0.83f);
+                // In this perspective fixture Z is almost end-on, so pointer
+                // distance uses its stable projection at the original depth.
+                var pointerAxis = !camera.orthographic && axis == Vector3.forward
+                    ? Vector3.ProjectOnPlane(axis, camera.transform.forward) : axis;
+                var mouse = (Vector2)camera.WorldToScreenPoint(origin + pointerAxis * 0.83f);
                 Near(gesture.Position(mouse, axis, false), origin + axis * 0.83f, "Unsnapped axis movement");
                 Near(gesture.Position(mouse, axis, true), origin + axis, "Axis snap relative to initial position");
             }
@@ -130,6 +136,184 @@ namespace ProtobotEditorTools {
                 float direction = Vector3.Dot(camera.transform.forward, example.Item2) < 0f ? -1f : 1f;
                 Near(gesture.Rotation(center + Vector2.up * 100f, Vector3.zero, Quaternion.identity, true),
                     Quaternion.AngleAxis(90f * direction, example.Item2), "Default rotation uses a primary axis");
+            }
+        }
+
+        private static void ValidateRotationWrapping(Camera camera) {
+            var origin = Vector3.zero;
+            var initial = Quaternion.Euler(12, 27, 31);
+            var gesture = new TransformGesture();
+            camera.orthographic = true;
+            foreach (float cameraSide in new[] { 1f, -1f }) {
+                camera.transform.position = Vector3.back * cameraSide * 20f;
+                camera.transform.LookAt(origin);
+                var center = (Vector2)camera.WorldToScreenPoint(origin);
+                foreach (float direction in new[] { 1f, -1f }) {
+                    gesture.Begin(camera, origin, center + Vector2.right * 100f);
+                    // Pass 180 degrees and two full turns, then reverse through
+                    // the starting pose to distinguish direction from shortest arc.
+                    for (int step = 0; step <= 196; step++) {
+                        float degrees = (step <= 49 ? step : 98 - step) * 15f * direction;
+                        var pointer = center + new Vector2(Mathf.Cos(degrees * Mathf.Deg2Rad), Mathf.Sin(degrees * Mathf.Deg2Rad)) * 100f;
+                        var rotation = gesture.Rotation(pointer, Vector3.forward, initial, false);
+                        float expected = degrees % 360f * cameraSide;
+                        Require(Mathf.Abs(gesture.RotationDegrees - expected) < .003f,
+                            $"Radial rotation lost signed wrapping: {degrees}, expected {expected}, got {gesture.RotationDegrees}.");
+                        Near(rotation, Quaternion.AngleAxis(expected, Vector3.forward) * initial, "Wrapped radial orientation");
+                    }
+                    gesture.Begin(camera, origin, center);
+                    foreach (var sample in new[] { (180f, 180f), (345f, 345f), (360f, 0f), (375f, 15f), (720f, 0f), (735f, 15f) }) {
+                        var rotation = gesture.Rotation(center + Vector2.right * (sample.Item1 * direction * 2f), Vector3.forward, initial, true);
+                        float expected = sample.Item2 * direction * cameraSide;
+                        Require(Mathf.Abs(gesture.RotationDegrees - expected) < .001f, "Linear rotation did not wrap after snapping.");
+                        Near(rotation, Quaternion.AngleAxis(expected, Vector3.forward) * initial, "Wrapped linear orientation");
+                    }
+                    gesture.Resume(center, Vector3.zero, 375f * direction, Vector3.forward);
+                    Near(gesture.Rotation(center, Vector3.forward, initial, false),
+                        Quaternion.AngleAxis(15f * direction, Vector3.forward) * initial, "Wrapped resume jumped");
+                    gesture.Rotation(center - Vector2.right * (40f * direction * cameraSide), Vector3.forward, initial, false);
+                    Require(Mathf.Abs(gesture.RotationDegrees - 355f * direction) < .001f,
+                        "Resuming mouse control lost the original full turn when reversing.");
+                }
+            }
+            Require(TransformFeedback.Angle(375f) == "15°" && TransformFeedback.Angle(-375f) == "-15°" &&
+                TransformFeedback.Angle(-720f) == "0°", "Rotation feedback did not use signed full-turn values.");
+            ValidateRingWrapping(camera);
+        }
+
+        private static void ValidateRingWrapping(Camera camera) {
+            camera.transform.SetPositionAndRotation(Vector3.back * 20f, Quaternion.identity);
+            var center = (Vector2)camera.WorldToScreenPoint(Vector3.zero);
+            var inputManager = typeof(InputSystem).GetField("s_Manager", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            var runInEditMode = inputManager.GetType().GetProperty("runPlayerUpdatesInEditMode");
+            var previousRunInEditMode = runInEditMode.GetValue(inputManager);
+            runInEditMode.SetValue(inputManager, true);
+            var mouse = InputSystem.AddDevice<Mouse>();
+            var root = new GameObject("Ring wrapping fixture");
+            var body = new GameObject("Ring wrapping part", typeof(SavedObject));
+            var pivot = Pivot.Create("Ring wrapping pivot", new List<GameObject> { body }, Vector3.zero);
+            bool previousSnapping = TransformSnapping.Enabled;
+            var manager = root.AddComponent<MovementManager>();
+            var objectLink = root.AddComponent<SerializedObjectLink>();
+            Set(objectLink, "serializedObj", body);
+            Set(manager, "objectLink", objectLink);
+            Set(manager, "movementPivot", pivot);
+            Set(manager, "displaceContinous", true);
+            var vectorLink = root.AddComponent<SerializedVectorLink>();
+            Set(vectorLink, "vector", Vector3.forward);
+            var ring = root.AddComponent<RotateRing>();
+            ring.movementManager = manager;
+            Set(ring, "refCamera", camera);
+            Set(ring, "rotVectorLink", vectorLink);
+            var feedback = typeof(ClickDragTool).GetField("feedbackDegrees", BindingFlags.NonPublic | BindingFlags.Instance);
+            try {
+                foreach (bool snapping in new[] { false, true }) {
+                    TransformSnapping.Enabled = snapping;
+                    foreach (float direction in new[] { 1f, -1f }) {
+                        pivot.transform.rotation = Quaternion.identity;
+                        Point(0f);
+                        ring.Initialize();
+                        for (int step = 0; step <= 196; step++) {
+                            float degrees = (step <= 49 ? step : 98 - step) * 15f * direction;
+                            Point(degrees);
+                            ring.Rotate();
+                            Get<Tween>(manager, "movementTween")?.Complete();
+                            float expected = degrees % 360f;
+                            Require(Mathf.Abs((float)feedback.GetValue(ring) - expected) < .003f,
+                                $"Ring readout lost direction/full-turn wrapping at {degrees} degrees: expected {expected}, got {feedback.GetValue(ring)}.");
+                            Near(ring.FinalRotation, Quaternion.AngleAxis(expected, Vector3.forward), "Wrapped ring orientation");
+                        }
+                    }
+                }
+            }
+            finally {
+                TransformSnapping.Enabled = previousSnapping;
+                Get<Tween>(manager, "movementTween")?.Kill();
+                Object.DestroyImmediate(body);
+                Object.DestroyImmediate(pivot.gameObject);
+                Object.DestroyImmediate(root);
+                InputSystem.RemoveDevice(mouse);
+                runInEditMode.SetValue(inputManager, previousRunInEditMode);
+            }
+
+            void Point(float degrees) => UnityEngine.InputSystem.LowLevel.InputState.Change(mouse.position,
+                center + new Vector2(Mathf.Cos(degrees * Mathf.Deg2Rad), Mathf.Sin(degrees * Mathf.Deg2Rad)) * 100f,
+                UnityEngine.InputSystem.LowLevel.InputUpdateType.Dynamic);
+        }
+
+        private static void ValidateCursorWrapping(Camera camera) {
+            var axes = new[] { Vector3.zero, Vector3.right, Vector3.up, Vector3.forward };
+            var viewport = new Rect(80, 40, 720, 520);
+            var origin = new Vector3(1.13f, 2.27f, .33f);
+            var edges = new[] {
+                new Vector2(viewport.xMax - 1, viewport.center.y), new Vector2(viewport.xMin + 1, viewport.center.y),
+                new Vector2(viewport.center.x, viewport.yMax - 1), new Vector2(viewport.center.x, viewport.yMin + 1),
+                new Vector2(viewport.xMax - 1, viewport.yMax - 1), new Vector2(viewport.xMin + 1, viewport.yMin + 1)
+            };
+            Require(!TransformCursor.TryWrap(viewport.center, viewport, out _), "An interior cursor was wrapped.");
+            Require(!TransformCursor.TryWrap(Vector2.zero, new Rect(0, 0, 10, 10), out _), "A minimized viewport was wrapped.");
+            foreach (bool orthographic in new[] { true, false }) {
+                camera.orthographic = orthographic;
+                camera.pixelRect = viewport;
+                foreach (bool endOn in new[] { false, true }) {
+                    camera.transform.position = endOn ? origin + Vector3.back * 20 : origin + new Vector3(8, 6, -20);
+                    camera.transform.LookAt(origin);
+                    var start = (Vector2)camera.WorldToScreenPoint(origin);
+                    var gesture = new TransformGesture();
+                    var baseline = new TransformGesture();
+                    gesture.Begin(camera, origin, start);
+                    baseline.Begin(camera, origin, start);
+                    Vector2 pointer = start;
+                    for (int repeat = 0; repeat < 5; repeat++) {
+                        foreach (var edge in edges) {
+                            Require(TransformCursor.TryWrap(edge, viewport, out var wrapped), "An edge/corner did not wrap.");
+                            Require(viewport.Contains(wrapped) && !TransformCursor.TryWrap(wrapped, viewport, out _),
+                                "The wrapped cursor remained outside or retriggered wrapping.");
+                            var unsnapped = axes.Select(axis => gesture.Position(edge, axis, false)).ToArray();
+                            var snapped = axes.Select(axis => gesture.Position(edge, axis, true)).ToArray();
+                            gesture.RebasePointer(edge, wrapped);
+                            for (int i = 0; i < axes.Length; i++) {
+                                Near(gesture.Position(wrapped, axes[i], false), unsnapped[i], "Cursor wrap changed unsnapped world position");
+                                Near(gesture.Position(wrapped, axes[i], true), snapped[i], "Cursor wrap changed snapping/original axis anchor");
+                                var delta = new Vector2(3.25f, -2.75f);
+                                Near(gesture.Position(wrapped + delta, axes[i], false) - unsnapped[i],
+                                    baseline.Position(wrapped + delta, axes[i], false) - baseline.Position(wrapped, axes[i], false),
+                                    "Motion after wrapping jumped or stopped");
+                            }
+                            pointer = wrapped;
+                        }
+                    }
+                    Near(gesture.Origin, origin, "Wrapping changed the numeric/axis anchor");
+                    var target = gesture.Position(pointer, Vector3.right, true);
+                    gesture.Resume(pointer, target - origin, 0f, Vector3.right);
+                    Near(gesture.Position(pointer, Vector3.right, true), target, "Numeric-entry resume after wrapping jumped");
+                    gesture.Begin(camera, origin, start);
+                    Near(gesture.Position(start, Vector3.right, false), origin, "A new gesture retained old wraps");
+
+                    // Travel through the same edge repeatedly without ever having
+                    // to reverse; the accumulated move must exceed a viewport.
+                    foreach (var axis in axes.Skip(1)) {
+                        var screenAxis = new Vector2(Vector3.Dot(camera.transform.right, axis), Vector3.Dot(camera.transform.up, axis));
+                        var edge = Mathf.Abs(screenAxis.x) > Mathf.Abs(screenAxis.y) ? edges[0] : edges[2];
+                        gesture.Begin(camera, origin, viewport.center);
+                        var first = gesture.Position(edge, axis, false);
+                        for (int lap = 0; lap < 8; lap++) {
+                            TransformCursor.TryWrap(edge, viewport, out var wrapped);
+                            gesture.RebasePointer(edge, wrapped);
+                        }
+                        Require((gesture.Position(edge, axis, false) - origin).magnitude >
+                            (first - origin).magnitude * 4f, "Repeated wraps did not extend axis travel beyond the viewport.");
+                    }
+                }
+            }
+            foreach (var screen in new[] { new Vector2(1600, 900), new Vector2(3200, 1800), new Vector2(320, 200), new Vector2(100, 60) }) {
+                foreach (var position in new[] { Vector2.zero, screen, -screen * 100, screen * 100 }) {
+                    foreach (var size in new[] { new Vector2(220, 48), new Vector2(430, 160), new Vector2(770, 240) }) {
+                        var rect = TransformFeedback.KeepOnScreen(new Rect(position, size * TransformFeedback.ScaleForScreen(screen.x, screen.y)), screen);
+                        Require(rect.xMin >= 0 && rect.yMin >= 0 && rect.xMax <= screen.x && rect.yMax <= screen.y,
+                            "Transform measurement/help/numeric panel left the screen.");
+                    }
+                }
             }
         }
 
