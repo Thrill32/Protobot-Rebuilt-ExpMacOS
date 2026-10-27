@@ -144,6 +144,19 @@ codesign --force --deep --sign - --preserve-metadata=identifier,entitlements,fla
 codesign --verify --deep --strict build.app
 ```
 
+Build the 64-bit Windows Mono player into `Builds/Windows-Mono/Protobot.exe` (requires Windows Build Support; the helper explicitly selects Mono and restores the previous scripting backend):
+
+```sh
+/Applications/Unity/Hub/Editor/6000.6.6f1/Unity.app/Contents/MacOS/Unity \
+  -batchmode -nographics -quit \
+  -projectPath /absolute/path/to/Protobot-Rebuilt \
+  -buildTarget Win64 \
+  -executeMethod ProtobotEditorTools.WindowsBuild.BuildMono \
+  -logFile /tmp/protobot-windows-mono-build.log
+```
+
+Distribute the entire Windows output folder, including `Protobot_Data`, `UnityPlayer.dll` and `MonoBleedingEdge`; the executable alone is insufficient.
+
 After scene/prefab edits, check for C# errors, missing serialized references, runtime exceptions, and a clean `git diff --check`. Existing convex-mesh import warnings are known and are not compilation failures.
 
 For initial hole placement checks, use `-executeMethod ProtobotEditorTools.HolePlacementValidation.Validate`. It checks scene rule ordering, serialized references, generated attachment geometry across part types and structural profiles, even hole counts, and rotated/opposite faces.
