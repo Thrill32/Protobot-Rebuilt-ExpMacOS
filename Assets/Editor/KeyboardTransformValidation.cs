@@ -46,7 +46,7 @@ namespace ProtobotEditorTools {
             finally {
                 Object.DestroyImmediate(cameraObject);
             }
-            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, primary rotation axes, signed full-turn wrapping for keyboard/ring rotation, infinite axis cursor continuity and on-screen feedback bounds, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Ctrl/Command snap bypass.");
+            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, primary rotation axes, signed full-turn wrapping for keyboard/ring rotation, infinite axis cursor continuity and on-screen feedback bounds, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Control snap bypass and Command snapping independence.");
         }
 
         private static void ValidateScene() {
@@ -526,15 +526,18 @@ namespace ProtobotEditorTools {
                 input.defaultAction.Disable();
                 input.defaultAction.Dispose();
                 input.defaultAction = new InputAction("Validation bypass", binding: keyboard.ctrlKey.path);
-                input.defaultAction.AddBinding(keyboard.leftMetaKey.path);
-                input.defaultAction.AddBinding(keyboard.rightMetaKey.path);
                 input.defaultAction.Enable();
                 bypassField.SetValue(null, input);
                 TransformSnapping.Enabled = true;
-                foreach (var key in new[] { Key.LeftCtrl, Key.LeftMeta, Key.RightMeta }) {
+                foreach (var key in new[] { Key.LeftCtrl, Key.RightCtrl }) {
                     InputSystem.QueueStateEvent(keyboard, new KeyboardState(key));
                     UpdateInput();
                     Require(!TransformSnapping.Active, "Snap bypass did not work for " + key);
+                }
+                foreach (var key in new[] { Key.LeftMeta, Key.RightMeta }) {
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(key));
+                    UpdateInput();
+                    Require(TransformSnapping.Active, "Command incorrectly bypassed snapping.");
                 }
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState());
                 UpdateInput();

@@ -60,6 +60,10 @@ namespace Protobot.UI {
                 repeatInput = null;
                 return;
             }
+            UpdateHeldPropertyShortcut();
+        }
+
+        private void UpdateHeldPropertyShortcut() {
             InputEvent pressed = null;
             int index = 0, direction = 1;
             if (increaseFirstInput.IsPressed) pressed = increaseFirstInput;

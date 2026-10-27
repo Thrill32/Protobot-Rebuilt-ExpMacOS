@@ -331,7 +331,7 @@ namespace ProtobotEditorTools {
                 foreach (bool rotating in new[] { false, true }) {
                     Set(tool, "rotating", rotating);
                     foreach (var key in new[] { Key.X, Key.Y, Key.Z }) {
-                        foreach (var name in new[] { "Grab Selection", "Rotate Placement", "Snap Bypass", "Toggle Grid", "Duplicate", "Grab Hole Snap" }) {
+                        foreach (var name in new[] { "Grab Selection", "Rotate Placement", "Snap Bypass", "Grouping Bypass", "Toggle Grid", "Duplicate", "Grab Hole Snap" }) {
                             var input = Input(name, "<Keyboard>/" + key.ToString().ToLowerInvariant());
                             if (name == "Grab Selection") Set(tool, "grabInput", input);
                             if (name == "Rotate Placement") Set(tool, "rotateInput", input);

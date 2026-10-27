@@ -73,12 +73,12 @@ namespace Protobot.InputEvents {
              (rebindAction?.action != null && rebindAction.action.AllControlsPressed()));
 
         /// <summary>
-        /// Returns true when any alternative binding is pressed. This is used
-        /// for modifier actions such as Ctrl-or-Command rather than chords.
+        /// Accept any alternative default binding (e.g. left/right Command),
+        /// while requiring every control of a user-rebound chord.
         /// </summary>
         public bool IsAnyBindingPressed => !RebindAction.Rebinding &&
             ((defaultAction != null && defaultAction.IsPressed()) ||
-             (rebindAction?.action != null && rebindAction.action.IsPressed()));
+             (rebindAction?.action != null && rebindAction.action.AllControlsPressed()));
 
         public bool UsesControl(InputControl control) => control != null &&
             (ActionUsesControl(defaultAction, control) || ActionUsesControl(rebindAction?.action, control));

@@ -364,7 +364,7 @@ namespace ProtobotEditorTools {
         }
 
         private static void CheckIndividual(KeyboardTransformTool tool, SelectionManager manager, GameObject plate, GameObject nut) {
-            var field = typeof(SnapBypassInput).GetField("input", BindingFlags.NonPublic | BindingFlags.Static);
+            var field = typeof(GroupingBypassInput).GetField("input", BindingFlags.NonPublic | BindingFlags.Static);
             var frame = typeof(KeyboardTransformTool).GetField("finishedFrame", BindingFlags.NonPublic | BindingFlags.Static);
             var oldInput = field.GetValue(null);
             var probe = new GameObject("Command selection probe"); probe.SetActive(false);
@@ -383,6 +383,10 @@ namespace ProtobotEditorTools {
                 field.SetValue(null, input); frame.SetValue(null, -1);
                 camera.transform.SetPositionAndRotation(plate.transform.position + Vector3.left * 10, Quaternion.LookRotation(Vector3.right));
                 InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(plate.transform.position), InputUpdateType.Dynamic);
+                InputState.Change(Keyboard.current, new KeyboardState(Key.LeftCtrl), InputUpdateType.Dynamic);
+                Physics.SyncTransforms(); Invoke(click, "OnPerformInput");
+                Require(picked != null && !picked.individual && picked.gameObject == plate,
+                    "Control-click incorrectly bypassed grouping.");
                 InputState.Change(Keyboard.current, new KeyboardState(Key.LeftMeta), InputUpdateType.Dynamic);
                 Physics.SyncTransforms(); Invoke(click, "OnPerformInput");
                 Require(picked != null && picked.individual && picked.gameObject == plate, "Command-click did not select the individual part.");

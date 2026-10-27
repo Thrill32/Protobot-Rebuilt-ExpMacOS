@@ -10,6 +10,11 @@ using Protobot.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
+using InputEvent = Protobot.InputEvents.InputEvent;
 using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
@@ -29,6 +34,8 @@ namespace ProtobotEditorTools {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void EnsureSmokeDevices() {
             if (!SessionState.GetBool(SmokeKey, false)) return;
+            InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+            InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
             if (UnityEngine.InputSystem.Mouse.current == null)
                 UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Mouse>();
             if (UnityEngine.InputSystem.Keyboard.current == null)
@@ -55,6 +62,7 @@ namespace ProtobotEditorTools {
                 var shaft = generator.Generate(new Vector3(4, 3, 2), Quaternion.Euler(10, 20, 30));
                 manager.SetCurrent(new ObjectSelection { gameObject = shaft }, true);
                 Invoke(ui, "ObserveSelection");
+                CheckArrowFocus(ui);
                 ui.UpdateParam2("7.5");
                 var resized = manager.current.gameObject;
                 Require(shaft.IsDeleted() && Mathf.Abs(resized.GetComponent<Shaft>().ShaftLength - 7.5f) < .001f, "Runtime shaft resize failed.");
@@ -76,6 +84,7 @@ namespace ProtobotEditorTools {
                 // command after its UI/focus guards. Binding wiring is checked above.
                 Invoke(ui, "PlacePickedPart");
                 Require(placement.CurrentPartPlacement != null && placement.CurrentPartPlacement.partGenerator.GetId() == "SHFT-Normal-7.5", "Pick Part did not start ordinary placement with selected properties.");
+                CheckArrowFocus(ui);
                 var position = placement.transform.position;
                 ui.UpdateParam2("8");
                 Near(placement.transform.position, position, "Changing preview properties reset placement position.");
@@ -86,6 +95,84 @@ namespace ProtobotEditorTools {
             catch (Exception exception) {
                 Debug.LogException(exception);
                 EditorApplication.Exit(1);
+            }
+        }
+
+        private static void CheckArrowFocus(AddPropertiesUI ui) {
+            var eventSystem = EventSystem.current;
+            var module = eventSystem.GetComponent<InputSystemUIInputModule>();
+            Require(module.move == null, "UI navigation must not consume attribute arrows.");
+            Require(module.point != null && module.leftClick != null && module.scrollWheel != null &&
+                module.submit != null && module.cancel != null, "Disabling arrow navigation removed other UI input.");
+            var browser = Object.FindFirstObjectByType<AddPartsUI>();
+            var rows = browser.partUIsContainer.GetComponentsInChildren<PartDisplayUI>();
+            Require(rows.Length > 2, "The live part browser is empty.");
+            var row = rows[rows.Length / 2].gameObject;
+            var oldFocus = eventSystem.currentSelectedGameObject;
+            bool searchWasOn = browser.searchToggle.isOn;
+            var oldBackground = InputSystem.settings.backgroundBehavior;
+            InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+            var generator = Get<PartGenerator>(ui, "generator");
+            string originalId = generator.GetId();
+            int originalState = StateSystem.curIndex;
+            var inputs = new[] { "increaseFirstInput", "decreaseFirstInput", "increaseSecondInput", "decreaseSecondInput" }
+                .Select(field => Get<InputEvent>(ui, field)).ToArray();
+            var enabled = inputs.Select(input => (input.defaultAction.enabled, input.rebindAction.action.enabled)).ToArray();
+            try {
+                foreach (var input in inputs) { input.rebindAction.action.Disable(); input.defaultAction.Enable(); }
+                eventSystem.SetSelectedGameObject(row);
+                int repeats = Mathf.Min(rows.Length + 2, 32);
+                for (int i = 0; i < repeats; i++) Press(Key.UpArrow);
+                Require(generator.param1.value == "High Strength", "Up did not change the selected shaft's first attribute.");
+                for (int i = 0; i < repeats; i++) Press(Key.DownArrow);
+                Require(generator.GetId() == originalId, "Down did not restore the first attribute.");
+                string beforeLength = generator.param2.value;
+                Press(Key.RightArrow);
+                Require(generator.param2.value != beforeLength, "Right did not change the second attribute.");
+                Press(Key.LeftArrow);
+                Require(generator.GetId() == originalId, "Left did not restore the second attribute.");
+                Require(browser.searchToggle.isOn == searchWasOn, "Attribute arrows toggled part search.");
+
+                // Text fields handle caret keys themselves, independently of
+                // the UI module's spatial navigation action.
+                var text = browser.searchText.GetComponentInParent<InputField>();
+                Require(text != null, "Part search input is missing.");
+                string previousText = text.text;
+                text.text = "arrow"; text.caretPosition = 3;
+                text.ProcessEvent(Event.KeyboardEvent("left"));
+                Require(text.caretPosition == 2, "Disabling navigation broke text caret movement.");
+                text.text = previousText;
+                Debug.Log("Attribute arrow focus passed: repeated Up/Down and Left/Right change attributes without navigating into search; pointer/scroll/submit/cancel input and text caret movement remain available.");
+            }
+            finally {
+                SetKeys();
+                while (StateSystem.curIndex > originalState) StateSystem.instance.Undo();
+                if (!Get<Placement>(ui, "placement").placing) Invoke(ui, "ObserveSelection");
+                eventSystem.SetSelectedGameObject(oldFocus);
+                InputSystem.settings.backgroundBehavior = oldBackground;
+                for (int i = 0; i < inputs.Length; i++) {
+                    if (!enabled[i].Item1) inputs[i].defaultAction.Disable();
+                    if (enabled[i].Item2) inputs[i].rebindAction.action.Enable();
+                }
+            }
+
+            void SetKeys(params Key[] keys) {
+                InputSystem.QueueStateEvent(Keyboard.current, new UnityEngine.InputSystem.LowLevel.KeyboardState(keys));
+                typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,
+                    new[] { typeof(UnityEngine.InputSystem.LowLevel.InputUpdateType) }, null).Invoke(null,
+                    new object[] { UnityEngine.InputSystem.LowLevel.InputUpdateType.Dynamic });
+                foreach (var input in inputs) input.Update();
+            }
+            void Press(Key key) {
+                SetKeys(key);
+                Require(inputs.Any(input => input.IsPressed), $"Attribute arrow was not received: {key}; " +
+                    string.Join(", ", inputs.Select(input => $"{input.name}={input.defaultAction.IsPressed()}/{input.defaultAction.controls.Count}")));
+                module.Process();
+                Require(eventSystem.currentSelectedGameObject == row, "Arrow input moved focus away from the clicked part row.");
+                // Headless Unity has no focused window; exercise the real held
+                // shortcut handler after that unrelated application-focus guard.
+                Invoke(ui, "UpdateHeldPropertyShortcut");
+                SetKeys(); Invoke(ui, "UpdateHeldPropertyShortcut");
             }
         }
 

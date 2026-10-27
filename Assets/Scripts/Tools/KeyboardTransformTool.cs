@@ -98,7 +98,7 @@ namespace Protobot.Tools {
             if (AllowsCameraNavigation && (input == instance.orbitInput || input == instance.panInput || input == instance.noclipInput))
                 return true;
             if (input == instance.grabInput || input == instance.rotateInput ||
-                input.name == "Snap Bypass" || input.name == "Toggle Grid" || input.name == "Duplicate")
+                input.name == "Snap Bypass" || input.name == "Grouping Bypass" || input.name == "Toggle Grid" || input.name == "Duplicate")
                 return true;
             return false;
         }

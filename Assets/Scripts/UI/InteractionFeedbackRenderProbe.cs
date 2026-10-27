@@ -19,7 +19,7 @@ namespace ProtobotEditorTools {
     /// Synthesizes display state only; modal transform behavior has its own suite.</summary>
     public sealed class InteractionFeedbackRenderProbe : MonoBehaviour {
         private const string SmokeKey = "Protobot.FeedbackRenderSmoke";
-        private static readonly string[] Modes = { "modifiers", "grab", "rotate" };
+        private static readonly string[] Modes = { "modifiers", "command", "control", "grab", "rotate" };
         private static int startupFrames;
         private static double deadline;
         private static InteractionFeedbackRenderProbe probe;
@@ -71,8 +71,8 @@ namespace ProtobotEditorTools {
                     // keeping display state stable without running a transform.
                     probe.feedback.enabled = false; probe.tool.enabled = false;
                     probe.inputs = Object.FindObjectsByType<InputEvent>(FindObjectsSortMode.None)
-                        .Where(input => input.name == "Duplicate" || input.name == "Snap Bypass" || input.name == "Multi-Select Button").ToArray();
-                    if (probe.inputs.Length != 3) throw new InvalidOperationException("Missing modifier bindings.");
+                        .Where(input => input.name == "Duplicate" || input.name == "Grouping Bypass" || input.name == "Snap Bypass" || input.name == "Multi-Select Button").ToArray();
+                    if (probe.inputs.Length != 4) throw new InvalidOperationException("Missing modifier bindings.");
                     foreach (var input in probe.inputs) {
                         input.rebindAction.action.Disable();
                         input.defaultAction.Enable();
@@ -105,9 +105,11 @@ namespace ProtobotEditorTools {
             if (feedback == null || failure != null || mode >= Modes.Length) return;
             try {
                 tool.enabled = true;
-                Set("active", mode != 0); Set("rotating", mode == 2);
+                Set("active", mode >= 3); Set("rotating", mode == 4);
                 Set("axis", Vector3.zero); Set("targetOffset", Vector3.right * 1.5f); Set("rotationDegrees", 37.5f);
-                InputState.Change(Keyboard.current, new KeyboardState(Key.LeftAlt, Key.LeftMeta, Key.LeftCtrl), InputUpdateType.Dynamic);
+                var keys = mode == 1 ? new[] { Key.LeftMeta } : mode == 2 ? new[] { Key.LeftCtrl } :
+                    new[] { Key.LeftAlt, Key.LeftMeta, Key.LeftCtrl };
+                InputState.Change(Keyboard.current, new KeyboardState(keys), InputUpdateType.Dynamic);
                 InputState.Change(Mouse.current.position, new Vector2(Screen.width * .6f, Screen.height * .6f), InputUpdateType.Dynamic);
                 foreach (var input in inputs) input.Update();
                 Invoke(feedback, "OnGUI");
@@ -115,9 +117,12 @@ namespace ProtobotEditorTools {
                 if (Event.current.type == EventType.Repaint && ++repaints >= 5 && !capturing) {
                     var messages = (System.Collections.Generic.List<string>)typeof(InteractionFeedback)
                         .GetField("messages", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(feedback);
-                    if (!messages.Contains("Duplicating") || !messages.Any(text => text.StartsWith("Bypassing grouping")) ||
-                        (mode == 0 && !messages.Contains("Selecting multiple")) ||
-                        (mode > 0 && !messages.Any(text => text.StartsWith(mode == 1 ? "Grab ·" : "Rotate ·"))))
+                    bool valid = mode == 1 ? messages.SequenceEqual(new[] { "Bypassing grouping" }) && TransformSnapping.Active :
+                        mode == 2 ? messages.SequenceEqual(new[] { "Bypassing snap · Selecting multiple" }) && !GroupingBypassInput.IsHeld :
+                        messages.Contains("Duplicating") && messages.Any(text => text.StartsWith("Bypassing grouping · Bypassing snap")) &&
+                        (mode == 0 ? messages.Count == 2 && messages.Contains("Bypassing grouping · Bypassing snap · Selecting multiple") :
+                            messages.Any(text => text.StartsWith(mode == 3 ? "Grab ·" : "Rotate ·")));
+                    if (!valid)
                         throw new InvalidOperationException("Modifier/modal text did not reach the renderer: " + string.Join(" | ", messages) +
                             "; bindings: " + string.Join(" | ", inputs.Select(input =>
                                 $"{input.name}={input.defaultAction.GetBindingDisplayString()} held:{input.IsCurrentlyPressed} pressed:{input.IsPressed}")));

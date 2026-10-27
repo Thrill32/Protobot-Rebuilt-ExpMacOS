@@ -274,29 +274,13 @@ MonoBehaviour:
     m_Name: Default
     m_Type: 1
     m_ExpectedControlType:
-    m_Id: ad616b83-7e8b-4087-9389-029c6a025f5e
+    m_Id: a8be0a3b-0c92-4025-99db-e78db7406d52
     m_Processors:
     m_Interactions:
     m_SingletonActionBindings:
     - m_Name:
-      m_Id: 70b896b1-a713-42ff-b4b3-f0a825ea37a6
+      m_Id: 7d52610c-3fb1-4be2-86b5-cf3ab45ced7f
       m_Path: <Keyboard>/ctrl
-      m_Interactions:
-      m_Processors:
-      m_Groups:
-      m_Action: Default
-      m_Flags: 0
-    - m_Name:
-      m_Id: ba8362f8-e128-4b7f-8742-07a9521d789e
-      m_Path: <Keyboard>/leftMeta
-      m_Interactions:
-      m_Processors:
-      m_Groups:
-      m_Action: Default
-      m_Flags: 0
-    - m_Name:
-      m_Id: 75e9493b-596e-4e40-a354-7c9144056de3
-      m_Path: <Keyboard>/rightMeta
       m_Interactions:
       m_Processors:
       m_Groups:
@@ -1416,14 +1400,14 @@ MonoBehaviour:
   m_EditorClassIdentifier:
   defaultAction:
     m_Name: Default
-    m_Type: 0
+    m_Type: 1
     m_ExpectedControlType:
-    m_Id: e0484a6b-273e-41be-a43a-a6b8d994ce39
+    m_Id: 61891e89-29a1-4d63-aeb9-822b029fc24e
     m_Processors:
     m_Interactions:
     m_SingletonActionBindings:
     - m_Name:
-      m_Id: ab8ee4da-6253-4f19-bc31-fef18ff52358
+      m_Id: 0e659bfc-d77f-4cee-9219-b8d4aba68f95
       m_Path: <Keyboard>/ctrl
       m_Interactions:
       m_Processors:
@@ -1432,7 +1416,7 @@ MonoBehaviour:
       m_Flags: 0
     m_Flags: 0
     m_Priority: 0
-  allowModifierOnly: 0
+  allowModifierOnly: 1
   IsPressed: 0
 --- !u!1 &4751916104521745441
 GameObject:
@@ -1549,6 +1533,7 @@ Transform:
   - {fileID: 4159185034626738024}
   - {fileID: 3399844387989864639}
   - {fileID: 7323069966436362240}
+  - {fileID: 1033742667907522696}
   m_Father: {fileID: 246119428735506766}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5516306830252511493
@@ -2471,3 +2456,88 @@ MonoBehaviour:
     m_Priority: 0
   allowModifierOnly: 0
   IsPressed: 0
+--- !u!1 &6668307699781760605
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1033742667907522696}
+  - component: {fileID: 3854086266300736358}
+  - component: {fileID: 6825352334497607734}
+  m_Layer: 0
+  m_Name: Grouping Bypass
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1033742667907522696
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6668307699781760605}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7594549906293032880}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3854086266300736358
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6668307699781760605}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.InputEvent
+  defaultAction:
+    m_Name: Default
+    m_Type: 1
+    m_ExpectedControlType:
+    m_Id: 8b1c9767-c0f3-46ca-982a-5b9287a1f1fd
+    m_Processors:
+    m_Interactions:
+    m_SingletonActionBindings:
+    - m_Name:
+      m_Id: 0b3b5d71-d99e-431f-8733-6d96e58c526a
+      m_Path: <Keyboard>/leftMeta
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    - m_Name:
+      m_Id: 6b42e14c-a0a2-460a-bb39-c8d9ab125029
+      m_Path: <Keyboard>/rightMeta
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    m_Flags: 0
+    m_Priority: 0
+  allowModifierOnly: 1
+  IsPressed: 0
+--- !u!114 &6825352334497607734
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6668307699781760605}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 588e17c064bc45468e0bdd52b0a81e60, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.GroupingBypassInput

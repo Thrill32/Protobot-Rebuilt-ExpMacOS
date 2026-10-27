@@ -22,17 +22,20 @@ namespace Protobot.UI {
             canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         }
 
-        public static void AddModifierMessages(List<string> result, bool duplicate, bool multiple, bool bypass) {
+        public static void AddModifierMessages(List<string> result, bool duplicate, bool grouping, bool snap, bool multiple) {
             if (duplicate) result.Add("Duplicating");
-            if (multiple) result.Add("Selecting multiple");
-            if (bypass) result.Add("Bypassing grouping · Snap off");
+            var selectionModifiers = new List<string>(3);
+            if (grouping) selectionModifiers.Add("Bypassing grouping");
+            if (snap) selectionModifiers.Add("Bypassing snap");
+            if (multiple) selectionModifiers.Add("Selecting multiple");
+            if (selectionModifiers.Count > 0) result.Add(string.Join(" · ", selectionModifiers));
         }
 
         private void OnGUI() {
             if (RebindAction.Rebinding) return;
             messages.Clear();
             AddModifierMessages(messages, duplicator != null && duplicator.IsDuplicateFeedbackHeld,
-                multiSelector != null && multiSelector.IsMultiSelectHeld, SnapBypassInput.IsHeld);
+                GroupingBypassInput.IsHeld, SnapBypassInput.IsHeld, multiSelector != null && multiSelector.IsMultiSelectHeld);
             if (KeyboardTransformTool.ControlsText != null) messages.Add(KeyboardTransformTool.ControlsText);
             if (messages.Count == 0) return;
 

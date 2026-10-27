@@ -270,8 +270,6 @@ namespace ProtobotEditorTools
                     var inputEvent = snapObject.AddComponent<InputEvent>();
                     inputEvent.defaultAction = new InputAction("Default", InputActionType.Button);
                     inputEvent.defaultAction.AddBinding("<Keyboard>/ctrl");
-                    inputEvent.defaultAction.AddBinding("<Keyboard>/leftMeta");
-                    inputEvent.defaultAction.AddBinding("<Keyboard>/rightMeta");
 
                     var serializedInput = new SerializedObject(inputEvent);
                     serializedInput.FindProperty("allowModifierOnly").boolValue = true;
@@ -453,7 +451,7 @@ namespace ProtobotEditorTools
             AssetDatabase.SaveAssets();
 
             Debug.Log(
-                "Configured Ctrl/Cmd snap bypass and the fourth Connect toolbar tool with key 4.");
+                "Configured Control snap bypass and the fourth Connect toolbar tool with key 4.");
         }
     }
 }

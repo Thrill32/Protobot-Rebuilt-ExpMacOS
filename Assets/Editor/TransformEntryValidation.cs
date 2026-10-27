@@ -60,12 +60,19 @@ namespace ProtobotEditorTools {
                 Require(angle.x < 100 * scale && distance.x < 120 * scale && large.x > distance.x,
                     "Measurements must fit their text instead of using a fixed-width box.");
             }
-            for (int combination = 0; combination < 8; combination++) {
+            for (int combination = 0; combination < 16; combination++) {
                 var messages = new List<string>();
                 InteractionFeedback.AddModifierMessages(messages, (combination & 1) != 0,
-                    (combination & 2) != 0, (combination & 4) != 0);
+                    (combination & 2) != 0, (combination & 4) != 0, (combination & 8) != 0);
                 Require(messages.Count == ((combination & 1) != 0 ? 1 : 0) +
-                    ((combination & 2) != 0 ? 1 : 0) + ((combination & 4) != 0 ? 1 : 0), "Modifier feedback lost a held action.");
+                    ((combination & 14) != 0 ? 1 : 0), "Selection modifiers must share one box, with duplication in its own box.");
+                var labels = new List<string>();
+                if ((combination & 2) != 0) labels.Add("Bypassing grouping");
+                if ((combination & 4) != 0) labels.Add("Bypassing snap");
+                if ((combination & 8) != 0) labels.Add("Selecting multiple");
+                if (labels.Count > 0) Require(messages.Last() == string.Join(" · ", labels),
+                    "Active selection modifiers must have distinct labels joined by middle dots.");
+                if ((combination & 1) != 0) Require(messages[0] == "Duplicating", "Duplication lost its separate box.");
                 messages.Add("Grab controls");
                 foreach (var screen in new[] { new Vector2(320, 180), new Vector2(1280, 720), new Vector2(1920, 1080), new Vector2(3840, 2160) }) {
                     float scale = TransformFeedback.ScaleForScreen(screen.x, screen.y);

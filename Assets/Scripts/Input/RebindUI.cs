@@ -35,9 +35,15 @@ namespace Protobot.InputEvents {
                 actionNameText.text = "Rotate Selection";
             else if (inputEvent.name == "Select Opposite Hole")
                 actionNameText.text = "Opposite Hole Face (Hold)";
+            else if (inputEvent.name == "Grouping Bypass")
+                actionNameText.text = "Bypass Grouping";
+            else if (inputEvent.name == "Snap Bypass")
+                actionNameText.text = "Bypass Snap";
+            else if (inputEvent.name == "Multi-Select Button")
+                actionNameText.text = "Select Multiple";
 
-            if (inputEvent.name == "Snap Bypass" && EventRebindAction.IsEmpty)
-                rebindText.text = "Ctrl / Cmd";
+            if (inputEvent.name == "Grouping Bypass" && EventRebindAction.IsEmpty)
+                rebindText.text = Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor ? "Win" : "Cmd";
             else if (!EventRebindAction.IsEmpty)
                 rebindText.text = GetBindingDisplayString(EventRebindAction.action);
             else
