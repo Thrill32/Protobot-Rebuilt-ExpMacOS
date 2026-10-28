@@ -9,6 +9,7 @@ namespace Protobot.Tools {
         private Vector2 startMouse;
         private Vector2 previousVector;
         private bool useLinearRotation;
+        private bool radialRotationOnly;
         private float angle;
         private float linearAngleBase;
         private Vector3 resumedOffset;
@@ -19,12 +20,14 @@ namespace Protobot.Tools {
         public Vector3 DefaultRotationAxis { get; private set; }
         public Vector3 Origin => origin;
 
-        public void Begin(Camera camera, Vector3 origin, Vector2 mouse) {
+        public void Begin(Camera camera, Vector3 origin, Vector2 mouse, bool radialRotationOnly = false) {
             this.camera = camera;
             this.origin = origin;
             startMouse = mouse;
             previousVector = mouse - (Vector2)camera.WorldToScreenPoint(origin);
-            useLinearRotation = previousVector.sqrMagnitude < 144f;
+            this.radialRotationOnly = radialRotationOnly;
+            useLinearRotation = !radialRotationOnly && previousVector.sqrMagnitude < 144f;
+            if (radialRotationOnly && previousVector.sqrMagnitude < 144f) previousVector = Vector2.zero;
             angle = linearAngleBase = RotationDegrees = UnwrappedRotationDegrees = 0f;
             resumedOffset = Vector3.zero;
             wrappedAxisOffset = wrappedFreeOffset = Vector3.zero;
@@ -34,7 +37,8 @@ namespace Protobot.Tools {
         public void Resume(Vector2 mouse, Vector3 offset, float degrees, Vector3 axis) {
             startMouse = mouse;
             previousVector = mouse - (Vector2)camera.WorldToScreenPoint(origin);
-            useLinearRotation = previousVector.sqrMagnitude < 144f;
+            useLinearRotation = !radialRotationOnly && previousVector.sqrMagnitude < 144f;
+            if (radialRotationOnly && previousVector.sqrMagnitude < 144f) previousVector = Vector2.zero;
             resumedOffset = offset;
             wrappedAxisOffset = wrappedFreeOffset = Vector3.zero;
             float direction = Vector3.Dot(camera.transform.forward, axis) < 0f ? -1f : 1f;
@@ -110,10 +114,12 @@ namespace Protobot.Tools {
             }
             else {
                 var vector = mouse - (Vector2)camera.WorldToScreenPoint(origin);
-                if (vector.sqrMagnitude > 1f) {
-                    angle += Vector2.SignedAngle(previousVector, vector);
+                if (vector.sqrMagnitude > (radialRotationOnly ? 144f : 1f)) {
+                    if (!radialRotationOnly || previousVector.sqrMagnitude >= 144f)
+                        angle += Vector2.SignedAngle(previousVector, vector);
                     previousVector = vector;
                 }
+                else if (radialRotationOnly) previousVector = Vector2.zero;
             }
 
             if (axis == Vector3.zero)

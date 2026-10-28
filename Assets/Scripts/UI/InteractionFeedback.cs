@@ -10,6 +10,7 @@ namespace Protobot.UI {
     public sealed class InteractionFeedback : MonoBehaviour {
         private ObjectDuplicator duplicator;
         private MultiSelector multiSelector;
+        private Placement placement;
         private Canvas[] canvases;
         private readonly List<string> messages = new();
         private readonly List<Rect> occupied = new();
@@ -19,6 +20,7 @@ namespace Protobot.UI {
 
         private void Start() {
             multiSelector = FindFirstObjectByType<MultiSelector>();
+            placement = FindFirstObjectByType<Placement>();
             canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         }
 
@@ -37,6 +39,7 @@ namespace Protobot.UI {
             AddModifierMessages(messages, duplicator != null && duplicator.IsDuplicateFeedbackHeld,
                 GroupingBypassInput.IsHeld, SnapBypassInput.IsHeld, multiSelector != null && multiSelector.IsMultiSelectHeld);
             if (KeyboardTransformTool.ControlsText != null) messages.Add(KeyboardTransformTool.ControlsText);
+            if (placement != null && placement.ControlsText != null) messages.Add(placement.ControlsText);
             if (messages.Count == 0) return;
 
             occupied.Clear();

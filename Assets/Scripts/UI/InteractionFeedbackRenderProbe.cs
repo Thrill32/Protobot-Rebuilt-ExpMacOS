@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Protobot;
 using Protobot.InputEvents;
 using Protobot.Tools;
 using Protobot.UI;
@@ -19,13 +20,14 @@ namespace ProtobotEditorTools {
     /// Synthesizes display state only; modal transform behavior has its own suite.</summary>
     public sealed class InteractionFeedbackRenderProbe : MonoBehaviour {
         private const string SmokeKey = "Protobot.FeedbackRenderSmoke";
-        private static readonly string[] Modes = { "modifiers", "command", "control", "grab", "rotate" };
+        private static readonly string[] Modes = { "modifiers", "command", "control", "grab", "rotate", "placement-angle", "grab-hole-angle" };
         private static int startupFrames;
         private static double deadline;
         private static InteractionFeedbackRenderProbe probe;
         private static EditorWindow gameView;
         private InteractionFeedback feedback;
         private KeyboardTransformTool tool;
+        private Placement placement;
         private InputEvent[] inputs;
         private int mode, repaints;
         private bool capturing;
@@ -66,10 +68,11 @@ namespace ProtobotEditorTools {
                     probe = new GameObject("Feedback render probe").AddComponent<InteractionFeedbackRenderProbe>();
                     probe.feedback = Object.FindFirstObjectByType<InteractionFeedback>();
                     probe.tool = Object.FindFirstObjectByType<KeyboardTransformTool>();
+                    probe.placement = Object.FindFirstObjectByType<Placement>();
                     if (probe.feedback == null) throw new InvalidOperationException("Main did not install InteractionFeedback.");
                     // Invoke each real renderer once per event from the probe,
                     // keeping display state stable without running a transform.
-                    probe.feedback.enabled = false; probe.tool.enabled = false;
+                    probe.feedback.enabled = false; probe.tool.enabled = false; probe.placement.enabled = false;
                     probe.inputs = Object.FindObjectsByType<InputEvent>(FindObjectsSortMode.None)
                         .Where(input => input.name == "Duplicate" || input.name == "Grouping Bypass" || input.name == "Snap Bypass" || input.name == "Multi-Select Button").ToArray();
                     if (probe.inputs.Length != 4) throw new InvalidOperationException("Missing modifier bindings.");
@@ -84,7 +87,7 @@ namespace ProtobotEditorTools {
                     if (++probe.mode == Modes.Length) {
                         SessionState.SetBool(SmokeKey, false);
                         EditorApplication.update -= Tick;
-                        Debug.Log("Feedback render smoke passed: real canvas registry traversal, modifier stacking, G/R help, compact measurements and translucent panels.");
+                        Debug.Log("Feedback render smoke passed: real canvas registry traversal, modifier stacking, G/R help, placement/Move and G/H slash rotation UI, compact measurements and translucent panels.");
                         EditorApplication.Exit(0);
                         return;
                     }
@@ -103,21 +106,35 @@ namespace ProtobotEditorTools {
 
         private void OnGUI() {
             if (feedback == null || failure != null || mode >= Modes.Length) return;
+            MoveRotation numericRotation = null;
             try {
                 tool.enabled = true;
-                Set("active", mode >= 3); Set("rotating", mode == 4);
+                bool numericMode = mode >= 5;
+                bool placementMode = mode == 5;
+                Set("active", mode == 3 || mode == 4 || mode == 6); Set("rotating", mode == 4);
+                Set("holeSnapping", mode == 6);
+                placement.placing = placement.rotating = placementMode;
                 Set("axis", Vector3.zero); Set("targetOffset", Vector3.right * 1.5f); Set("rotationDegrees", 37.5f);
-                var keys = mode == 1 ? new[] { Key.LeftMeta } : mode == 2 ? new[] { Key.LeftCtrl } :
+                if (numericMode) {
+                    var owner = placementMode ? (object)placement : tool;
+                    numericRotation = (MoveRotation)owner.GetType().GetField("moveRotation", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(owner);
+                    numericRotation.Begin(Camera.main, new Pose(Vector3.zero, Quaternion.identity), new Pose(Vector3.zero, Quaternion.identity), Vector2.zero);
+                    numericRotation.NumericInput.Cycle(false);
+                    typeof(TransformNumericInput).GetProperty("Text").SetValue(numericRotation.NumericInput, "22.5");
+                }
+                var keys = numericMode ? Array.Empty<Key>() : mode == 1 ? new[] { Key.LeftMeta } : mode == 2 ? new[] { Key.LeftCtrl } :
                     new[] { Key.LeftAlt, Key.LeftMeta, Key.LeftCtrl };
                 InputState.Change(Keyboard.current, new KeyboardState(keys), InputUpdateType.Dynamic);
                 InputState.Change(Mouse.current.position, new Vector2(Screen.width * .6f, Screen.height * .6f), InputUpdateType.Dynamic);
                 foreach (var input in inputs) input.Update();
                 Invoke(feedback, "OnGUI");
-                Invoke(tool, "OnGUI");
+                Invoke(placementMode ? (object)placement : tool, "OnGUI");
                 if (Event.current.type == EventType.Repaint && ++repaints >= 5 && !capturing) {
                     var messages = (System.Collections.Generic.List<string>)typeof(InteractionFeedback)
                         .GetField("messages", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(feedback);
-                    bool valid = mode == 1 ? messages.SequenceEqual(new[] { "Bypassing grouping" }) && TransformSnapping.Active :
+                    bool valid = numericMode ? numericRotation.NumericInput.IsOpen && numericRotation.NumericInput.Text == "22.5" &&
+                        messages.Any(text => text.StartsWith("Rotate · Exact entry")) :
+                        mode == 1 ? messages.SequenceEqual(new[] { "Bypassing grouping" }) && TransformSnapping.Active :
                         mode == 2 ? messages.SequenceEqual(new[] { "Bypassing snap · Selecting multiple" }) && !GroupingBypassInput.IsHeld :
                         messages.Contains("Duplicating") && messages.Any(text => text.StartsWith("Bypassing grouping · Bypassing snap")) &&
                         (mode == 0 ? messages.Count == 2 && messages.Contains("Bypassing grouping · Bypassing snap · Selecting multiple") :
@@ -132,6 +149,8 @@ namespace ProtobotEditorTools {
             }
             catch (Exception exception) { failure = exception; }
             finally {
+                numericRotation?.End();
+                placement.placing = placement.rotating = false;
                 Set("active", false);
                 tool.enabled = false;
             }

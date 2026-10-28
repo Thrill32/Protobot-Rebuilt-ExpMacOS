@@ -8,11 +8,14 @@ namespace Protobot {
         [SerializeField] private MouseCast mouseCast;
         [SerializeField] private InputEvent flipInput;
         public override bool ModifyRotation => true;
+        private Pose rotationAnchor;
+        public override Pose GetRotationAnchor(Displacement displacement) => rotationAnchor;
 
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             displacement = null;
             if (placementData is not PartPlacementData part) return false;
             if (!MoveTargeting.TryRaycast(mouseCast.ray, mouseCast.layerMask, flipInput.IsPressed, false, null, out var target)) return false;
+            rotationAnchor = target.face;
             displacement = Align(part, target.face.position, target.face.rotation);
             return true;
         }

@@ -1,4 +1,3 @@
-﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using DG.Tweening;
@@ -44,6 +43,7 @@ namespace Protobot {
         }
 
         private void OnDestroy() {
+            moveRotation.End();
             ReleaseMovePreview();
             ReleasePreviewMesh();
         }
@@ -64,6 +64,7 @@ namespace Protobot {
 
         private void OnDisable() {
             ReleaseMovePreview();
+            moveRotation.End();
             placing = rotating = false;
             if (meshRenderer != null) meshRenderer.enabled = false;
         }
@@ -87,51 +88,31 @@ namespace Protobot {
 
         [SerializeField] private Camera refCamera = null; //used for dot product angle comparison
 
-        private readonly TransformGesture rotationGesture = new();
-        private Vector3 rotationAxis;
-        private Quaternion initRot;
+        private readonly MoveRotation moveRotation = new();
+        private Pose? rotationAnchor;
+        private Quaternion freeRotation;
+        private float attachmentTwist;
+        private KeyboardTransformTool keyboardTool;
+        private bool IsNavigatingCamera => keyboardTool != null && keyboardTool.IsCameraNavigationHeld;
+        public bool IsTypingRotation => placing && rotating && moveRotation.NumericInput.IsOpen;
+
+        public string ControlsText => !placing ? null : IsTypingRotation
+            ? "Rotate · Exact entry\nEnter: place    /: value mode    Esc: cancel"
+            : rotating
+            ? $"Rotate · {(rotationAnchor.HasValue ? "Attachment axis" : "Camera axis")}\n/: type angle    {toggleRotateInput.GetCurrentKeybind()}: resume positioning    Click: place    Esc: cancel"
+            : $"{toggleRotateInput.GetCurrentKeybind()}: rotate    Click: place    Esc: cancel";
         
         private void Awake() {
             placing = false;
             rotating = false;
+            keyboardTool = GetComponent<KeyboardTransformTool>();
             
             placeInput.performed += () => {
-                if (placing && Time.frameCount != placementStartFrame && !MouseInput.overUI)
+                if (placing && Time.frameCount != placementStartFrame && !MouseInput.overUI && !IsNavigatingCamera && !IsTypingRotation)
                     Place();
             };
 
-            // Deprecated: R rotates placed selections only. Retain the former
-            // placement-rotation handler for reference, but do not subscribe it.
-#if false
-            toggleRotateInput.performed += () => {
-                if (placing && !MouseInput.overUI) {
-                    rotating = !rotating;
-
-                    if (rotating) {
-                        InitRotation();
-                        OnStartRotate?.Invoke();
-                    }
-                    else OnStopRotate?.Invoke();
-                }
-            };
-#endif
-
-            /*dupInput.performed += () => {
-                if (currentPlacementData != null && placing) {
-                    /*if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData)) {
-                        SetPlacementLayer(objPlaceData.GetGameObject(), false);
-
-                    }#1#
-                }
-            };
-
-            dupInput.canceled += () => {
-                if (currentPlacementData != null && placing) {
-                    if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData)) {
-                        objPlaceData.GetGameObject().GetConnectedObjects(true).ForEach(x => x.SetActive(false));
-                    }
-                }
-            };*/
+            toggleRotateInput.performed += ToggleRotation;
 
             stopPlacingInput.performed += () => {
                 if (placing)
@@ -143,51 +124,101 @@ namespace Protobot {
 
         void Update() {
             if (placing) {
-                // Deprecated placement rotation: preview movement always runs.
-#if false
-                if (rotating) {
-                    if (TransformGesture.TryReadAxis(out var axis))
-                        rotationAxis = rotationAxis == axis ? Vector3.zero : axis;
-                    Rotate();
-                }
-                else {
-#endif
-                {
-                    foreach (PlaceDisplacement placePosition in placePositions) {
-                        if (placePosition.TryGetDisplacement(currentPlacementData, out Displacement displacement)) {
-                            var newDisplacement = displacement;
-
-                            // Hole and shaft placement already provide exact mechanical alignment.
-                            // Only quantize free plane placement to the structural hole pitch.
-                            if (TransformSnapping.Active && placePosition is PlanePlaceDisplacement) {
-                                var snappedPosition = TransformSnapping.SnapPosition(
-                                    displacement.translation.Position,
-                                    placementSnapOrigin);
-                                newDisplacement = new Displacement(
-                                    snappedPosition,
-                                    displacement.rotation.Orientation);
-                            }
-
-                            if (!placePosition.ModifyRotation) {
-                                newDisplacement = new Displacement(newDisplacement.translation.Position,
-                                    currentPlacementData is PartPlacementData part
-                                        ? part.initialRotation : currentDisplacement.rotation.Orientation);
-                            }
-                            else if (placePosition is not PartHolePlaceDisplacement &&
-                                     currentPlacementData is PartPlacementData hardwarePart) {
-                                newDisplacement = new Displacement(newDisplacement.translation.Position,
-                                    newDisplacement.rotation.Orientation * hardwarePart.initialRotation);
-                            }
-
-                            currentDisplacement = newDisplacement;
-                            newDisplacement.Displace(gameObject);
-                            break;
-                        }
-                    }
-                }
+                if (rotating) Rotate();
+                else UpdatePosition();
             }
 
             meshRenderer.enabled = placing;
+        }
+
+        private void LateUpdate() {
+            if (!placing || !rotating || RebindAction.Rebinding || Keyboard.current == null) return;
+            var keyboard = Keyboard.current;
+            if (IsTypingRotation && keyboard.escapeKey.wasPressedThisFrame) {
+                KeyboardTransformTool.CaptureCurrentFrame();
+                StopPlacing();
+                return;
+            }
+            if (moveRotation.HandleNumeric(keyboard, MouseInput.Position, out var confirmed)) {
+                if (!IsTypingRotation) KeyboardTransformTool.CaptureCurrentFrame();
+                if (confirmed.HasValue) {
+                    ApplyPose(confirmed.Value);
+                    Place();
+                }
+            }
+        }
+
+        private void UpdatePosition() {
+            foreach (PlaceDisplacement placePosition in placePositions) {
+                if (placePosition.TryGetDisplacement(currentPlacementData, out Displacement displacement)) {
+                    var newDisplacement = displacement;
+
+                    // Hole and shaft placement already provide exact mechanical alignment.
+                    // Only quantize free plane placement to the structural hole pitch.
+                    if (TransformSnapping.Active && placePosition is PlanePlaceDisplacement) {
+                        var snappedPosition = TransformSnapping.SnapPosition(
+                            displacement.translation.Position,
+                            placementSnapOrigin);
+                        newDisplacement = new Displacement(
+                            snappedPosition,
+                            displacement.rotation.Orientation);
+                    }
+
+                    if (!placePosition.ModifyRotation) {
+                        newDisplacement = new Displacement(newDisplacement.translation.Position,
+                            freeRotation);
+                    }
+                    else if (placePosition is not PartHolePlaceDisplacement &&
+                             currentPlacementData is PartPlacementData hardwarePart) {
+                        newDisplacement = new Displacement(newDisplacement.translation.Position,
+                            newDisplacement.rotation.Orientation * hardwarePart.initialRotation);
+                    }
+
+                    rotationAnchor = placePosition.ModifyRotation ? placePosition.GetRotationAnchor(displacement) : null;
+                    var pose = new Pose(newDisplacement.translation.Position, newDisplacement.rotation.Orientation);
+                    if (rotationAnchor.HasValue)
+                        pose = MoveRotation.Twist(pose, rotationAnchor.Value, attachmentTwist);
+                    ApplyPose(pose);
+                    if (currentPlacementData is GameObjectPlacementData) freeRotation = pose.rotation;
+                    break;
+                }
+            }
+        }
+
+        private void ApplyPose(Pose pose) {
+            transform.DOKill();
+            currentDisplacement = new Displacement(pose.position, pose.rotation);
+            if (!rotating) currentDisplacement.Displace(gameObject);
+            else {
+                var start = new Pose(transform.position, transform.rotation);
+                var pivot = moveRotation.Pivot;
+                DOVirtual.Float(0, 1, .25f, progress => {
+                    var displayed = MoveRotation.Interpolate(start, pose, pivot, progress);
+                    transform.SetPositionAndRotation(displayed.position, displayed.rotation);
+                }).SetTarget(transform).SetEase(DOTween.defaultEaseType);
+            }
+        }
+
+        private void ToggleRotation() {
+            if (!placing || IsTypingRotation || Mouse.current == null || MouseInput.overUI || RebindAction.Rebinding ||
+                KeyboardTransformTool.IsEditingText() || IsNavigatingCamera) return;
+            if (rotating) StopRotation();
+            else {
+                UpdatePosition();
+                InitRotation();
+            }
+        }
+
+        private void StopRotation() {
+            if (!rotating) return;
+            Rotate();
+            transform.DOComplete();
+            if (rotationAnchor.HasValue)
+                attachmentTwist = TransformSnapping.WrapAngle(attachmentTwist + moveRotation.Degrees);
+            freeRotation = currentDisplacement.rotation.Orientation;
+            moveRotation.End();
+            rotating = false;
+            OnStopRotate?.Invoke();
         }
 
         public void StartPlacing(PlacementData newPlacementData) {
@@ -196,6 +227,9 @@ namespace Protobot {
             placementStartFrame = Time.frameCount;
             placing = true;
             rotating = false;
+            moveRotation.End();
+            rotationAnchor = null;
+            attachmentTwist = 0;
             SetPreviewMesh(newPlacementData.GetDisplayMesh());
             placementSnapOrigin = Vector3.zero;
 
@@ -215,6 +249,7 @@ namespace Protobot {
             }
 
             currentDisplacement = new Displacement(transform);
+            freeRotation = transform.rotation;
 
             OnStartPlacing?.Invoke();
         }
@@ -237,8 +272,10 @@ namespace Protobot {
 
         public void StopPlacing() {
             ReleaseMovePreview();
+            transform.DOKill();
             
             transform.rotation = Quaternion.identity;
+            moveRotation.End();
             rotating = false;
             OnStopRotate?.Invoke();
 
@@ -246,10 +283,7 @@ namespace Protobot {
         }
 
         private void Place() {
-#if false // Deprecated: placing must never invoke the legacy rotation path.
-            if (rotating)
-                Rotate();
-#endif
+            StopRotation();
             bool isPartPlacement = currentPlacementData.GetType() == typeof(PartPlacementData);
             bool isGameObjectPlacement = currentPlacementData.GetType() == typeof(GameObjectPlacementData);
 
@@ -281,24 +315,27 @@ namespace Protobot {
             rotating = false;
             OnStopRotate?.Invoke();
         }
-        [Obsolete("Placement rotation is disabled. Use R on placed selections instead.", true)]
         public void InitRotation() {
-#if false // Retained temporarily for reference; also inert if invoked by a UnityEvent.
-            initRot = transform.rotation;
-            rotationAxis = Vector3.zero;
-            rotationGesture.Begin(refCamera, transform.position, MouseInput.Position);
-#endif
+            if (!placing || rotating) return;
+            transform.DOComplete();
+            moveRotation.Begin(refCamera, new Pose(currentDisplacement.translation.Position, currentDisplacement.rotation.Orientation),
+                rotationAnchor, MouseInput.Position, attachmentTwist);
+            rotating = true;
+            OnStartRotate?.Invoke();
         }
 
-        [Obsolete("Placement rotation is disabled. Use R on placed selections instead.", true)]
         public void Rotate() {
-#if false // Retained temporarily for reference; also inert if invoked by a UnityEvent.
-            Quaternion newRot = rotationGesture.Rotation(MouseInput.Position, rotationAxis, initRot, TransformSnapping.Active);
+            if (!placing || !rotating) return;
+            if (IsTypingRotation || MoveRotation.SlashPressed(Keyboard.current)) return;
+            if (IsNavigatingCamera || MouseInput.overUI) {
+                moveRotation.Pause(MouseInput.Position);
+                return;
+            }
+            ApplyPose(moveRotation.Evaluate(MouseInput.Position, TransformSnapping.Active));
+        }
 
-            Rotation rot = new Rotation(newRot);
-            currentDisplacement = new Displacement(currentDisplacement.translation.Position, newRot);
-            rot.Rotate(gameObject);
-#endif
+        private void OnGUI() {
+            if (placing && rotating) moveRotation.DrawFeedback();
         }
     }
 }

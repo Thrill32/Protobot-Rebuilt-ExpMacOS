@@ -35,6 +35,9 @@ namespace Protobot.Tools {
         private static KeyboardTransformTool instance;
         private static int finishedFrame = -1;
         private readonly TransformGesture gesture = new();
+        private readonly MoveRotation moveRotation = new();
+        private MoveTarget currentMoveTarget;
+        private float attachmentTwist;
         private readonly TransformNumericInput numericInput = new();
         private Quaternion initialOrientation;
         private float rotationDegrees;
@@ -66,16 +69,23 @@ namespace Protobot.Tools {
         private Quaternion targetRotation = Quaternion.identity;
         private const float SmoothingDuration = 0.25f; // Same duration as standard axis dragging.
 
-        public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled && instance.active) ||
+        public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled && (instance.active || instance.placement?.IsTypingRotation == true)) ||
             finishedFrame == Time.frameCount;
 
+        internal static void CaptureCurrentFrame() => finishedFrame = Time.frameCount;
+
+        public static bool BlocksUINavigation => IsCapturingInput ||
+            (instance != null && instance.isActiveAndEnabled && instance.placement != null && instance.placement.rotating);
+
         public static bool AllowsCameraNavigation => instance != null && instance.isActiveAndEnabled &&
-            instance.active && instance.holeSnapping && !instance.settling && !instance.numericInput.IsOpen;
+            instance.active && instance.holeSnapping && !instance.settling && !instance.numericInput.IsOpen && !instance.moveRotation.NumericInput.IsOpen;
 
         public static bool BlocksCameraNavigation => IsCapturingInput && !AllowsCameraNavigation;
 
-        private bool IsNavigatingCamera => AllowsCameraNavigation && (InputEvent.IsNoclipMovementCaptured ||
-            CameraInputHeld(orbitInput) || CameraInputHeld(panInput) || CameraInputHeld(noclipInput));
+        public bool IsCameraNavigationHeld => InputEvent.IsNoclipMovementCaptured ||
+            CameraInputHeld(orbitInput) || CameraInputHeld(panInput) || CameraInputHeld(noclipInput);
+
+        private bool IsNavigatingCamera => AllowsCameraNavigation && IsCameraNavigationHeld;
 
         private static bool CameraInputHeld(InputEvent input) => input != null && input.IsCurrentlyPressed && AllowsInput(input);
 
@@ -84,7 +94,7 @@ namespace Protobot.Tools {
         public static bool AllowsInput(InputEvent input) {
             if (!IsCapturingInput || instance == null)
                 return true;
-            if (instance.numericInput.IsOpen)
+            if (instance.numericInput.IsOpen || instance.moveRotation.NumericInput.IsOpen || instance.placement?.IsTypingRotation == true)
                 return false;
             // Raw modal axis keys win even over allowed actions rebound to X/Y/Z.
             var keys = Keyboard.current;
@@ -135,7 +145,10 @@ namespace Protobot.Tools {
         }
 
         private void Grab() => Begin(false);
-        private void Rotate() => Begin(true);
+        private void Rotate() {
+            if (active && !rotating && holeSnapping) ToggleMoveRotation();
+            else Begin(true);
+        }
 
         private void Begin(bool rotate) {
             if (!isActiveAndEnabled || placement.placing || ConnectTool.IsCapturingPoints ||
@@ -211,6 +224,8 @@ namespace Protobot.Tools {
             active = true;
             settling = false;
             holeSnapping = hasSourceHole = hasMoveTarget = false;
+            moveRotation.End();
+            attachmentTwist = 0;
             HideTargetPreview();
             grabRotation = Quaternion.identity;
             displayedOffset = targetOffset = Vector3.zero;
@@ -226,7 +241,7 @@ namespace Protobot.Tools {
         }
 
         private void ToggleHoleSnap() {
-            if (!active || rotating || settling || numericInput.IsOpen) return;
+            if (!active || rotating || settling || numericInput.IsOpen || moveRotation.NumericInput.IsOpen) return;
             if (holeSnapping) {
                 LeaveHoleSnap();
                 return;
@@ -249,6 +264,7 @@ namespace Protobot.Tools {
         }
 
         private void LeaveHoleSnap() {
+            StopMoveRotation();
             FreezeDisplayedPose();
             HideMovePreview();
             holeSnapping = hasMoveTarget = false;
@@ -316,7 +332,31 @@ namespace Protobot.Tools {
             ShowTargetPreview(target);
             var aligned = MoveTargeting.Align(new Pose(sourceHoleOrigin, sourceHoleOrientation), target.face,
                 new Pose(origin, Quaternion.identity));
+            aligned = MoveRotation.Twist(aligned, target.face, attachmentTwist);
             SetTarget(aligned.position - origin, aligned.rotation);
+            currentMoveTarget = target;
+        }
+
+        private void ToggleMoveRotation() {
+            if (!active || settling || numericInput.IsOpen || !hasSourceHole || IsNavigatingCamera) return;
+            if (moveRotation.Active) {
+                StopMoveRotation();
+                return;
+            }
+            Apply(MouseInput.Position);
+            moveRotation.Begin(refCamera, new Pose(origin + targetOffset, targetRotation),
+                hasMoveTarget ? currentMoveTarget.face : null, MouseInput.Position, attachmentTwist,
+                targetRotation * initialOrientation);
+        }
+
+        private void StopMoveRotation() {
+            if (!moveRotation.Active) return;
+            Apply(MouseInput.Position);
+            if (moveRotation.Attachment.HasValue)
+                attachmentTwist = TransformSnapping.WrapAngle(attachmentTwist + moveRotation.Degrees);
+            grabRotation = targetRotation;
+            smoothingTween?.Complete();
+            moveRotation.End();
         }
 
         private void HideTargetPreview() {
@@ -345,7 +385,7 @@ namespace Protobot.Tools {
             }
         }
 
-        private static bool IsEditingText() {
+        internal static bool IsEditingText() {
             var selected = EventSystem.current != null ? EventSystem.current.currentSelectedGameObject : null;
             return selected != null && (selected.GetComponent<InputField>() != null ||
                                         selected.GetComponent<TMP_InputField>() != null);
@@ -378,7 +418,16 @@ namespace Protobot.Tools {
             if (settling)
                 return;
 
-            if (keyboard.slashKey.wasPressedThisFrame || keyboard.numpadDivideKey.wasPressedThisFrame) {
+            if (moveRotation.Active && moveRotation.HandleNumeric(keyboard, MouseInput.Position, out var confirmed)) {
+                if (confirmed.HasValue) {
+                    rotationDegrees = moveRotation.Degrees;
+                    SetTarget(confirmed.Value.position - origin, confirmed.Value.rotation);
+                    Finish(true);
+                }
+                return;
+            }
+
+            if (!moveRotation.Active && (keyboard.slashKey.wasPressedThisFrame || keyboard.numpadDivideKey.wasPressedThisFrame)) {
                 if (holeSnapping) LeaveHoleSnap();
                 numericInput.Cycle(!rotating && axis == Vector3.zero);
                 if (!numericInput.IsOpen) ResumeMouse();
@@ -391,13 +440,14 @@ namespace Protobot.Tools {
                 return;
             }
 
-            if (TransformGesture.TryReadAxis(out var pressedAxis)) {
+            if (!moveRotation.Active && TransformGesture.TryReadAxis(out var pressedAxis)) {
                 ChangeAxis(pressedAxis);
             }
 
             // Camera gestures must not pick/confirm a hole or move the rigid set.
             if (IsNavigatingCamera) {
-                hasMoveTarget = false;
+                if (moveRotation.Active) moveRotation.Pause(MouseInput.Position);
+                else hasMoveTarget = false;
                 FreezeDisplayedPose();
                 return;
             }
@@ -411,7 +461,7 @@ namespace Protobot.Tools {
             Apply(MouseInput.Position);
             if ((mouse.leftButton.wasPressedThisFrame && !MouseInput.overUI) ||
                 keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame) {
-                if (!holeSnapping || hasMoveTarget) Finish(true);
+                if (!holeSnapping || hasMoveTarget || moveRotation.Active) Finish(true);
             }
             else WrapAxisCursor(mouse);
         }
@@ -441,6 +491,17 @@ namespace Protobot.Tools {
         }
 
         private void Apply(Vector2 mouse) {
+            if (moveRotation.Active) {
+                if (MouseInput.overUI) {
+                    moveRotation.Pause(mouse);
+                    return;
+                }
+                if (moveRotation.Attachment.HasValue) ShowTargetPreview(currentMoveTarget);
+                var pose = moveRotation.Evaluate(mouse, TransformSnapping.Active);
+                rotationDegrees = moveRotation.Degrees;
+                SetTarget(pose.position - origin, pose.rotation);
+                return;
+            }
             if (holeSnapping) {
                 hasMoveTarget = TryGetMoveTarget(false, out var target);
                 if (hasMoveTarget) ApplyTarget(target);
@@ -509,6 +570,7 @@ namespace Protobot.Tools {
             if (!active)
                 return;
             HideTargetPreview();
+            moveRotation.End();
             if (confirm) {
                 // Let the same easing finish after confirmation, then snapshot
                 // the exact snapped target rather than an in-between frame.
@@ -602,6 +664,11 @@ namespace Protobot.Tools {
             ? instance.GetControlsText() : null;
 
         private string GetControlsText() {
+            if (moveRotation.Active && moveRotation.NumericInput.IsOpen)
+                return "Rotate · Exact entry\nEnter: confirm    /: value mode    Esc: cancel";
+            if (moveRotation.Active)
+                return $"Rotate · {(moveRotation.Attachment.HasValue ? "Attachment axis" : "Camera axis")}\n" +
+                    $"/: type angle    {rotateInput.GetCurrentKeybind()}: resume positioning    Click / Enter: confirm    Esc: cancel\nCamera controls available";
             string snap = numericInput.IsOpen ? "Exact entry" : holeSnapping ? "Exact alignment" : TransformSnapping.Active ? "Snap on" : "Snap off";
             string holeKey = holeSnapInput != null ? holeSnapInput.GetCurrentKeybind() : "H";
             string help = "X/Y/Z: axis    /: type value";
@@ -609,6 +676,7 @@ namespace Protobot.Tools {
             string oppositeKey = oppositeHoleInput != null ? oppositeHoleInput.GetCurrentKeybind() : "Space";
             if (holeSnapping) help += (hasSourceHole ? "\nHover an outside hole or screw" : "\nClick a source hole on the selected parts") +
                 $" · Hold {oppositeKey}: opposite hole face\nCamera controls available";
+            if (holeSnapping && hasSourceHole) help += $"    {rotateInput.GetCurrentKeybind()}: rotate";
             return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
                 help + (holeSnapping ? "\nClick / Enter: confirm    Esc: cancel" : "\nClick / Enter: confirm    Esc / Right click: cancel");
         }
@@ -616,6 +684,10 @@ namespace Protobot.Tools {
         private void OnGUI() {
             if (!active)
                 return;
+            if (moveRotation.Active) {
+                moveRotation.DrawFeedback();
+                return;
+            }
             if (showConstraintAxis && !rotating && axis != Vector3.zero)
                 TransformFeedback.DrawAxis(refCamera, gesture.Origin, axis);
             string constraint = ConstraintLabel;
@@ -626,7 +698,7 @@ namespace Protobot.Tools {
                 string next = global ? "/: mouse control" : "/: global value";
                 TransformFeedback.DrawNumeric(label, numericInput.DisplayText, $"Enter: apply exact value\n{next}    Invalid input: mouse control");
             }
-            else TransformFeedback.Draw(rotating ? TransformFeedback.Angle(rotationDegrees) : TransformFeedback.Distance(targetOffset, axis));
+            else TransformFeedback.Draw(rotating || moveRotation.Active ? TransformFeedback.Angle(rotationDegrees) : TransformFeedback.Distance(targetOffset, axis));
         }
 
         private void OnDestroy() {

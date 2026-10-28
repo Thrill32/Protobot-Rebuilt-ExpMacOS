@@ -32,7 +32,7 @@ namespace Protobot.InputEvents {
         void UpdateDisplayUI() {
             actionNameText.text = inputEvent.name;
             if (inputEvent.name == "Rotate Placement")
-                actionNameText.text = "Rotate Selection";
+                actionNameText.text = "Rotate Selection / Placement";
             else if (inputEvent.name == "Select Opposite Hole")
                 actionNameText.text = "Opposite Hole Face (Hold)";
             else if (inputEvent.name == "Grouping Bypass")

@@ -25,6 +25,8 @@ namespace ProtobotEditorTools {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void EnsureDevices() {
             if (!SessionState.GetBool(SmokeKey, false)) return;
+            InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+            InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
             if (Mouse.current == null) InputSystem.AddDevice<Mouse>();
             if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
         }
@@ -40,6 +42,8 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= SmokeTick;
             SessionState.SetBool(SmokeKey, false);
             try {
+                MoveRotationValidation.Keys();
+                MoveRotationValidation.CheckUIEnterRouting(blocked: false);
                 var placement = Object.FindFirstObjectByType<Placement>();
                 var fallback = Object.FindFirstObjectByType<PartHolePlaceDisplacement>();
                 var fields = new SerializedObject(fallback);
@@ -80,6 +84,7 @@ namespace ProtobotEditorTools {
                     "Preview attachment was not refreshed.");
                 Require(!fallback.TryGetDisplacement(new GameObjectPlacementData(target, placement.transform), out _),
                     "Initial placement fallback captured an existing-object move.");
+                MoveRotationValidation.CheckPlacement(placement, camera, cast, data, hole);
                 ValidateFreePlacement(placement, camera, cast);
                 ValidateMotorShaftInsertion();
                 Debug.Log("Initial hole placement runtime smoke passed: pointer raycast, opposite face, preview rule chain, committed pose, repeated placement, property refresh, existing-object exclusion, corrected free-placement previews/commits for both rail types and sensor/motor variants, and normal/high-strength shaft insertion into both motor sockets.");

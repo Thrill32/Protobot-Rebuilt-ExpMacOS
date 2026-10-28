@@ -48,7 +48,7 @@ namespace Protobot.UI {
         }
 
         private bool CanUseShortcut => Application.isFocused && !EditingText() && !RebindAction.Rebinding &&
-            !InputEvent.IsNoclipMovementCaptured && !KeyboardTransformTool.IsCapturingInput && !ConnectTool.IsCapturingPoints &&
+            !placement.rotating && !InputEvent.IsNoclipMovementCaptured && !KeyboardTransformTool.IsCapturingInput && !ConnectTool.IsCapturingPoints &&
             UnityEngine.InputSystem.Mouse.current != null && !UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
 
         private void LateUpdate() {

@@ -23,7 +23,7 @@ namespace ProtobotEditorTools {
         [MenuItem("Tools/Protobot/Validate Keyboard Transforms")]
         public static void Validate() {
             ValidateScene();
-            ValidatePlacementRotationDisabled();
+            ValidatePlacementRotation();
             var cameraObject = new GameObject("Gesture validation camera");
             try {
                 var camera = cameraObject.AddComponent<Camera>();
@@ -46,7 +46,7 @@ namespace ProtobotEditorTools {
             finally {
                 Object.DestroyImmediate(cameraObject);
             }
-            Debug.Log("Keyboard transform validation passed: scene bindings, disabled placement rotation, primary rotation axes, signed full-turn wrapping for keyboard/ring rotation, infinite axis cursor continuity and on-screen feedback bounds, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Control snap bypass and Command snapping independence.");
+            Debug.Log("Keyboard transform validation passed: scene bindings, placement rotation, primary rotation axes, signed full-turn wrapping for keyboard/ring rotation, infinite axis cursor continuity and on-screen feedback bounds, snapping, smoothing, rigid MultiPivot, duplication with undo/redo and cancellation, handle visibility, input capture, and Control snap bypass and Command snapping independence.");
         }
 
         private static void ValidateScene() {
@@ -317,41 +317,12 @@ namespace ProtobotEditorTools {
             }
         }
 
-        private static void ValidatePlacementRotationDisabled() {
+        private static void ValidatePlacementRotation() {
             var placement = Object.FindFirstObjectByType<Placement>();
             var controller = Object.FindFirstObjectByType<KeyboardTransformTool>();
-            var place = Get<InputEvent>(placement, "placeInput");
-            var stop = Get<InputEvent>(placement, "stopPlacingInput");
-            var rotate = Get<InputEvent>(placement, "toggleRotateInput");
-            var placeHandler = place.performed;
-            var stopHandler = stop.performed;
-            var rotateHandler = rotate.performed;
-            var displacement = Get<Protobot.Transformations.Displacement>(placement, "currentDisplacement");
-            bool wasPlacing = placement.placing;
-            bool wasRotating = placement.rotating;
-            try {
-                Invoke(placement, "Awake");
-                placement.placing = true;
-                var position = placement.transform.position;
-                var rotation = placement.transform.rotation;
-                rotate.performed?.Invoke();
-                Invoke(controller, "Rotate");
-                Require(!placement.rotating && !Get<bool>(controller, "active"), "R activated rotation during placement.");
-                // Reflection also covers old serialized UnityEvents: deprecated
-                // entry points remain present but cannot change the preview.
-                placement.GetType().GetMethod("InitRotation").Invoke(placement, null);
-                placement.GetType().GetMethod("Rotate").Invoke(placement, null);
-                Near(placement.transform.position, position, "Legacy placement rotation changed position");
-                Near(placement.transform.rotation, rotation, "Legacy placement rotation remains disabled");
-            }
-            finally {
-                place.performed = placeHandler;
-                stop.performed = stopHandler;
-                rotate.performed = rotateHandler;
-                placement.placing = wasPlacing;
-                placement.rotating = wasRotating;
-                Set(placement, "currentDisplacement", displacement);
-            }
+            Require(Get<InputEvent>(placement, "toggleRotateInput") == Get<InputEvent>(controller, "rotateInput"),
+                "Placement and selections must share the rebindable rotation input.");
+            MoveRotationValidation.Validate();
         }
 
         private static void ValidateAxisEndOn(Camera camera) {

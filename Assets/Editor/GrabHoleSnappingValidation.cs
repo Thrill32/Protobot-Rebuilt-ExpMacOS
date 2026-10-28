@@ -139,6 +139,7 @@ namespace ProtobotEditorTools {
                 Snap(tool, camera, target, true);
                 Near(source.transform.position - source.transform.forward * .1f,
                     target.transform.position + target.transform.forward * .1f, "Opposite target face failed.");
+                CheckGrabRotation(tool, camera, target.transform.position);
 
                 Keys();
                 var snappedPosition = first.transform.position;
@@ -241,6 +242,38 @@ namespace ProtobotEditorTools {
         // input path after LateUpdate's focus/lifecycle guard.
         private static void HandleInput(KeyboardTransformTool tool) => Invoke(tool, "HandleInput", Keyboard.current, Mouse.current);
 
+        private static void CheckGrabRotation(KeyboardTransformTool tool, Camera camera, Vector3 targetPoint) {
+            var before = new Pose(Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "targetOffset"), Get<Quaternion>(tool, "targetRotation"));
+            var target = Get<MoveTarget>(tool, "currentMoveTarget");
+            Invoke(tool, "Rotate");
+            var adjustment = Get<MoveRotation>(tool, "moveRotation");
+            Require(adjustment.Active && adjustment.Attachment.HasValue, "R did not rotate G/H around its target.");
+            Near(adjustment.Axis, target.face.rotation * Vector3.forward, "G/H used the wrong target axis.");
+            MoveRotationValidation.TurnPointer(camera, adjustment, () => Invoke(tool, "Apply", (Vector2)MouseInput.Position));
+            Complete(tool);
+            var delta = Quaternion.AngleAxis(adjustment.Degrees, adjustment.Axis);
+            var expected = MoveRotation.Around(before, target.face.position, delta);
+            Near(Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "targetOffset"), expected.position, "G/H rotated around the wrong pivot.");
+            Near(Get<Quaternion>(tool, "targetRotation"), expected.rotation, "G/H rotation did not use the shared placement gesture.");
+            Require(Mathf.Abs(adjustment.Degrees) > 80 && Get<bool>(tool, "holeSnapping"), "G/H rotation discarded hole mode.");
+            Invoke(tool, "Rotate");
+            Require(!adjustment.Active, "R did not resume G/H positioning.");
+            Point(camera, targetPoint);
+            Invoke(tool, "Apply", (Vector2)MouseInput.Position);
+            Complete(tool);
+            Near(Get<Quaternion>(tool, "targetRotation"), expected.rotation, "G/H retargeting discarded its twist.");
+
+            // A second rotation can finish with no target under the pointer,
+            // rotating about the camera's nearest world axis at the current pose.
+            InputState.Change(Mouse.current.position, new Vector2(750, 550), InputUpdateType.Dynamic);
+            Invoke(tool, "Apply", (Vector2)MouseInput.Position);
+            Require(!Get<bool>(tool, "hasMoveTarget"), "Free-rotation probe still targets geometry.");
+            Invoke(tool, "Rotate");
+            Require(adjustment.Active && !adjustment.Attachment.HasValue, "G/H without a target did not start free rotation.");
+            Near(adjustment.Axis, TransformGesture.PrimaryAxis(camera.transform.forward), "Free G/H rotation used the wrong camera axis.");
+            Invoke(tool, "Rotate");
+        }
+
         private static void CheckSingleClickMove(SelectionManager manager, Camera camera, HoleCollider source, HoleCollider target) {
             var click = manager.GetComponent<ClickSelector>();
             var toggle = Get<ToolToggle>(click, "moveTool");
@@ -251,6 +284,7 @@ namespace ProtobotEditorTools {
             var hover = Get<HoleFace>(manager.GetComponent<HoleFaceResponseSelector>(), "hoverHoleFace");
             var cast = Get<MouseCast>(click, "mouseCast");
             var previousCast = Get<Camera>(cast, "camera");
+            var previousPlacementCamera = Get<Camera>(placement, "refCamera");
             var previousStates = StateSystem.states;
             var previousIndex = StateSystem.curIndex;
             var previousSelection = manager.current;
@@ -261,6 +295,7 @@ namespace ProtobotEditorTools {
                 StateSystem.states = new List<State> { new(new List<IElement>()) };
                 StateSystem.curIndex = 0;
                 Set(cast, "camera", camera);
+                Set(placement, "refCamera", camera);
                 source.tag = "HoleCollider";
                 Keys();
                 Point(camera, source.transform.position);
@@ -300,12 +335,26 @@ namespace ProtobotEditorTools {
                 Keys();
                 Point(camera, target.transform.position);
                 Invoke(placement, "Update");
-                Get<InputEvent>(placement, "placeInput").performed?.Invoke();
+                Get<InputEvent>(placement, "toggleRotateInput").performed?.Invoke();
+                Require(placement.rotating, "R did not rotate the Move preview.");
+                var anchor = Get<Pose?>(placement, "rotationAnchor");
+                var adjustment = Get<MoveRotation>(placement, "moveRotation");
+                Require(anchor.HasValue, "Move lost its target axis.");
+                Near(adjustment.Axis, anchor.Value.rotation * Vector3.forward, "Move did not rotate about the hole axis.");
+                MoveRotationValidation.TurnPointer(camera, adjustment, () => Invoke(placement, "Update"));
+                Require(Mathf.Abs(adjustment.Degrees) > 80, "Move preview did not rotate.");
+                Keys(Key.Slash); Invoke(placement, "LateUpdate"); Keys();
+                Require(placement.IsTypingRotation, "Move did not open slash rotation entry.");
+                MoveRotationValidation.TypeText("12.5");
+                Keys(Key.Enter); Invoke(placement, "LateUpdate"); Keys();
+                Require(Mathf.Abs(adjustment.Degrees - 12.5f) < .001f, "Move did not retain the exact entered rotation.");
                 Get<Tween>(movement, "movementTween")?.Complete();
                 Invoke(movement, "Update");
                 Require(source.holeData.part.layer == 0 &&
                     Vector3.Distance(source.holeData.part.transform.position, start.position) > .1f,
                     "The next click did not commit Move and restore the moving body.");
+                Near(source.holeData.position + source.transform.forward * .1f, anchor.Value.position,
+                    "Rotated Move lost source-face contact on commit.");
                 Debug.Log("Single-click Move passed: inactive/body selection, immediate hole preview, opposite source face, individual scope, starting-click capture and next-click confirmation.");
             }
             finally {
@@ -317,6 +366,7 @@ namespace ProtobotEditorTools {
                 manager.current = previousSelection;
                 toggle.toggled = previousToggle;
                 Set(cast, "camera", previousCast);
+                Set(placement, "refCamera", previousPlacementCamera);
                 StateSystem.states = previousStates;
                 StateSystem.curIndex = previousIndex;
                 Keys();
@@ -461,6 +511,7 @@ namespace ProtobotEditorTools {
                 Require(tracker.activeSelf && tracker.GetComponentsInChildren<Collider>().Length == 0,
                     "Screw tracker is missing or intercepts input.");
                 Near(tracker.transform.position, move.translation.Position, "Screw tracker is not at the actual endpoint.");
+                CheckGrabRotation(tool, camera, screw.transform.position);
                 Invoke(tool, "ToggleHoleSnap");
                 Require(!tracker.activeSelf, "Leaving H mode left a screw tracker visible.");
                 Invoke(tool, "ToggleHoleSnap");
@@ -486,11 +537,21 @@ namespace ProtobotEditorTools {
                 Point(camera, screw.transform.position);
                 Invoke(tool, "Apply", (Vector2)MouseInput.Position);
                 Complete(tool);
-                var finalPosition = body.transform.position;
-                var finalRotation = body.transform.rotation;
                 StateSystem.states = new List<State> { new(new List<IElement>()) };
                 StateSystem.curIndex = 0;
-                Invoke(tool, "Finish", true);
+                Invoke(tool, "Rotate");
+                var rotationEntry = Get<MoveRotation>(tool, "moveRotation");
+                var beforeNumeric = new Pose(Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "targetOffset"), Get<Quaternion>(tool, "targetRotation"));
+                Keys(Key.Slash); HandleInput(tool); Keys();
+                Require(rotationEntry.NumericInput.IsOpen && !KeyboardTransformTool.AllowsInput(Get<InputEvent>(tool, "rotateInput")) &&
+                    KeyboardTransformTool.BlocksCameraNavigation, "G/H slash entry did not capture input.");
+                MoveRotationValidation.TypeText("-22.5");
+                Require(rotationEntry.NumericInput.Text == "-22.5", "G/H rotation did not receive numeric text.");
+                var expectedNumeric = MoveRotation.Twist(beforeNumeric, rotationEntry.Attachment.Value, -22.5f);
+                Keys(Key.Enter); HandleInput(tool); Complete(tool); Keys();
+                Near(Get<Quaternion>(tool, "targetRotation"), expectedNumeric.rotation, "G/H did not apply the exact entered rotation.");
+                var finalPosition = body.transform.position;
+                var finalRotation = body.transform.rotation;
                 Require(StateSystem.states.Count == 2 && !tracker.activeSelf, "Screw snap did not commit as one operation and clear its tracker.");
                 StateSystem.instance.Undo(); body.transform.DOComplete();
                 Near(body.transform.position, start, "Undo did not restore the screw-snapped source.");

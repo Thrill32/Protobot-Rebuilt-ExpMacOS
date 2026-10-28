@@ -179,6 +179,7 @@ namespace ProtobotEditorTools {
         [MenuItem("Tools/Protobot/Validate Interaction Updates")]
         public static void Validate() {
             EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
+            Require(Object.FindFirstObjectByType<ToolUIInputModule>() != null, "Main must use the tool-aware UI input module.");
             var ui = Object.FindFirstObjectByType<AddPropertiesUI>(FindObjectsInactive.Include);
             foreach (var field in new[] { "selectionManager", "pickPartInput", "increaseFirstInput", "decreaseFirstInput", "increaseSecondInput", "decreaseSecondInput" })
                 Require(new SerializedObject(ui).FindProperty(field).objectReferenceValue != null, "Missing reference: " + field);
