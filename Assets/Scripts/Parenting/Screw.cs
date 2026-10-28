@@ -63,34 +63,28 @@ namespace Protobot {
             return Physics.RaycastAll(lowRay, ScrewLength);
         }
 
-        private List<GameObject> GetAttachedPartsOrdered() {
+        private RaycastHit[] GetOrderedHoleHits(Func<Transform, bool> ignore = null) {
             return GetRaycastHits(transform.position, transform.forward)
+                .Where(hit => hit.collider.TryGetComponent<HoleCollider>(out _) && !hit.collider.gameObject.IsDeleted() &&
+                    (ignore == null || !ignore(hit.collider.transform)))
                 .OrderBy(hit => Vector3.Distance(hit.point, transform.position))
-                .Where(hit => hit.collider.CompareTag("HoleCollider"))
-                .Select(hit => hit.transform.parent.gameObject)
-                .ToList();
+                .ToArray();
         }
 
-        public Vector3 GetLowestPoint() {
-            int attPartsCount = GetAttachedParts(transform.position, transform.forward).Count;
-
-            if (attPartsCount > 0)
-                return FindLowestPoint(attPartsCount - 1);
-            else
-                return transform.position;
+        public Vector3 GetLowestPoint(Func<Transform, bool> ignore = null) {
+            var hits = GetOrderedHoleHits(ignore);
+            return hits.Length > 0 ? GetExitPoint(hits[hits.Length - 1].collider) : transform.position;
         }
-        
+
         public Vector3 FindLowestPoint(int attachedPartsIndex) {
-            GameObject attPart = GetAttachedPartsOrdered()[attachedPartsIndex];
-            Ray lowRay = new Ray(transform.position - (transform.forward * ScrewLength), transform.forward);
-            Debug.DrawLine(lowRay.origin, transform.position);
-            RaycastHit[] hits = Physics.RaycastAll(lowRay, ScrewLength);
+            var hits = GetOrderedHoleHits();
+            return attachedPartsIndex >= 0 && attachedPartsIndex < hits.Length
+                ? GetExitPoint(hits[attachedPartsIndex].collider) : transform.position;
+        }
 
-            foreach (RaycastHit hit in hits) {
-                if (hit.collider.CompareTag("HoleCollider") && hit.transform.parent.gameObject == attPart)
-                    return hit.point;
-            }
-            return transform.position;
+        private Vector3 GetExitPoint(Collider hole) {
+            var ray = new Ray(transform.position - transform.forward * ScrewLength, transform.forward);
+            return hole.Raycast(ray, out var hit, ScrewLength) ? hit.point : transform.position;
         }
     }
 }

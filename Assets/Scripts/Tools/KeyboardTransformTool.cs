@@ -22,6 +22,8 @@ namespace Protobot.Tools {
         [SerializeField] private InputEvent oppositeHoleInput;
         [SerializeField] private MouseCast mouseCast;
         [SerializeField] private HoleFace holePreview;
+        [SerializeField] private Image moveSourceIcon;
+        [SerializeField] private Material holeMoveMaterial;
         [SerializeField] private InputEvent orbitInput;
         [SerializeField] private InputEvent panInput;
         [SerializeField] private InputEvent noclipInput;
@@ -49,9 +51,11 @@ namespace Protobot.Tools {
         private Quaternion grabRotation = Quaternion.identity;
         private bool holeSnapping;
         private bool hasSourceHole;
-        private bool hasHoleTarget;
+        private bool hasMoveTarget;
         private Vector3 sourceHoleOrigin;
         private Quaternion sourceHoleOrientation;
+        private HoleMovePreview movePreview;
+        private MoveTargetPreview targetPreview;
         private bool active;
         private bool rotating;
         private bool settling;
@@ -206,8 +210,8 @@ namespace Protobot.Tools {
             rotationDegrees = 0f;
             active = true;
             settling = false;
-            holeSnapping = hasSourceHole = hasHoleTarget = false;
-            HideHolePreview();
+            holeSnapping = hasSourceHole = hasMoveTarget = false;
+            HideTargetPreview();
             grabRotation = Quaternion.identity;
             displayedOffset = targetOffset = Vector3.zero;
             displayedRotation = targetRotation = Quaternion.identity;
@@ -229,9 +233,12 @@ namespace Protobot.Tools {
             }
             FreezeDisplayedPose();
             holeSnapping = true;
-            hasHoleTarget = false;
+            hasMoveTarget = false;
             axis = Vector3.zero;
-            if (hasSourceHole) RebaseOrigin(sourceHoleOrigin);
+            if (hasSourceHole) {
+                RebaseOrigin(sourceHoleOrigin);
+                ShowMovePreview();
+            }
         }
 
         private void FreezeDisplayedPose() {
@@ -243,8 +250,9 @@ namespace Protobot.Tools {
 
         private void LeaveHoleSnap() {
             FreezeDisplayedPose();
-            holeSnapping = hasHoleTarget = false;
-            HideHolePreview();
+            HideMovePreview();
+            holeSnapping = hasMoveTarget = false;
+            HideTargetPreview();
             axis = Vector3.zero;
             grabRotation = targetRotation;
             RebaseOrigin(grabOrigin);
@@ -260,49 +268,59 @@ namespace Protobot.Tools {
         private bool IsMoving(Transform candidate) => roots.Any(root => root != null &&
             (candidate == root || candidate.IsChildOf(root)));
 
-        private bool TryGetHole(bool source, out HoleData hole, out Vector3 point, out Quaternion orientation) {
-            hole = null;
-            point = default;
-            orientation = Quaternion.identity;
+        private bool TryGetMoveTarget(bool source, out MoveTarget target) {
+            target = default;
             if (MouseInput.overUI) return false;
             var ray = mouseCast != null ? mouseCast.ray : refCamera.ScreenPointToRay(MouseInput.Position);
             int mask = mouseCast != null ? mouseCast.layerMask : LayerMask.GetMask("Default", "HoleCollisions");
-            foreach (var hit in Physics.RaycastAll(ray, Mathf.Infinity, mask, QueryTriggerInteraction.Ignore).OrderBy(hit => hit.distance)) {
-                bool moving = IsMoving(hit.collider.transform);
-                if (!source && moving) continue;
-                if (hit.collider.TryGetComponent(out HoleCollider collider) && collider.holeData?.part != null && moving == source) {
-                    hole = collider.holeData;
-                    var normal = oppositeHoleInput != null && oppositeHoleInput.IsCurrentlyPressed ? -hit.normal : hit.normal;
-                    point = hole.position + normal * (hole.depth / 2f);
-                    orientation = Quaternion.LookRotation(normal, hole.rotation * Vector3.up);
-                    return true;
-                }
-                // A visible body blocks holes behind it; moving bodies only block source picking.
-                return false;
-            }
-            return false;
+            bool opposite = oppositeHoleInput != null && oppositeHoleInput.IsCurrentlyPressed;
+            return MoveTargeting.TryRaycast(ray, mask, opposite, !source, source ? null : IsMoving, out target) &&
+                (!source || IsMoving(target.Body.transform));
         }
 
         private bool PickSourceHole() {
-            if (!TryGetHole(true, out _, out var point, out var orientation)) return false;
-            sourceHoleOrigin = origin + Quaternion.Inverse(displayedRotation) * (point - origin - displayedOffset);
-            sourceHoleOrientation = Quaternion.Inverse(displayedRotation) * orientation;
+            if (!TryGetMoveTarget(true, out var target)) return false;
+            sourceHoleOrigin = origin + Quaternion.Inverse(displayedRotation) * (target.face.position - origin - displayedOffset);
+            sourceHoleOrientation = Quaternion.Inverse(displayedRotation) * target.face.rotation;
             hasSourceHole = true;
-            HideHolePreview();
+            HideTargetPreview();
             RebaseOrigin(sourceHoleOrigin);
+            ShowMovePreview();
             return true;
         }
 
-        private bool PreviewHole(bool source, out Vector3 point, out Quaternion orientation) {
-            bool found = TryGetHole(source, out var hole, out point, out orientation);
-            if (holePreview != null) {
-                if (found) holePreview.Set(hole, orientation * Vector3.forward);
-                holePreview.gameObject.SetActive(found);
-            }
-            return found;
+        private void ShowMovePreview() {
+            HideMovePreview();
+            movePreview = new HoleMovePreview(bodies, placement, holeMoveMaterial, moveSourceIcon, refCamera,
+                origin + displayedOffset, displayedRotation);
         }
 
-        private void HideHolePreview() {
+        private void HideMovePreview() {
+            movePreview?.Dispose();
+            movePreview = null;
+        }
+
+        private void UpdateMovePreview() => movePreview?.UpdatePose(refCamera, origin + displayedOffset, displayedRotation);
+
+        private void PreviewSourceHole() {
+            if (TryGetMoveTarget(true, out var target)) ShowTargetPreview(target);
+            else HideTargetPreview();
+        }
+
+        private void ShowTargetPreview(MoveTarget target) {
+            targetPreview ??= new MoveTargetPreview(holePreview, holeMoveMaterial);
+            targetPreview.Show(target);
+        }
+
+        private void ApplyTarget(MoveTarget target) {
+            ShowTargetPreview(target);
+            var aligned = MoveTargeting.Align(new Pose(sourceHoleOrigin, sourceHoleOrientation), target.face,
+                new Pose(origin, Quaternion.identity));
+            SetTarget(aligned.position - origin, aligned.rotation);
+        }
+
+        private void HideTargetPreview() {
+            targetPreview?.Hide();
             if (holePreview != null) holePreview.gameObject.SetActive(false);
         }
 
@@ -337,7 +355,7 @@ namespace Protobot.Tools {
             if (!active)
                 return;
 
-            HideHolePreview();
+            HideTargetPreview();
             var keyboard = Keyboard.current;
             var mouse = Mouse.current;
             if (RebindAction.Rebinding || !Application.isFocused || keyboard == null || mouse == null ||
@@ -347,10 +365,11 @@ namespace Protobot.Tools {
             }
 
             HandleInput(keyboard, mouse);
+            UpdateMovePreview();
         }
 
         private void HandleInput(Keyboard keyboard, Mouse mouse) {
-            HideHolePreview();
+            HideTargetPreview();
             if (keyboard.escapeKey.wasPressedThisFrame || (!holeSnapping && mouse.rightButton.wasPressedThisFrame)) {
                 Finish(false);
                 return;
@@ -378,13 +397,13 @@ namespace Protobot.Tools {
 
             // Camera gestures must not pick/confirm a hole or move the rigid set.
             if (IsNavigatingCamera) {
-                hasHoleTarget = false;
+                hasMoveTarget = false;
                 FreezeDisplayedPose();
                 return;
             }
 
             if (holeSnapping && !hasSourceHole) {
-                PreviewHole(true, out _, out _);
+                PreviewSourceHole();
                 if (mouse.leftButton.wasPressedThisFrame && !MouseInput.overUI) PickSourceHole();
                 return;
             }
@@ -392,7 +411,7 @@ namespace Protobot.Tools {
             Apply(MouseInput.Position);
             if ((mouse.leftButton.wasPressedThisFrame && !MouseInput.overUI) ||
                 keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame) {
-                if (!holeSnapping || hasHoleTarget) Finish(true);
+                if (!holeSnapping || hasMoveTarget) Finish(true);
             }
             else WrapAxisCursor(mouse);
         }
@@ -423,12 +442,9 @@ namespace Protobot.Tools {
 
         private void Apply(Vector2 mouse) {
             if (holeSnapping) {
-                hasHoleTarget = PreviewHole(false, out var point, out var orientation);
-                if (hasHoleTarget) {
-                    // The selected/source face meets the opposite-facing target surface.
-                    var desiredOrientation = orientation * Quaternion.Euler(0, 180, 0);
-                    SetTarget(point - origin, desiredOrientation * Quaternion.Inverse(sourceHoleOrientation));
-                }
+                hasMoveTarget = TryGetMoveTarget(false, out var target);
+                if (hasMoveTarget) ApplyTarget(target);
+                else HideTargetPreview();
                 return;
             }
             var rotation = rotating
@@ -485,13 +501,14 @@ namespace Protobot.Tools {
                 if (roots[i] != null)
                     roots[i].SetPositionAndRotation(origin + displayedOffset + displayedRotation * (positions[i] - origin), displayedRotation * rotations[i]);
             }
+            UpdateMovePreview();
         }
 
         private void Finish(bool confirm) {
             numericInput.Close();
             if (!active)
                 return;
-            HideHolePreview();
+            HideTargetPreview();
             if (confirm) {
                 // Let the same easing finish after confirmation, then snapshot
                 // the exact snapped target rather than an in-between frame.
@@ -504,6 +521,7 @@ namespace Protobot.Tools {
                 return;
             }
             else {
+                HideMovePreview();
                 smoothingTween?.Kill();
                 smoothingTween = null;
                 for (int i = 0; i < roots.Count; i++) {
@@ -522,6 +540,7 @@ namespace Protobot.Tools {
             displayedOffset = targetOffset;
             displayedRotation = targetRotation;
             ApplyDisplayedTransform();
+            HideMovePreview();
             bool changed = roots.Where((root, i) => root != null &&
                 (Vector3.Distance(root.position, positions[i]) > 0.00001f ||
                  Quaternion.Angle(root.rotation, rotations[i]) > 0.0001f)).Any();
@@ -588,8 +607,8 @@ namespace Protobot.Tools {
             string help = "X/Y/Z: axis    /: type value";
             if (!rotating) help += $"    {holeKey}: {(holeSnapping ? "free move" : "hole snap")}";
             string oppositeKey = oppositeHoleInput != null ? oppositeHoleInput.GetCurrentKeybind() : "Space";
-            if (holeSnapping) help += (hasSourceHole ? "\nHover an outside hole" : "\nClick a source hole on the selected parts") +
-                $" · Hold {oppositeKey}: opposite face\nCamera controls available";
+            if (holeSnapping) help += (hasSourceHole ? "\nHover an outside hole or screw" : "\nClick a source hole on the selected parts") +
+                $" · Hold {oppositeKey}: opposite hole face\nCamera controls available";
             return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
                 help + (holeSnapping ? "\nClick / Enter: confirm    Esc: cancel" : "\nClick / Enter: confirm    Esc / Right click: cancel");
         }
@@ -611,6 +630,8 @@ namespace Protobot.Tools {
         }
 
         private void OnDestroy() {
+            HideMovePreview();
+            targetPreview?.Dispose();
             grabInput.performed -= Grab;
             rotateInput.performed -= Rotate;
             if (holeSnapInput != null) holeSnapInput.performed -= ToggleHoleSnap;

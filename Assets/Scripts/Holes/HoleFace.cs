@@ -8,7 +8,7 @@ namespace Protobot {
         public Vector3 direction;
         public Vector3 position => transform.position;
         public Quaternion Rotation => transform.rotation;
-        public Quaternion LookRotation => Quaternion.LookRotation(direction, transform.up);
+        public Quaternion LookRotation => MoveTargeting.HoleFace(hole, direction).rotation;
         public HoleData hole;
 
         [CacheComponent] private MeshFilter meshFilter;
@@ -21,19 +21,15 @@ namespace Protobot {
         public void Refresh() {
             if (hole?.part == null) return;
             direction = hole.part.transform.TransformDirection(localDirection).normalized;
-            transform.SetPositionAndRotation(hole.position + direction * (hole.depth / 2f),
-                Quaternion.LookRotation(-direction, hole.rotation * Vector3.up));
+            var face = MoveTargeting.HoleFace(hole, direction);
+            transform.SetPositionAndRotation(face.position, MoveTargeting.Oppose(face.rotation));
         }
 
         public void Set(HoleData newHole, Vector3 newDir) {
             localDirection = newHole.part != null
                 ? newHole.part.transform.InverseTransformDirection(newDir) : newDir;
-            transform.rotation = Quaternion.LookRotation(-newDir,  newHole.rotation * Vector3.up);
-            
-            Vector3 newHolePos = newHole.position;
-
-            Vector3 newPos = newHolePos + (newDir * (newHole.depth / 2));
-            transform.position = newPos;
+            var face = MoveTargeting.HoleFace(newHole, newDir);
+            transform.SetPositionAndRotation(face.position, MoveTargeting.Oppose(face.rotation));
             
             direction = newDir;
             

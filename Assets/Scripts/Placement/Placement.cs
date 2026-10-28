@@ -21,11 +21,12 @@ namespace Protobot {
         public bool rotating;
 
         private PlacementData currentPlacementData;
+        private int placementStartFrame = -1;
         public PartPlacementData CurrentPartPlacement => placing ? currentPlacementData as PartPlacementData : null;
 
         public void RefreshPartPreview() {
             if (CurrentPartPlacement != null) {
-                meshFilter.mesh = CurrentPartPlacement.GetDisplayMesh();
+                SetPreviewMesh(CurrentPartPlacement.GetDisplayMesh());
                 CurrentPartPlacement.RefreshAttachment();
             }
         }
@@ -33,6 +34,39 @@ namespace Protobot {
         [CacheComponent] private MeshRenderer meshRenderer;
 
         [CacheComponent] private MeshFilter meshFilter;
+        private Mesh previewMesh;
+        private MovePreviewVisibility previewVisibility;
+
+        private void SetPreviewMesh(Mesh mesh) {
+            ReleasePreviewMesh();
+            previewMesh = mesh;
+            meshFilter.sharedMesh = mesh;
+        }
+
+        private void OnDestroy() {
+            ReleaseMovePreview();
+            ReleasePreviewMesh();
+        }
+
+        private void ReleasePreviewMesh() {
+            if (previewMesh == null) return;
+            if (Application.isPlaying) Destroy(previewMesh);
+            else DestroyImmediate(previewMesh);
+            previewMesh = null;
+        }
+
+        private void ReleaseMovePreview() {
+            if (currentPlacementData is GameObjectPlacementData moving && moving.GetGameObject() != null)
+                SetPlacementLayer(moving.GetGameObject(), false, !moving.individual);
+            previewVisibility?.Dispose();
+            previewVisibility = null;
+        }
+
+        private void OnDisable() {
+            ReleaseMovePreview();
+            placing = rotating = false;
+            if (meshRenderer != null) meshRenderer.enabled = false;
+        }
 
         [SerializeField] private List<PlaceDisplacement> placePositions;
 
@@ -62,7 +96,7 @@ namespace Protobot {
             rotating = false;
             
             placeInput.performed += () => {
-                if (placing && !MouseInput.overUI)
+                if (placing && Time.frameCount != placementStartFrame && !MouseInput.overUI)
                     Place();
             };
 
@@ -157,10 +191,12 @@ namespace Protobot {
         }
 
         public void StartPlacing(PlacementData newPlacementData) {
+            ReleaseMovePreview();
             currentPlacementData = newPlacementData;
+            placementStartFrame = Time.frameCount;
             placing = true;
             rotating = false;
-            meshFilter.mesh = newPlacementData.GetDisplayMesh();
+            SetPreviewMesh(newPlacementData.GetDisplayMesh());
             placementSnapOrigin = Vector3.zero;
 
             if (newPlacementData is PartPlacementData partPlacement)
@@ -173,6 +209,8 @@ namespace Protobot {
                 placementSnapOrigin = objTransform.position;
                 currentDisplacement = new Displacement(transform);
                 
+                var bodies = objPlaceData.GetGameObject().GetConnectedObjects(true, false, !objPlaceData.individual);
+                previewVisibility = new MovePreviewVisibility(bodies, MeshCombiner.GetRenderers(bodies));
                 SetPlacementLayer(objPlaceData.GetGameObject(), true, !objPlaceData.individual);
             }
 
@@ -198,8 +236,7 @@ namespace Protobot {
         }
 
         public void StopPlacing() {
-            if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData))
-                SetPlacementLayer(objPlaceData.GetGameObject(), false, !objPlaceData.individual);
+            ReleaseMovePreview();
             
             transform.rotation = Quaternion.identity;
             rotating = false;

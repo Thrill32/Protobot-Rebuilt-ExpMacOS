@@ -10,6 +10,8 @@ namespace Protobot.SelectionSystem {
         
         [SerializeField] private MouseCast mouseCast = null;
         [SerializeField] private InputEvent input;
+        [SerializeField] private ToolToggle moveTool;
+        [SerializeField] private MoveToolManager moveToolManager;
 
         public void Awake() {
             input.performed += () => OnPerformInput();
@@ -27,7 +29,17 @@ namespace Protobot.SelectionSystem {
                         selector = this
                     };
 
+                    var selectionManager = GetComponent<SelectionManager>();
+                    var previousSelection = selectionManager?.current;
                     setEvent?.Invoke(selection);
+
+                    // Selection must finish first so Move uses the chosen face
+                    // and the grouping scope captured by this click.
+                    if (moveTool != null && moveTool.active && moveToolManager != null && selectionManager != null &&
+                        selection.gameObject.TryGetComponent<HoleCollider>(out var clickedHole) &&
+                        selectionManager.current is HoleSelection holeSelection &&
+                        holeSelection != previousSelection && holeSelection.holeData == clickedHole.holeData)
+                        moveToolManager.StartMoving();
                 }
                 else {
                     clearEvent?.Invoke();

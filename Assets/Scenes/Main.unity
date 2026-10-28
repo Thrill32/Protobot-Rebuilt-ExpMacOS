@@ -26248,6 +26248,8 @@ MonoBehaviour:
   setResponses: []
   mouseCast: {fileID: 963194229}
   input: {fileID: 1167541427}
+  moveTool: {fileID: 1122304008}
+  moveToolManager: {fileID: 1552863570}
 --- !u!114 &1178496095
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -32055,7 +32057,8 @@ MonoBehaviour:
   m_EditorClassIdentifier:
   mouseCast: {fileID: 963194229}
   hoverHoleFace: {fileID: 2016192960}
-  selectedHoleFace: {fileID: 501375780}
+  oppositeHoleInput: {fileID: 1190413779}
+  targetMarkerMaterial: {fileID: 2100000, guid: 29ad5974c8c644cfa318bd7a94453126, type: 2}
 --- !u!114 &1449685611
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -52232,6 +52235,8 @@ MonoBehaviour:
   oppositeHoleInput: {fileID: 1190413779}
   mouseCast: {fileID: 963194229}
   holePreview: {fileID: 2016192960}
+  moveSourceIcon: {fileID: 1552863572}
+  holeMoveMaterial: {fileID: 2100000, guid: 29ad5974c8c644cfa318bd7a94453126, type: 2}
   orbitInput: {fileID: 1461980130}
   panInput: {fileID: 1725275621}
   noclipInput: {fileID: 246119430474503456}

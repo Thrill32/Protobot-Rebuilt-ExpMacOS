@@ -12,22 +12,17 @@ namespace Protobot {
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             displacement = null;
             if (placementData is not PartPlacementData part) return false;
-            var hit = mouseCast.hit;
-            if (hit.collider == null || !hit.collider.TryGetComponent(out HoleCollider hole) ||
-                hole.holeData?.part == null) return false;
-
-            var direction = flipInput.IsPressed ? -hit.normal : hit.normal;
-            var target = hole.holeData.position + direction * (hole.holeData.depth / 2f);
-            var targetRotation = Quaternion.LookRotation(direction, hole.holeData.rotation * Vector3.up);
-            displacement = Align(part, target, targetRotation);
+            if (!MoveTargeting.TryRaycast(mouseCast.ray, mouseCast.layerMask, flipInput.IsPressed, false, null, out var target)) return false;
+            displacement = Align(part, target.face.position, target.face.rotation);
             return true;
         }
 
         public static Displacement Align(PartPlacementData part, Vector3 target, Quaternion targetRotation) {
             var anchor = part.attachmentPose;
-            var rotation = targetRotation * Quaternion.Inverse(anchor.rotation);
             var matingFace = anchor.position - anchor.rotation * Vector3.forward * (part.attachmentDepth / 2f);
-            return new Displacement(target - rotation * matingFace, rotation);
+            var aligned = MoveTargeting.Align(new Pose(matingFace, MoveTargeting.Oppose(anchor.rotation)),
+                new Pose(target, targetRotation), new Pose(Vector3.zero, Quaternion.identity));
+            return new Displacement(aligned.position, aligned.rotation);
         }
     }
 }

@@ -35,10 +35,17 @@ namespace ProtobotEditorTools {
             data.FindProperty("holePreview").objectReferenceValue = new SerializedObject(
                 Object.FindFirstObjectByType<Protobot.SelectionSystem.HoleFaceResponseSelector>())
                 .FindProperty("hoverHoleFace").objectReferenceValue;
+            data.FindProperty("moveSourceIcon").objectReferenceValue = Object.FindObjectsByType<UnityEngine.UI.Image>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None).Single(image => image.name == "Move Button");
+            data.FindProperty("holeMoveMaterial").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Hole Move Preview.mat");
             data.FindProperty("orbitInput").objectReferenceValue = inputs.Single(input => input.name == "Orbit");
             data.FindProperty("panInput").objectReferenceValue = inputs.Single(input => input.name == "Pan");
             data.FindProperty("noclipInput").objectReferenceValue = inputs.Single(input => input.name == "Noclip Camera");
             data.ApplyModifiedPropertiesWithoutUndo();
+            var move = new SerializedObject(controller.GetComponent<HolePlaceDisplacement>());
+            move.FindProperty("oppositeHoleInput").objectReferenceValue = inputs.Single(input => input.name == "Select Opposite Hole");
+            move.FindProperty("targetMarkerMaterial").objectReferenceValue = data.FindProperty("holeMoveMaterial").objectReferenceValue;
+            move.ApplyModifiedPropertiesWithoutUndo();
 
             var rows = Object.FindObjectsByType<RebindUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             var template = rows.First(row => Input(row)?.name == "Duplicate");

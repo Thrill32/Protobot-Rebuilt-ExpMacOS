@@ -23,6 +23,8 @@ namespace Protobot {
         }
 
         public void StartMoving() {
+            if (placement.placing || !objectLink.active || Tools.KeyboardTransformTool.IsCapturingInput)
+                return;
             placement.StartPlacing(new GameObjectPlacementData(objectLink.obj, placement.transform, objectLink.individual));
         }
     }
