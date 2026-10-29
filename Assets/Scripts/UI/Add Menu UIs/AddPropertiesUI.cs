@@ -174,6 +174,7 @@ namespace Protobot.UI {
         }
 
         private void ApplyParameters() {
+            Protobot.Simulation.SimulationTool.ExitForEdit();
             if (editingObject == null) {
                 placement.RefreshPartPreview();
                 return;

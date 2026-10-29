@@ -9,6 +9,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using Protobot.Simulation;
 
 namespace Protobot.Tools {
     /// <summary>Blender-style modal grab/rotation of the current rigid selection.</summary>
@@ -38,6 +39,7 @@ namespace Protobot.Tools {
         private readonly MoveRotation moveRotation = new();
         private MoveTarget currentMoveTarget;
         private float attachmentTwist;
+        private GearSnapping.Source? sourceGear;
         private readonly TransformNumericInput numericInput = new();
         private Quaternion initialOrientation;
         private float rotationDegrees;
@@ -215,6 +217,10 @@ namespace Protobot.Tools {
             }
             foreach (var body in bodies)
                 body.transform.DOKill();
+            var selectedBody = selection is HoleSelection selectedGearHole ? selectedGearHole.holeData?.part : selection.gameObject;
+            var gear = selectedBody != null ? selectedBody.GetComponent<SimulationPart>() : null;
+            if (gear == null && bodies.Count == 1) gear = bodies[0].GetComponent<SimulationPart>();
+            sourceGear = gear != null ? new GearSnapping.Source(gear) : null;
             duplicates.Clear();
             before = CaptureState();
             BeginDuplication();
@@ -250,6 +256,11 @@ namespace Protobot.Tools {
             holeSnapping = true;
             hasMoveTarget = false;
             axis = Vector3.zero;
+            if (!hasSourceHole && sourceGear.HasValue) {
+                sourceHoleOrigin = sourceGear.Value.center;
+                sourceHoleOrientation = Quaternion.LookRotation(sourceGear.Value.axis, sourceGear.Value.tooth);
+                hasSourceHole = true;
+            }
             if (hasSourceHole) {
                 RebaseOrigin(sourceHoleOrigin);
                 ShowMovePreview();
@@ -505,6 +516,15 @@ namespace Protobot.Tools {
             if (holeSnapping) {
                 hasMoveTarget = TryGetMoveTarget(false, out var target);
                 if (hasMoveTarget) ApplyTarget(target);
+                else if (sourceGear.HasValue && !MouseInput.overUI && GearSnapping.TrySnap(
+                    mouseCast != null ? mouseCast.ray : refCamera.ScreenPointToRay(mouse), sourceGear.Value,
+                    new Pose(origin, Quaternion.identity), IsMoving, out var gearPose, out var gearAnchor)) {
+                    hasMoveTarget = true;
+                    currentMoveTarget = new MoveTarget(gearAnchor);
+                    gearPose = MoveRotation.Twist(gearPose, gearAnchor, attachmentTwist);
+                    SetTarget(gearPose.position - origin, gearPose.rotation);
+                    HideTargetPreview();
+                }
                 else HideTargetPreview();
                 return;
             }

@@ -11,6 +11,7 @@ namespace Protobot {
         [SerializeField] HoleCollider.HoleType targetHoleType;
 
         private void Update() {
+            if (Protobot.Simulation.SimulationTool.HasPreview) return;
             var allHoles = new HashSet<HoleCollider>(holes);
             foreach (var holeCollider in allHoles) {
                 if (!Usable(holeCollider))
@@ -68,7 +69,7 @@ namespace Protobot {
         /// <summary>Re-query stationary geometry after regeneration instead of
         /// waiting for trigger callbacks from a moving/woken rigidbody.</summary>
         public void RefreshOverlaps() {
-            if (!isActiveAndEnabled) return;
+            if (!isActiveAndEnabled || Protobot.Simulation.SimulationTool.HasPreview) return;
             var capsule = GetComponent<CapsuleCollider>();
             var scale = transform.lossyScale;
             float radius = capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
@@ -145,6 +146,7 @@ namespace Protobot {
         }
 
         private void OnTriggerStay(Collider other) {
+            if (Protobot.Simulation.SimulationTool.HasPreview) return;
             if (other.TryGetComponent(out HoleCollider hole))
                 DetectHole(hole);
         }
@@ -157,6 +159,7 @@ namespace Protobot {
         }
 
         private void OnTriggerExit(Collider other) {
+            if (Protobot.Simulation.SimulationTool.HasPreview) return;
             if (other.TryGetComponent(out HoleCollider hole))
                 if (hole.IsOccupiedBy(this))
                     RemoveHole(hole);

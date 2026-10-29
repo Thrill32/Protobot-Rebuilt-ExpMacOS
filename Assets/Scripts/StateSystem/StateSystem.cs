@@ -94,6 +94,7 @@ namespace Protobot.StateSystems {
         /// Changes the current state to the previous one
         /// </summary>
         public void Undo() {
+            Protobot.Simulation.SimulationTool.ExitForEdit();
             if (curIndex - 1 >= 0) {
                 curIndex--;
                 states[curIndex].Load();
@@ -105,6 +106,7 @@ namespace Protobot.StateSystems {
         /// Changes the current state to the next one if not at the last created state
         /// </summary>
         public void Redo() {
+            Protobot.Simulation.SimulationTool.ExitForEdit();
             if (curIndex + 1 <= lastStateIndex) {
                 curIndex++;
                 states[curIndex].Load();

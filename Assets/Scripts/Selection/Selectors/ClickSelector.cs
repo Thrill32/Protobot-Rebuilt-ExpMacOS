@@ -18,7 +18,7 @@ namespace Protobot.SelectionSystem {
         }
 
         private void OnPerformInput() {
-            if (ConnectTool.IsCapturingPoints)
+            if (ConnectTool.IsCapturingPoints || Protobot.Simulation.SimulationTool.CapturesSelection)
                 return;
 
             if (!MouseInput.overUI) {

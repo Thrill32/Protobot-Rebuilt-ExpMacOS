@@ -812,6 +812,7 @@ GameObject:
   - component: {fileID: 3264270051069062231}
   - component: {fileID: 2992523126053707804}
   - component: {fileID: 2074271061}
+  - component: {fileID: 786431120422633945}
   m_Layer: 0
   m_Name: 48T
   m_TagString: Motion
@@ -2827,6 +2828,7 @@ GameObject:
   - component: {fileID: 3733470108885806353}
   - component: {fileID: 3733470108885806352}
   - component: {fileID: 164692329}
+  - component: {fileID: 2732978509434559230}
   m_Layer: 0
   m_Name: 60T
   m_TagString: Motion
@@ -3740,6 +3742,7 @@ GameObject:
   - component: {fileID: 3733470109316886658}
   - component: {fileID: 3733470109316886657}
   - component: {fileID: 953906127}
+  - component: {fileID: 2402663288720417498}
   m_Layer: 0
   m_Name: 36T
   m_TagString: Motion
@@ -4625,6 +4628,7 @@ GameObject:
   - component: {fileID: 3733470109744163200}
   - component: {fileID: 3733470109744163207}
   - component: {fileID: 3733470109164767390}
+  - component: {fileID: 5657165933683107228}
   m_Layer: 0
   m_Name: 36T
   m_TagString: Motion
@@ -5599,6 +5603,7 @@ GameObject:
   - component: {fileID: 3733470109952093935}
   - component: {fileID: 3733470109952093934}
   - component: {fileID: 3733470109164767388}
+  - component: {fileID: 5084359075628546924}
   m_Layer: 0
   m_Name: 84T
   m_TagString: Motion
@@ -6719,6 +6724,7 @@ GameObject:
   - component: {fileID: 3733470110270342193}
   - component: {fileID: 3733470110270342192}
   - component: {fileID: 3733470109164767389}
+  - component: {fileID: 5413154389064041799}
   m_Layer: 0
   m_Name: 60T
   m_TagString: Motion
@@ -7325,6 +7331,7 @@ GameObject:
   - component: {fileID: 3733470110465867124}
   - component: {fileID: 3733470110465867131}
   - component: {fileID: 1693724887}
+  - component: {fileID: 8041967183084222992}
   m_Layer: 0
   m_Name: 84T
   m_TagString: Motion
@@ -7569,6 +7576,7 @@ GameObject:
   - component: {fileID: 3733470110479772156}
   - component: {fileID: 3733470110479772131}
   - component: {fileID: 3733470109164767391}
+  - component: {fileID: 8369076745417505659}
   m_Layer: 0
   m_Name: 12T
   m_TagString: Motion
@@ -8154,6 +8162,7 @@ GameObject:
   - component: {fileID: 3733470110606824947}
   - component: {fileID: 3733470110606824946}
   - component: {fileID: 3733470109164767387}
+  - component: {fileID: 1579068538172816895}
   m_Layer: 0
   m_Name: 12T
   m_TagString: Motion
@@ -9818,6 +9827,7 @@ GameObject:
   - component: {fileID: 1036053086235854728}
   - component: {fileID: 2582961615859979568}
   - component: {fileID: 2063165524}
+  - component: {fileID: 94449763882803788}
   m_Layer: 0
   m_Name: 36T
   m_TagString: Motion
@@ -10892,6 +10902,7 @@ GameObject:
   - component: {fileID: 8411852785126681990}
   - component: {fileID: 6468631794568838287}
   - component: {fileID: 1379616616}
+  - component: {fileID: 5301584993441961940}
   m_Layer: 0
   m_Name: 72T
   m_TagString: Motion
@@ -11517,6 +11528,7 @@ GameObject:
   - component: {fileID: 2573350483619797670}
   - component: {fileID: 1684586195512843476}
   - component: {fileID: 1931364501}
+  - component: {fileID: 4755976619558369581}
   m_Layer: 0
   m_Name: 84T
   m_TagString: Motion
@@ -12402,6 +12414,7 @@ GameObject:
   - component: {fileID: 8531285289350123299}
   - component: {fileID: 8765195849710056206}
   - component: {fileID: 1694391712}
+  - component: {fileID: 631710114436924054}
   m_Layer: 0
   m_Name: 60T
   m_TagString: Motion
@@ -13129,6 +13142,7 @@ GameObject:
   - component: {fileID: 3418049922171420602}
   - component: {fileID: 3859169013050557175}
   - component: {fileID: 1920032868}
+  - component: {fileID: 3845448179287384705}
   m_Layer: 0
   m_Name: 24T
   m_TagString: Motion
@@ -13261,3 +13275,255 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   name: HS V2 24T Gear
   weightInGrams: 40
+--- !u!114 &786431120422633945
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1333857116826213479}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.5555694, y: 0.83147025, z: 0}
+  teeth: 48
+  pitchRadius: 1.0001172
+  halfWidth: 0.25
+--- !u!114 &2732978509434559230
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470108885806358}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9986295, y: 0.05233597, z: 0}
+  teeth: 60
+  pitchRadius: 1.249839
+  halfWidth: 0.25
+--- !u!114 &2402663288720417498
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470109316886656}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.9063078, y: 0.42261818, z: 0}
+  teeth: 36
+  pitchRadius: 0.7498423
+  halfWidth: 0.25
+--- !u!114 &5657165933683107228
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470109744163205}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9063078, y: 0.42261818, z: 0}
+  teeth: 36
+  pitchRadius: 0.7498423
+  halfWidth: 0.1875
+--- !u!114 &5084359075628546924
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470109952093932}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.9659255, y: -0.25882044, z: 0}
+  teeth: 84
+  pitchRadius: 1.7498376
+  halfWidth: 0.25
+--- !u!114 &5413154389064041799
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470110270342198}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.9986295, y: 0.052336033, z: 0}
+  teeth: 60
+  pitchRadius: 1.2498392
+  halfWidth: 0.1875
+--- !u!114 &8041967183084222992
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470110465867129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.99371225, y: 0.11196446, z: 0}
+  teeth: 84
+  pitchRadius: 1.7500002
+  halfWidth: 0.25
+--- !u!114 &8369076745417505659
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470110479772129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.42261842, y: 0.9063077, z: 0}
+  teeth: 12
+  pitchRadius: 0.24985385
+  halfWidth: 0.1875
+--- !u!114 &1579068538172816895
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3733470110606824944}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9659258, y: -0.25881904, z: 0}
+  teeth: 12
+  pitchRadius: 0.24985392
+  halfWidth: 0.25
+--- !u!114 &94449763882803788
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4199409798300074078}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.99619454, y: 0.08715776, z: 0}
+  teeth: 36
+  pitchRadius: 0.75014496
+  halfWidth: 0.25
+--- !u!114 &5301584993441961940
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5945832547331941213}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.60877806, y: -0.7933405, z: 0}
+  teeth: 72
+  pitchRadius: 1.5000834
+  halfWidth: 0.25007248
+--- !u!114 &4755976619558369581
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6581019810982195748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.7071068, y: 0.70710677, z: 0}
+  teeth: 84
+  pitchRadius: 1.7500722
+  halfWidth: 0.25007248
+--- !u!114 &631710114436924054
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7745375387402584634}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9335804, y: 0.35836813, z: 0}
+  teeth: 60
+  pitchRadius: 1.2500979
+  halfWidth: 0.25002193
+--- !u!114 &3845448179287384705
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9215653053401264826}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9238855, y: 0.38266894, z: 0}
+  teeth: 24
+  pitchRadius: 0.5001869
+  halfWidth: 0.24999951

@@ -29,6 +29,7 @@ namespace Protobot {
         }
 
         public override void Execute() {
+            Protobot.Simulation.SimulationTool.ExitForEdit();
             DeleteObject();
             OnExecute?.Invoke();
             // Call OutputPartsList to update the weight display after placing a part

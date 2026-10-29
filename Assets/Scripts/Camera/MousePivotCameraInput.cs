@@ -46,7 +46,7 @@ namespace Protobot {
         }
 
         private void Update() {
-            if (InputEvent.IsNoclipMovementCaptured || Protobot.Tools.KeyboardTransformTool.BlocksCameraNavigation)
+            if (InputEvent.IsNoclipMovementCaptured || Protobot.Tools.KeyboardTransformTool.BlocksCameraNavigation || Protobot.Simulation.SimulationTool.BlocksCamera)
                 return;
 
             if (orbitInput.IsPressed && !disableOrbitInput) {
@@ -83,7 +83,7 @@ namespace Protobot {
         }
 
         public void ZoomScroll() {
-            if (!MouseInput.overUI && MouseInput.withinScreen) {
+            if (!MouseInput.overUI && !Protobot.Simulation.SimulationTool.OverPanel && MouseInput.withinScreen) {
                 float scrollInput = MouseInput.scrollAxis;
                 if (scrollInput != 0)
                     updateZoom?.Invoke(scrollInput * zoomSensitvity);

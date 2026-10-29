@@ -20,6 +20,7 @@ This is the quick orientation document for both human contributors and coding ag
 | Shared Move mechanics | `Assets/Scripts/Movement/MoveTargeting.cs`, `MoveTargetPreview.cs`, `MovePreviewVisibility.cs`, `Assets/Scripts/Tools/MoveRotation.cs`, `Assets/Scripts/Misc/MeshCombiner.cs` | Shared hole/screw targeting, face alignment, endpoint markers, renderer restoration and read-only preview geometry for Move and G/H. Initial hole placement shares face geometry/alignment. |
 | Automatic groups | `Assets/Scripts/Parenting/GroupManager.cs`, `ConnectingPart.cs`, `Assets/Scripts/HoleDetector.cs` | Live screw/shaft connections, detector ownership, and connected part sets. |
 | Tools | `Assets/Scripts/Tools` | Transform, move/pivot, color, Connect, and their handles/options. Toolbar buttons belong to one `ToggleGroup`. |
+| Mechanism simulation | `Assets/Scripts/Simulation`, `Assets/Editor/SimulationSetup.cs` | Tool 5, reversible kinematic shaft/spur-gear graph, wrapped horizontal scrubbing, playback/timeline controls and gear pitch-circle snapping. |
 | Keyboard transforms | `Assets/Scripts/Tools/KeyboardTransformTool.cs`, `TransformGesture.cs`, `TransformNumericInput.cs` | Smoothed modal grab/rotation, world-axis constraints from the starting transform, rigid selection roots, and confirmation/cancellation. Wired on Placement in Main.unity. |
 | Interaction feedback | `Assets/Scripts/UI/InteractionFeedback.cs`, `Assets/Scripts/Tools/TransformFeedback.cs`, `Assets/Resources/Fonts/InteractionFont.ttf` | Shared bottom-left modifier/help stack and pointer measurements, with an embedded font for desktop players. Installed by ObjectDuplicator at startup. |
 | Part properties | `Assets/Scripts/Part Management/PartParameterEditing.cs`, `Assets/Scripts/UI/Add Menu UIs/AddPropertiesUI.cs` | Parameter stepping, pick-part placement, and undoable regeneration of a single placed part. The controller lives on Placement so hiding the add menu does not disable shortcuts. |
@@ -51,6 +52,8 @@ With Move/pivot (`2`) active, a single hole click selects its face and immediate
 | `2` | Move/pivot tool |
 | `3` | Color tool |
 | `4` | Connect tool |
+| `5` | Simulation tool; press again to show/hide animation controls |
+| Mouse motion with a simulation driver selected | Scrub motion horizontally with viewport cursor wrapping; click sets the pose as one undoable edit, Escape/right-click reverts |
 | `G` | Grab selected parts in the camera plane |
 | `R` | Rotate a placed selection about the closest camera-facing world axis; during initial placement, Move or G → H, toggle rotation of the current preview |
 | `X` / `Y` / `Z` during grab/rotation | Constrain to a world axis through the starting position; repeat to restore free grab or rotation's initial primary axis |
@@ -118,6 +121,14 @@ Axis dragging and keyboard transforms share `ObjectDuplicator.CreateCopies`, whi
 - Direction/orientation is ignored. Only translation is applied.
 - `Escape` exits the tool; completed operations participate in undo/redo.
 
+## Simulation and gear snapping
+
+- `SimulationTool` joins the existing toolbar ToggleGroup. Choose a motor, shaft or spur gear, then move the mouse horizontally to scrub the connected drivetrain. Existing selections can supply the driver. The first version is kinematic: it propagates shaft rotation and signed tooth-count ratios, with no force/contact solver. Motor housings, bearings and structural editing groups stay stationary; collars, sprockets, wheels, lock bars and cranks on a shaft follow it. Incompatible gear loops are rejected.
+- `MechanismSimulation` captures world poses and evaluates every frame from that baseline, independently of editing pivots and `GroupManager`. It preserves parenting and includes complete assembly revolution times. `SimulationPart` bakes each spur gear variant's mechanical center, axis, tooth reference, pitch radius and axial extent into the resource prefab; ordinary generation, duplication, regeneration and build loading retain these components. Future drive preferences/presets can build on this metadata and the separate motion graph.
+- Manual previews revert on Escape/right-click, focus loss, tool exit or another edit. Click / the explicit Set pose button commits one undo state; animation has Play/Pause, Reset, a speed slider and a seekable timeline with each part's turn duration and loop boundaries. Preview transforms never enter build snapshots: `SceneBuild.ToBuildData` reads baseline poses through `SimulationTool.SavedPose`. Load, placement, deletion and undo/redo restore before changing the build. Detector updates are held during previews and refreshed on commit/cancellation.
+- Preferences has a Simulation category. Enable Simulation Tool defaults to 5. Animation, Play/Pause, Reset, Faster, Slower, Commit and Cancel are independently rebindable and have no defaults. UI input, selection and camera ownership follow the simulation mode; playback allows camera navigation, while manual motion captures the camera.
+- `GearSnapping` shares pitch-circle alignment and tooth-to-gap phasing across `GearPlaceDisplacement` (initial placement and Move) and keyboard G → H. Hover the circumference/vicinity of a stationary gear to mesh a moving gear with parallel axes and coplanar centers. Existing hole/shaft rules retain priority. Gear G/H selects its mechanical center automatically when no source hole was chosen. Target queries exclude moving parts and reject foreground occlusion. Bevel/worm/rack engagement is outside this first version.
+
 ## Important invariants and pitfalls
 
 - Main's `PlatformEvents.OnMacStart`, like `OnWindowsStart`, enables the build manager and file-name control. The manager starts inactive in the serialized scene; its startup must run to install Save and unsaved-change callbacks.
@@ -134,6 +145,8 @@ Axis dragging and keyboard transforms share `ObjectDuplicator.CreateCopies`, whi
 - Preserve unrelated work in the working tree. Build products and `Library` are generated artifacts, not source.
 
 ## Validation and build
+
+Run `-executeMethod ProtobotEditorTools.SimulationValidation.Validate` for scene/toolbar, unbound actions, Preferences, gear metadata and placement priority checks. Run `-batchmode -nographics -executeMethod ProtobotEditorTools.SimulationValidation.Smoke` without `-quit` for generated drivetrain and tool interaction checks (ratios, stationary housings/bearings, reversible evaluation, timeline, reset, cancellation, wrapping, commits, undo/redo, preview-safe saves and gear vicinity snapping). `SimulationSetup.Configure` installs the serialized Main-scene integration idempotently. Existing hole/keyboard/fastener suites remain regression checks for shared placement and input paths.
 
 Run a headless compile/import check:
 

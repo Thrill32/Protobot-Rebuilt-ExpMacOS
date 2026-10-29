@@ -62,7 +62,7 @@ namespace Protobot.SelectionSystem {
         #endregion
 
         private bool PassedAllConditions(ISelection sel, bool clearing = false) {
-            if (Protobot.Tools.KeyboardTransformTool.IsCapturingInput)
+            if (Protobot.Tools.KeyboardTransformTool.IsCapturingInput || Protobot.Simulation.SimulationTool.CapturesSelection)
                 return false;
 
             if (conditions != null) {

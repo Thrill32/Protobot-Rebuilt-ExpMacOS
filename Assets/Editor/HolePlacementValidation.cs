@@ -106,9 +106,10 @@ namespace ProtobotEditorTools {
             var serialized = new SerializedObject(fallback);
             foreach (var field in new[] { "mouseCast", "flipInput" })
                 Require(serialized.FindProperty(field).objectReferenceValue != null, "Missing reference: " + field);
-            Require(rules.GetArrayElementAtIndex(rules.arraySize - 2).objectReferenceValue == fallback &&
+            Require(rules.GetArrayElementAtIndex(rules.arraySize - 3).objectReferenceValue == fallback &&
+                rules.GetArrayElementAtIndex(rules.arraySize - 2).objectReferenceValue is Protobot.Simulation.GearPlaceDisplacement &&
                 rules.GetArrayElementAtIndex(rules.arraySize - 1).objectReferenceValue is PlanePlaceDisplacement,
-                "Initial hole placement must follow hardware rules and precede the plane.");
+                "Initial hole placement must follow hardware rules and precede gear vicinity snapping and the plane.");
 
             PartsManager.LoadPartTypes();
             int checkedParts = 0;

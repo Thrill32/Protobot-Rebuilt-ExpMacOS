@@ -28,6 +28,7 @@ namespace Protobot.Builds {
         /// Generates all the objects into the scene using given BuildData
         /// </summary>
         public static void GenerateBuild(BuildData buildData) {
+            Protobot.Simulation.SimulationTool.ExitForEdit();
             Debug.Log("Generating a build with " +
                       (buildData.parts == null ? 0 : buildData.parts.Length) + " parts");
 
@@ -144,8 +145,9 @@ namespace Protobot.Builds {
                 SavedObject savedData = tForm.GetComponent<SavedObject>();
                 Renderer savedColor = tForm.GetComponent<Renderer>();
 
-                var position = tForm.position;
-                var eulerAngles = tForm.eulerAngles;
+                var savedPose = Protobot.Simulation.SimulationTool.SavedPose(sceneObjs[i]);
+                var position = savedPose.position;
+                var eulerAngles = savedPose.rotation.eulerAngles;
                 newParts[i] = new ObjectData {
                     partId = savedData.id,
                     states = savedData.state,

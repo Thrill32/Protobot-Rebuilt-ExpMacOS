@@ -6,6 +6,7 @@ using UnityEngine;
 namespace Protobot {
     public class Motor : MonoBehaviour {
         [SerializeField] private HoleCollider shaftHole;
+        public HoleCollider ShaftHole => shaftHole;
         private float HsOffset => 0.2775f;
         private float NormOffset => 0.47f;
         

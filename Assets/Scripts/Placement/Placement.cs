@@ -168,7 +168,7 @@ namespace Protobot {
                         newDisplacement = new Displacement(newDisplacement.translation.Position,
                             freeRotation);
                     }
-                    else if (placePosition is not PartHolePlaceDisplacement &&
+                    else if (placePosition is not PartHolePlaceDisplacement && placePosition is not Protobot.Simulation.GearPlaceDisplacement &&
                              currentPlacementData is PartPlacementData hardwarePart) {
                         newDisplacement = new Displacement(newDisplacement.translation.Position,
                             newDisplacement.rotation.Orientation * hardwarePart.initialRotation);
@@ -222,6 +222,7 @@ namespace Protobot {
         }
 
         public void StartPlacing(PlacementData newPlacementData) {
+            Protobot.Simulation.SimulationTool.ExitForEdit();
             ReleaseMovePreview();
             currentPlacementData = newPlacementData;
             placementStartFrame = Time.frameCount;

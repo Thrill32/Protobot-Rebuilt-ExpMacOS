@@ -59,8 +59,10 @@ namespace Protobot.InputEvents {
                 IsPressed = false;
 
             if (IsPressed != prevPressStatus) {
-                if (IsPressed)
-                    performed?.Invoke();
+                if (IsPressed) {
+                    if (Protobot.Simulation.SimulationTool.AllowsInput(this)) performed?.Invoke();
+                    else { IsPressed = false; suppressedUntilRelease = true; }
+                }
                 else
                     canceled?.Invoke();
             }
