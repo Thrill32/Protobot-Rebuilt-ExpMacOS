@@ -518,7 +518,7 @@ namespace Protobot.Tools {
                 if (hasMoveTarget) ApplyTarget(target);
                 else if (sourceGear.HasValue && !MouseInput.overUI && GearSnapping.TrySnap(
                     mouseCast != null ? mouseCast.ray : refCamera.ScreenPointToRay(mouse), sourceGear.Value,
-                    new Pose(origin, Quaternion.identity), IsMoving, out var gearPose, out var gearAnchor)) {
+                    new Pose(origin, Quaternion.identity), IsMoving, out var gearPose, out var gearAnchor, SnapBypassInput.IsHeld)) {
                     hasMoveTarget = true;
                     currentMoveTarget = new MoveTarget(gearAnchor);
                     gearPose = MoveRotation.Twist(gearPose, gearAnchor, attachmentTwist);

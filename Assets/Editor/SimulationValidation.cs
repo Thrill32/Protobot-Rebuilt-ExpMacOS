@@ -155,6 +155,7 @@ namespace ProtobotEditorTools {
             Require(Math.Abs(Math.Abs(inverse.tracks.Single(t => t.body == shaft).ratio) - 3) < .00001, "Driving from the output gear failed.");
             inverse.Restore();
 
+            CheckGearPattern();
             CheckSnapping(gearA, gearB, tool);
             foreach (var pair in initial) pair.Key.transform.SetPositionAndRotation(pair.Value.position, pair.Value.rotation);
             Physics.SyncTransforms();
@@ -258,12 +259,85 @@ namespace ProtobotEditorTools {
             Point(camera.WorldToScreenPoint(point));
             var generator = PartsManager.GetPartType("GEAR").GetComponent<PartGenerator>();
             PartParameterEditing.Load(generator, "GEAR-Normal-12T");
-            Require(rule.TryGetDisplacement(new PartPlacementData(generator, generator.GetComponent<PartType>(), rule.transform), out _),
+            var partPlacement = new PartPlacementData(generator, generator.GetComponent<PartType>(), rule.transform);
+            Require(rule.TryGetDisplacement(partPlacement, out var normalPlacement),
                 $"New gear placement did not vicinity snap: pointer {MouseInput.Position}, ray {cast.ray}, target {target.Center}, aim {point}, metadata {generator.TryGetPartData(out var data)}/{data?.GetComponent<SimulationPart>() != null}");
-            Require(rule.TryGetDisplacement(new GameObjectPlacementData(source.gameObject, rule.transform, true), out _), "Move did not vicinity snap");
+            var moving = new GameObjectPlacementData(source.gameObject, rule.transform, true);
+            Require(rule.TryGetDisplacement(moving, out var normalMove), "Move did not vicinity snap");
+            var bypassInput = Object.FindObjectsByType<InputEvent>(FindObjectsSortMode.None).Single(i => i.name == "Snap Bypass");
+            var oldDefault = bypassInput.defaultAction; var oldRebound = bypassInput.rebindAction.action;
+            using var bypass = new InputAction("Gear bypass probe", InputActionType.Button, "<Keyboard>/f9");
+            using var unbound = new InputAction("Unbound gear bypass default");
+            bypassInput.defaultAction = unbound; bypassInput.rebindAction.action = bypass; bypass.Enable();
+            try {
+                Keys(UnityEngine.InputSystem.Key.F9);
+                Require(SnapBypassInput.IsHeld, "Rebound gear Snap Bypass was not recognized");
+                var freeSource = new GearSnapping.Source(source);
+                Require(GearSnapping.TrySnap(cast.ray, freeSource, new Pose(source.transform.position, source.transform.rotation),
+                    t => t == source.transform || t.IsChildOf(source.transform), out var expectedMove, out _, true), "Free Move target was unavailable");
+                Require(rule.TryGetDisplacement(moving, out var bypassMove), "Snap Bypass disabled Move gear snapping");
+                Near(bypassMove.translation.Position, expectedMove.position, "Move did not honor rebound Snap Bypass");
+                Require(generator.TryGetPartData(out var variant), "Missing placement gear variant");
+                var metadata = variant.GetComponent<SimulationPart>();
+                var localSource = new GearSnapping.Source(metadata.localCenter, metadata.localAxis, metadata.localTooth, metadata.pitchRadius, metadata.teeth);
+                Require(GearSnapping.TrySnap(cast.ray, localSource, Pose.identity, null, out var expectedPlacement, out _, true), "Free placement target was unavailable");
+                Require(rule.TryGetDisplacement(partPlacement, out var bypassPlacement), "Snap Bypass disabled initial gear snapping");
+                Near(bypassPlacement.translation.Position, expectedPlacement.position, "Initial placement did not honor rebound Snap Bypass");
+                Keys();
+                Require(rule.TryGetDisplacement(partPlacement, out var returnedPlacement), "Releasing bypass lost initial gear snapping");
+                Require(rule.TryGetDisplacement(moving, out var returnedMove), "Releasing bypass lost Move gear snapping");
+                Near(returnedPlacement.translation.Position, normalPlacement.translation.Position, "Initial placement did not return to the pattern");
+                Near(returnedMove.translation.Position, normalMove.translation.Position, "Move did not return to the pattern");
+            }
+            finally { Keys(); bypassInput.defaultAction = oldDefault; bypassInput.rebindAction.action = oldRebound; }
             Set(rule, "mouseCast", oldCast);
             cameraObject.SetActive(false);
             Debug.Log("Gear geometry and actual placement rule checks passed.");
+        }
+
+        private static void CheckGearPattern() {
+            var target = Part("GEAR-High Strength v2-84T", new Vector3(3550, 2200, -1700), Quaternion.identity).GetComponent<SimulationPart>();
+            var source = new GearSnapping.Source(Vector3.zero, Vector3.forward, Vector3.up, .75f, 36);
+            float angle = 58 * Mathf.Deg2Rad;
+            var direction = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0);
+            Ray Aim(Vector3 radial) => new Ray(target.Center + radial * target.Radius - target.Axis * 10, target.Axis);
+            Physics.SyncTransforms();
+            Require(GearSnapping.TrySnap(Aim(direction), source, Pose.identity, null, out var snapped, out var anchor), "Virtual gear pattern required an actual hole");
+            Near(snapped.position, target.Center + new Vector3(1.5f, 2, 0), "Nearest valid diagonal half-inch position was not chosen");
+            Near(anchor.position, snapped.position, "Rotation anchor did not follow the pattern center");
+            Require(GearSnapping.TrySnap(Aim(direction), source, Pose.identity, null, out var free, out _, true), "Bypass did not allow continuous gear placement");
+            Near(free.position, target.Center + direction * (source.radius + target.Radius), "Bypass was still quantized to the pattern");
+            Require(Vector3.Distance(free.position, snapped.position) > .1f, "Bypass did not change a non-pattern pointer angle");
+            target.transform.RotateAround(target.Center, target.Axis, 31);
+            Physics.SyncTransforms();
+            Require(GearSnapping.TrySnap(Aim(direction), source, Pose.identity, null, out var afterRotation, out _), "Rotating target gear lost its pattern");
+            Near(afterRotation.position, snapped.position, "Virtual pattern rotated with the target gear's teeth");
+
+            var rotation = Quaternion.Euler(23, 37, 11);
+            target.transform.rotation = rotation;
+            var bearing = Part("BRNG-Normal", target.Center - target.Axis, rotation);
+            var bore = bearing.GetComponentsInChildren<HoleCollider>().OrderBy(h => h.transform.localPosition.sqrMagnitude).First();
+            bearing.transform.rotation = Quaternion.FromToRotation(bore.transform.forward, target.Axis) * bearing.transform.rotation;
+            bearing.transform.position += target.Center - target.Axis - bore.transform.position;
+            var x = Vector3.ProjectOnPlane(bore.transform.right, target.Axis).normalized;
+            var y = Vector3.Cross(target.Axis, x).normalized;
+            direction = x * Mathf.Cos(angle) + y * Mathf.Sin(angle);
+            Physics.SyncTransforms();
+            Require(GearSnapping.TrySnap(Aim(direction), source, Pose.identity, null, out var rotated, out _), "Rotated mounting frame did not snap");
+            Near(rotated.position, target.Center + x * 1.5f + y * 2, "Virtual pattern did not follow the stationary mounting frame");
+            target.transform.RotateAround(target.Center, target.Axis, 29);
+            Physics.SyncTransforms();
+            Require(GearSnapping.TrySnap(Aim(direction), source, Pose.identity, null, out var mountedRotation, out _), "Mounted gear rotation lost its pattern");
+            Near(mountedRotation.position, rotated.position, "Mounted pattern followed the spinning gear");
+
+            var incompatible = Part("GEAR-High Strength v2-24T", new Vector3(3570, 2200, -1700), Quaternion.identity).GetComponent<SimulationPart>();
+            var small = new GearSnapping.Source(Vector3.zero, Vector3.forward, Vector3.up, .25f, 12);
+            var ray = new Ray(incompatible.Center + Vector3.up * incompatible.Radius - Vector3.forward * 10, Vector3.forward);
+            Physics.SyncTransforms();
+            Require(!GearSnapping.TrySnap(ray, small, Pose.identity, null, out _, out _), "A gear pair without a compatible half-inch offset snapped freely");
+            Require(GearSnapping.TrySnap(ray, small, Pose.identity, null, out _, out _, true), "Bypass did not allow a nonstandard center spacing");
+            target.gameObject.SetActive(false); bearing.SetActive(false); incompatible.gameObject.SetActive(false);
+            Debug.Log("Virtual VEX gear pattern passed: absent holes, nearest diagonal spacing, exact lattice centers, free bypass, stable tooth rotation, rotated mounting frames and incompatible-spacing rejection.");
         }
 
         private static void CheckKeyboardGear(SimulationPart source, SimulationPart target, SelectionManager manager) {
@@ -294,6 +368,7 @@ namespace ProtobotEditorTools {
 
         private static void Complete() { foreach (var obj in temporary.Where(o => o != null)) obj.transform.DOComplete(); }
         private static void Point(Vector2 position) { InputSystem.QueueStateEvent(Mouse.current, new MouseState { position = position }); InputSystem.Update(); }
+        private static void Keys(params UnityEngine.InputSystem.Key[] keys) { InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(keys)); InputSystem.Update(); }
         private static T Get<T>(object obj, string field) => (T)obj.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(obj);
         private static void Set(object obj, string field, object value) => obj.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance).SetValue(obj, value);
         private static object Invoke(object obj, string method, params object[] args) => obj.GetType().GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance).Invoke(obj, args);

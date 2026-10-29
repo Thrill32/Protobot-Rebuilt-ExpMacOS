@@ -1,4 +1,4 @@
-using System.Linq;
+using Protobot.InputEvents;
 using Protobot.Transformations;
 using UnityEngine;
 
@@ -17,7 +17,7 @@ namespace Protobot.Simulation {
             if (placementData is PartPlacementData part) {
                 if (!part.partGenerator.TryGetPartData(out var data) || !data.TryGetComponent(out gear)) return false;
                 var source = new GearSnapping.Source(gear.localCenter, gear.localAxis, gear.localTooth, gear.pitchRadius, gear.teeth);
-                if (!GearSnapping.TrySnap(mouseCast.ray, source, Pose.identity, null, out var placed, out anchor)) return false;
+                if (!GearSnapping.TrySnap(mouseCast.ray, source, Pose.identity, null, out var placed, out anchor, SnapBypassInput.IsHeld)) return false;
                 displacement = new Displacement(placed.position, placed.rotation);
                 return true;
             }
@@ -29,7 +29,7 @@ namespace Protobot.Simulation {
             pivot = new Pose(moving.transform.position, moving.transform.rotation);
             if (!GearSnapping.TrySnap(mouseCast.ray, new GearSnapping.Source(gear), pivot,
                 t => t == sourceBody.transform || t.IsChildOf(sourceBody.transform) || t.gameObject.layer == Placement.PLACEMENT_LAYER,
-                out var pose, out anchor)) return false;
+                out var pose, out anchor, SnapBypassInput.IsHeld)) return false;
             displacement = new Displacement(pose.position, pose.rotation);
             return true;
         }
