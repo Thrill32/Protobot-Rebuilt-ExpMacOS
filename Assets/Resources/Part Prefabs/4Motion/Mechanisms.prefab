@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 3323824155153674869}
   - component: {fileID: 8303978762023846781}
   - component: {fileID: 2292925461742533757}
+  - component: {fileID: 6323150662063745569}
   m_Layer: 0
   m_Name: Worm Gearl
   m_TagString: Untagged
@@ -744,6 +745,7 @@ GameObject:
   - component: {fileID: 4467750522908269783}
   - component: {fileID: 743771426867120862}
   - component: {fileID: 6017259853897036275}
+  - component: {fileID: 1121947261841145419}
   m_Layer: 0
   m_Name: 32t Bevel Gear
   m_TagString: Motion
@@ -1616,6 +1618,7 @@ GameObject:
   - component: {fileID: 3218101734180000661}
   - component: {fileID: 5056557305107491460}
   - component: {fileID: 1324752939716450844}
+  - component: {fileID: 3857412568935835940}
   m_Layer: 0
   m_Name: Worm Wheel
   m_TagString: Untagged
@@ -1763,6 +1766,7 @@ GameObject:
   - component: {fileID: 3133457608776651349}
   - component: {fileID: 133800430109282678}
   - component: {fileID: 4616555415767736038}
+  - component: {fileID: 2880201936102788084}
   m_Layer: 0
   m_Name: RackGearV2
   m_TagString: Motion
@@ -2848,6 +2852,7 @@ GameObject:
   - component: {fileID: 1763788730653093565}
   - component: {fileID: 1475439421139713789}
   - component: {fileID: 3743025006158899869}
+  - component: {fileID: 6763389762373019844}
   m_Layer: 0
   m_Name: Drop Off Cam
   m_TagString: Motion
@@ -3523,6 +3528,7 @@ GameObject:
   - component: {fileID: 7043502225099753826}
   - component: {fileID: 3380542886930519084}
   - component: {fileID: 7075203797007177653}
+  - component: {fileID: 4057587643336789935}
   m_Layer: 0
   m_Name: 16t Bevel Gear
   m_TagString: Motion
@@ -4952,6 +4958,7 @@ GameObject:
   - component: {fileID: 7146076597556532139}
   - component: {fileID: 2972071811151793121}
   - component: {fileID: 4183863709368361144}
+  - component: {fileID: 2033095754814872923}
   m_Layer: 0
   m_Name: Hand Crank
   m_TagString: Untagged
@@ -5378,3 +5385,171 @@ MonoBehaviour:
   holeType: 0
   detectors: []
   twoSided: 0
+--- !u!114 &6323150662063745569
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 271974302394610386}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 3
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.5276882, y: 0.84943813, z: 0}
+  teeth: 24
+  pitchRadius: 0.5
+  halfWidth: 0.18751693
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &1121947261841145419
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2043584986549105568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 1
+  localCenter: {x: 0, y: 1.3322676e-14, z: 0.026000082}
+  localAxis: {x: 0, y: 0.00000016292068, z: 1}
+  localTooth: {x: 0.19505174, y: -0.98079294, z: 0.00000016394576}
+  teeth: 32
+  pitchRadius: 0.6666667
+  halfWidth: 0.16335326
+  localContactCenter: {x: 0, y: -0.000000009600214, z: -0.03292569}
+  localFace: {x: -0, y: -0.00000016292068, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &3857412568935835940
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4119871240852572745}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 2
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.8945597, y: 0.44694844, z: 0}
+  teeth: 1
+  pitchRadius: 0.25
+  halfWidth: 0.3721408
+  localContactCenter: {x: 0, y: 0, z: 0.00008645654}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &2880201936102788084
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4271535666042592732}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 5
+  localCenter: {x: -0.000000059604645, y: 0.24665266, z: 0.000000014901161}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 1, y: 0, z: 0}
+  teeth: 19
+  pitchRadius: 0
+  halfWidth: 0.49437538
+  localContactCenter: {x: -0.000000059604645, y: 0.49100867, z: 0.000000014901161}
+  localFace: {x: 0, y: 1, z: 0}
+  span: 1.2401552
+  chainPitch: 0
+  starts: 1
+--- !u!114 &6763389762373019844
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5509864959235320432}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0.00000016292068, z: 1}
+  localTooth: {x: 0.03879786, y: 0.99924713, z: -0.00000016279802}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.30000007
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &4057587643336789935
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6473134528712028314}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 1
+  localCenter: {x: 0, y: -3.996803e-15, z: 0.042599976}
+  localAxis: {x: 0, y: 0.00000016292068, z: 1}
+  localTooth: {x: 0.00001925434, y: 1, z: -0.00000016168619}
+  teeth: 16
+  pitchRadius: 0.33333334
+  halfWidth: 0.28170803
+  localContactCenter: {x: 0, y: -0.000000010533663, z: -0.022055157}
+  localFace: {x: -0, y: -0.00000016292068, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &2033095754814872923
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8824786877543131098}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: -1}
+  localTooth: {x: -0.9999993, y: -0.0012079084, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 1.1499997
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1

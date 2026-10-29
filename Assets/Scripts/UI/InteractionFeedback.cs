@@ -15,6 +15,10 @@ namespace Protobot.UI {
         private readonly List<string> messages = new();
         private readonly List<Rect> occupied = new();
         private readonly Vector3[] corners = new Vector3[4];
+        private static string notification;
+        private static float notificationUntil;
+
+        public static void Notify(string message) { notification = message; notificationUntil = Time.unscaledTime + 4; }
 
         public void Initialize(ObjectDuplicator source) => duplicator = source;
 
@@ -36,6 +40,7 @@ namespace Protobot.UI {
         private void OnGUI() {
             if (RebindAction.Rebinding) return;
             messages.Clear();
+            if (Time.unscaledTime < notificationUntil && !string.IsNullOrEmpty(notification)) messages.Add(notification);
             AddModifierMessages(messages, duplicator != null && duplicator.IsDuplicateFeedbackHeld,
                 GroupingBypassInput.IsHeld, SnapBypassInput.IsHeld, multiSelector != null && multiSelector.IsMultiSelectHeld);
             if (KeyboardTransformTool.ControlsText != null) messages.Add(KeyboardTransformTool.ControlsText);

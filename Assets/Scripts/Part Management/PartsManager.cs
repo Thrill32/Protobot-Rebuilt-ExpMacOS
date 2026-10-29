@@ -92,8 +92,10 @@ namespace Protobot {
 
         /// <Summary> Destroys all loaded parts in the current scene </Summary>
         public static void DestroyLoadedObjects() {
-            foreach (var obj in FindLoadedObjects())
+            foreach (var obj in FindLoadedObjects()) {
+                obj.SetActive(false);
                 GameObject.Destroy(obj);
+            }
         }
     }
 }

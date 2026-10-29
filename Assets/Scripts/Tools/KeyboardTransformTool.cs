@@ -220,7 +220,7 @@ namespace Protobot.Tools {
             var selectedBody = selection is HoleSelection selectedGearHole ? selectedGearHole.holeData?.part : selection.gameObject;
             var gear = selectedBody != null ? selectedBody.GetComponent<SimulationPart>() : null;
             if (gear == null && bodies.Count == 1) gear = bodies[0].GetComponent<SimulationPart>();
-            sourceGear = gear != null ? new GearSnapping.Source(gear) : null;
+            sourceGear = gear != null && gear.CanMesh ? new GearSnapping.Source(gear) : null;
             duplicates.Clear();
             before = CaptureState();
             BeginDuplication();

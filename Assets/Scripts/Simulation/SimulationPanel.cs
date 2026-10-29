@@ -62,12 +62,12 @@ namespace Protobot.Simulation {
             var model = tool.Current;
             if (model == null) { content.sizeDelta = new Vector2(700, 0); Refresh(); return; }
             int index = 0;
-            foreach (var track in model.tracks.Where(t => t.rotates)) {
+            foreach (var track in model.tracks.Where(t => t.rotates && t.showInTimeline)) {
                 var row = Rect("Movement " + index, content, Vector2.up, Vector2.up, new Vector2(0, -index * 29), new Vector2(700, 27));
                 var text = Label(row, "Part and Period", "", 11, new Vector2(0, 0), new Vector2(235, 26), false);
                 var line = Rect("Loop Track", row, Vector2.up, Vector2.up, new Vector2(244, -12), new Vector2(450, 2));
                 Background(line, new Color(.35f, .4f, .46f, 1));
-                int loops = Mathf.RoundToInt((float)(model.LoopDuration / track.Period));
+                int loops = track.linear ? 0 : Mathf.RoundToInt((float)(model.LoopDuration / track.Period));
                 int stride = Mathf.Max(1, Mathf.CeilToInt(loops / 64f));
                 for (int tick = 0; tick <= loops; tick += stride) {
                     var mark = Rect("Loop Boundary", line, Vector2.zero, Vector2.zero,
@@ -103,13 +103,13 @@ namespace Protobot.Simulation {
             double time = model?.Time ?? 0;
             double phase = ((time % duration) + duration) % duration;
             clock.text = model == null ? "Select a motor, gear or shaft to animate" :
-                $"{time / tool.Speed:0.00}s   /   {duration / tool.Speed:0.##}s loop    ·    ticks mark complete turns";
+                $"{time / tool.Speed:0.00}s   /   {duration / tool.Speed:0.##}s {(model.HasFiniteLoop ? "loop" : "window")}    ·    ticks mark complete turns";
             updating = true;
             timeline.SetValueWithoutNotify((float)(phase / duration));
             speed.SetValueWithoutNotify(tool.Speed);
             updating = false;
             foreach (var row in rows) {
-                row.text.text = $"{row.track.Label} · {row.track.Period / tool.Speed:0.##}s / turn";
+                row.text.text = row.track.linear ? $"{row.track.Label} · {row.track.LinearSpeed * tool.Speed:0.##} in/s" : $"{row.track.Label} · {row.track.Period / tool.Speed:0.##}s / turn";
                 row.marker.anchoredPosition = new Vector2((float)(phase / duration) * 450, 7);
             }
         }

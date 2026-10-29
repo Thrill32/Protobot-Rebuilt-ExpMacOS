@@ -12,6 +12,7 @@ namespace Protobot.Builds {
 
         public ObjectData[] parts = Array.Empty<ObjectData>();
         public CameraData camera;
+        [System.Runtime.Serialization.OptionalField] public ChainData[] chains;
 
         public string lastWriteTime;
 
@@ -27,7 +28,17 @@ namespace Protobot.Builds {
                     return false;
             }
 
-            return true;
+            return ChainKeys(chains).SequenceEqual(ChainKeys(data.chains));
         }
+
+        private static IEnumerable<string> ChainKeys(ChainData[] values) => (values ?? Array.Empty<ChainData>())
+            .Where(c => c?.members != null)
+            .Select(c => string.Join("|", (c.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal)))
+            .OrderBy(key => key, StringComparer.Ordinal);
+    }
+
+    [Serializable]
+    public class ChainData {
+        public string[] members;
     }
 }

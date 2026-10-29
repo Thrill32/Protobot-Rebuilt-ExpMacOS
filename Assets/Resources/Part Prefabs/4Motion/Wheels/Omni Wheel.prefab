@@ -839,6 +839,7 @@ GameObject:
   - component: {fileID: 1367666537441297456}
   - component: {fileID: 1367666537441297459}
   - component: {fileID: 1367666537291429158}
+  - component: {fileID: 8945855290284316255}
   m_Layer: 0
   m_Name: 2.75in
   m_TagString: Motion
@@ -997,6 +998,7 @@ GameObject:
   - component: {fileID: 1367666537469076968}
   - component: {fileID: 1367666537469076971}
   - component: {fileID: 1437752759}
+  - component: {fileID: 2537892691823119650}
   m_Layer: 0
   m_Name: 4.00in
   m_TagString: Motion
@@ -1242,6 +1244,7 @@ GameObject:
   - component: {fileID: 1367666537968119844}
   - component: {fileID: 1367666537968119847}
   - component: {fileID: 1367666537291429157}
+  - component: {fileID: 9086072976627848203}
   m_Layer: 0
   m_Name: 3.25in
   m_TagString: Motion
@@ -2138,6 +2141,7 @@ GameObject:
   - component: {fileID: 3132223396734755507}
   - component: {fileID: 1093188356432315114}
   - component: {fileID: 1367666537291429156}
+  - component: {fileID: 5274591694682002834}
   m_Layer: 0
   m_Name: 2.00in New
   m_TagString: Untagged
@@ -2596,6 +2600,7 @@ GameObject:
   - component: {fileID: 2652241773105310322}
   - component: {fileID: 1259693577430240725}
   - component: {fileID: 1367666537291429155}
+  - component: {fileID: 2907316234590671042}
   m_Layer: 0
   m_Name: 2.75in New
   m_TagString: Untagged
@@ -3614,6 +3619,7 @@ GameObject:
   - component: {fileID: 5071393367811155799}
   - component: {fileID: 5230224197952761114}
   - component: {fileID: 212293509}
+  - component: {fileID: 4322286024061294912}
   m_Layer: 0
   m_Name: 4.00in New
   m_TagString: Untagged
@@ -5118,6 +5124,7 @@ GameObject:
   - component: {fileID: 3623859375855339800}
   - component: {fileID: 1362427292295977319}
   - component: {fileID: 1367666537291429154}
+  - component: {fileID: 7317093633367737154}
   m_Layer: 0
   m_Name: 3.25in New
   m_TagString: Untagged
@@ -5273,3 +5280,171 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   name: 3.25" Omni Wheel
   weightInGrams: 60
+--- !u!114 &8945855290284316255
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1367666537441297469}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.119462274, y: -0.9928388, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.6105675
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &2537892691823119650
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1367666537469076981}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.9666492, y: -0.25610435, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.5743036
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &9086072976627848203
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1367666537968119841}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.39900157, y: 0.9169502, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.48777533
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &5274591694682002834
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3098476783679968512}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.07919017, y: -0.99685955, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.3124994
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &2907316234590671042
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3689884437599766230}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.8468869, y: -0.5317731, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.48815307
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &4322286024061294912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5368407791578221517}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.36182916, y: 0.93224436, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.48864365
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &7317093633367737154
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9212170645975928205}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.36928433, y: 0.92931646, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.4888866
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1

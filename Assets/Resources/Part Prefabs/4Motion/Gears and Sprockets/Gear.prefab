@@ -13287,12 +13287,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: -0.5555694, y: 0.83147025, z: 0}
   teeth: 48
   pitchRadius: 1.0001172
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &2732978509434559230
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13305,12 +13311,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.9986295, y: 0.05233597, z: 0}
   teeth: 60
   pitchRadius: 1.249839
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &2402663288720417498
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13323,12 +13335,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: -0.9063078, y: 0.42261818, z: 0}
   teeth: 36
   pitchRadius: 0.7498423
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &5657165933683107228
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13341,12 +13359,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.9063078, y: 0.42261818, z: 0}
   teeth: 36
   pitchRadius: 0.7498423
   halfWidth: 0.1875
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &5084359075628546924
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13359,12 +13383,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: -0.9659255, y: -0.25882044, z: 0}
   teeth: 84
   pitchRadius: 1.7498376
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &5413154389064041799
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13377,12 +13407,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: -0.9986295, y: 0.052336033, z: 0}
   teeth: 60
   pitchRadius: 1.2498392
   halfWidth: 0.1875
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &8041967183084222992
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13395,12 +13431,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: -0.99371225, y: 0.11196446, z: 0}
   teeth: 84
   pitchRadius: 1.7500002
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &8369076745417505659
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13413,12 +13455,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.42261842, y: 0.9063077, z: 0}
   teeth: 12
   pitchRadius: 0.24985385
   halfWidth: 0.1875
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &1579068538172816895
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13431,12 +13479,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.9659258, y: -0.25881904, z: 0}
   teeth: 12
   pitchRadius: 0.24985392
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &94449763882803788
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13449,12 +13503,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.99619454, y: 0.08715776, z: 0}
   teeth: 36
   pitchRadius: 0.75014496
   halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &5301584993441961940
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13467,12 +13527,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.60877806, y: -0.7933405, z: 0}
   teeth: 72
   pitchRadius: 1.5000834
   halfWidth: 0.25007248
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &4755976619558369581
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13485,12 +13551,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: -0.7071068, y: 0.70710677, z: 0}
   teeth: 84
   pitchRadius: 1.7500722
   halfWidth: 0.25007248
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &631710114436924054
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13503,12 +13575,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.9335804, y: 0.35836813, z: 0}
   teeth: 60
   pitchRadius: 1.2500979
   halfWidth: 0.25002193
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
 --- !u!114 &3845448179287384705
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13521,9 +13599,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 0
   localCenter: {x: 0, y: 0, z: 0}
   localAxis: {x: 0, y: 0, z: 1}
   localTooth: {x: 0.9238855, y: 0.38266894, z: 0}
   teeth: 24
   pitchRadius: 0.5001869
   halfWidth: 0.24999951
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1

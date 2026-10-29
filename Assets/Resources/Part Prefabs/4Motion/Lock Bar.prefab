@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 1775101926783249190}
   - component: {fileID: 1775101926783249193}
   - component: {fileID: 1775101927613518226}
+  - component: {fileID: 1541610389806364938}
   m_Layer: 0
   m_Name: Metal
   m_TagString: Motion
@@ -406,6 +407,7 @@ GameObject:
   - component: {fileID: 1775101927295943518}
   - component: {fileID: 1775101927295943489}
   - component: {fileID: 1775101927613518225}
+  - component: {fileID: 7067015518584601160}
   m_Layer: 0
   m_Name: Plastic
   m_TagString: Motion
@@ -993,3 +995,51 @@ MonoBehaviour:
     customUnit: 
     customDefault: 
     customLimits: {x: 0, y: 0}
+--- !u!114 &1541610389806364938
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1775101926783249195}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.97409713, y: -0.22612983, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.023000011
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &7067015518584601160
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1775101927295943491}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.9778024, y: 0.20952922, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.0625
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1

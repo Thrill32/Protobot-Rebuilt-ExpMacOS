@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 6024303985860334751}
   - component: {fileID: 6024303985860334750}
   - component: {fileID: 948837962390289807}
+  - component: {fileID: 1783756730814749328}
   m_Layer: 0
   m_Name: Mecanum Wheel
   m_TagString: Motion
@@ -322,3 +323,27 @@ MonoBehaviour:
     type: 3}
   plasticInsertPrefab: {fileID: 2824726943182897764, guid: e8ac619419d15794cb4fd2d3d652d8f7,
     type: 3}
+--- !u!114 &1783756730814749328
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6024303985860334748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.9645443, y: 0.2639209, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 1.0026649
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1

@@ -11,6 +11,7 @@ namespace Protobot.Builds {
         public double rColor, gColor, bColor;
         public string states;
         [FormerlySerializedAs("meshId")] public string partId;
+        [System.Runtime.Serialization.OptionalField] public string connectionId;
         public Vector3 GetPos() => new Vector3((float)xPos, (float)yPos, (float)zPos);
         public Quaternion GetRot() => Quaternion.Euler((float)xRot, (float)yRot, (float)zRot);
         public Color GetColor() => new Color((float)rColor, (float)gColor, (float)bColor, 1);

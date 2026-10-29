@@ -10,17 +10,63 @@ namespace Protobot.Simulation {
             public readonly Vector3 center, axis, tooth;
             public readonly float radius;
             public readonly int teeth;
-            public Source(SimulationPart part) : this(part.Center, part.Axis, part.Tooth, part.Radius, part.teeth) { }
+            public readonly DriveKind kind;
+            public readonly Vector3 contact, face;
+            public readonly float span;
+            public readonly int starts;
+            public Source(SimulationPart part, bool local = false) {
+                center = local ? part.localCenter : part.Center; axis = local ? part.localAxis : part.Axis;
+                tooth = local ? part.localTooth : part.Tooth; radius = local ? part.pitchRadius : part.Radius; teeth = part.teeth;
+                kind = part.kind; contact = local ? part.kind == DriveKind.Spur ? part.localCenter : part.localContactCenter : part.ContactCenter;
+                face = local ? part.localFace : part.Face; span = part.span; starts = part.starts;
+            }
             public Source(Vector3 center, Vector3 axis, Vector3 tooth, float radius, int teeth) {
                 this.center = center; this.axis = axis; this.tooth = tooth; this.radius = radius; this.teeth = teeth;
+                kind = DriveKind.Spur; contact = center; face = -axis; span = 0; starts = 1;
             }
         }
 
         public static bool AreMeshed(SimulationPart a, SimulationPart b) {
+            return TryTransmission(a, b, out _);
+        }
+
+        public static bool TryTransmission(SimulationPart a, SimulationPart b, out double factor) {
+            factor = 0;
+            if (a.kind == DriveKind.Spur && b.kind == DriveKind.Spur) {
             var offset = b.Center - a.Center;
-            return Mathf.Abs(Vector3.Dot(a.Axis, b.Axis)) > .995f &&
+            bool meshed = Mathf.Abs(Vector3.Dot(a.Axis, b.Axis)) > .995f &&
                 Mathf.Abs(Vector3.Dot(offset, a.Axis)) < Mathf.Max(.025f, Mathf.Min(a.HalfWidth, b.HalfWidth)) &&
                 Mathf.Abs(Vector3.ProjectOnPlane(offset, a.Axis).magnitude - a.Radius - b.Radius) < MeshTolerance(a.Radius + b.Radius);
+                if (meshed) factor = -(double)a.teeth / b.teeth * Math.Sign(Vector3.Dot(a.Axis, b.Axis));
+                return meshed;
+            }
+            if (a.kind == DriveKind.Bevel && b.kind == DriveKind.Bevel) {
+                if (Mathf.Abs(Vector3.Dot(a.Axis, b.Axis)) > .03f ||
+                    Vector3.Distance(a.ContactCenter + a.Face * b.Radius, b.ContactCenter + b.Face * a.Radius) > .045f) return false;
+                var contact = a.ContactCenter - b.Face * a.Radius;
+                float sign = Vector3.Dot(Vector3.Cross(a.Axis, contact - a.Center), Vector3.Cross(b.Axis, contact - b.Center));
+                factor = Math.Sign(sign) * (double)a.teeth / b.teeth; return sign != 0;
+            }
+            if ((a.kind == DriveKind.Worm && b.kind == DriveKind.WormWheel) || (b.kind == DriveKind.Worm && a.kind == DriveKind.WormWheel)) {
+                var worm = a.kind == DriveKind.Worm ? a : b; var wheel = worm == a ? b : a;
+                if (Mathf.Abs(Vector3.Dot(worm.Axis, wheel.Axis)) > .03f) return false;
+                var offset = worm.ContactCenter - wheel.ContactCenter;
+                var radial = offset - worm.Axis * Vector3.Dot(offset, worm.Axis);
+                if (Mathf.Abs(Vector3.Dot(offset, wheel.Axis)) > .035f || Mathf.Abs(Vector3.Dot(offset, worm.Axis)) > worm.HalfWidth + .025f ||
+                    Mathf.Abs(radial.magnitude - worm.Radius - wheel.Radius) > MeshTolerance(worm.Radius + wheel.Radius)) return false;
+                double rate = Math.Sign(Vector3.Dot(worm.Axis, Vector3.Cross(wheel.Axis, radial))) * (double)worm.starts / wheel.teeth;
+                factor = worm == a ? rate : 1 / rate; return rate != 0;
+            }
+            if ((a.kind == DriveKind.Rack && b.kind == DriveKind.Spur) || (b.kind == DriveKind.Rack && a.kind == DriveKind.Spur)) {
+                var rack = a.kind == DriveKind.Rack ? a : b; var gear = rack == a ? b : a;
+                var offset = gear.Center - rack.ContactCenter;
+                if (Mathf.Abs(Vector3.Dot(gear.Axis, rack.Axis)) < .995f || Mathf.Abs(Vector3.Dot(offset, rack.Axis)) > .035f ||
+                    Mathf.Abs(Vector3.Dot(offset, rack.Face) - gear.Radius) > MeshTolerance(gear.Radius) ||
+                    Mathf.Abs(Vector3.Dot(offset, rack.Travel)) > rack.span + gear.Radius) return false;
+                double rate = Vector3.Dot(Vector3.Cross(gear.Axis, -rack.Face * gear.Radius), rack.Travel) * Mathf.Deg2Rad;
+                factor = gear == a ? rate : 1 / rate; return rate != 0;
+            }
+            return false;
         }
 
         public static Pose Align(Source source, SimulationPart target, Vector3 radial, Pose pivot) {
@@ -49,25 +95,97 @@ namespace Protobot.Simulation {
             Vector3 center = default;
             float best = float.PositiveInfinity;
             foreach (var gear in UnityEngine.Object.FindObjectsByType<SimulationPart>(FindObjectsSortMode.None)) {
-                if (Excluded(gear.transform, ignore) || gear.teeth <= 0) continue;
-                if (!new Plane(gear.Axis, gear.Center).Raycast(ray, out float distance)) continue;
-                var offset = ray.GetPoint(distance) - gear.Center;
+                if (Excluded(gear.transform, ignore) || !Compatible(source.kind, gear.kind)) continue;
+                if (!new Plane(gear.Axis, gear.ContactCenter).Raycast(ray, out float distance)) continue;
+                var offset = ray.GetPoint(distance) - gear.ContactCenter;
                 float ringDistance = offset.magnitude;
                 float vicinity = Mathf.Max(.15f, gear.Radius * .15f);
-                if (ringDistance < gear.Radius * .68f || ringDistance > gear.Radius + vicinity) continue;
+                bool rack = gear.kind == DriveKind.Rack;
+                if (rack ? Mathf.Abs(Vector3.Dot(offset, gear.Travel)) > gear.span || Mathf.Abs(Vector3.Dot(offset, gear.Face)) > .2f :
+                    ringDistance < gear.Radius * .68f || ringDistance > gear.Radius + vicinity) continue;
                 // Never reach through a foreground part to snap to a hidden gear.
                 if (visible.collider != null && visible.distance < distance - .05f &&
                     visible.collider.GetComponentInParent<SimulationPart>() != gear) continue;
+                if (source.kind != DriveKind.Spur || gear.kind != DriveKind.Spur) {
+                    float specialScore = rack ? Mathf.Abs(Vector3.Dot(offset, gear.Face)) : Mathf.Abs(ringDistance - gear.Radius);
+                    if (specialScore >= best || !SpecialPose(source, gear, offset, pivot, bypass, ignore, out var special, out var specialAnchor)) continue;
+                    candidate = gear; pose = special; anchor = specialAnchor; best = specialScore; continue;
+                }
                 var proposed = gear.Center + offset.normalized * (source.radius + gear.Radius);
                 if (!bypass && !TryPatternCenter(gear, source.radius + gear.Radius, proposed, ignore, out proposed)) continue;
                 float score = Mathf.Abs(ringDistance - gear.Radius);
                 if (score >= best) continue;
                 candidate = gear; center = proposed; best = score;
+                pose = AlignAtCenter(source, candidate, center, pivot);
+                anchor = new Pose(center, Quaternion.LookRotation(candidate.Axis, candidate.Tooth));
             }
             if (candidate == null) return false;
-            pose = AlignAtCenter(source, candidate, center, pivot);
-            anchor = new Pose(center, Quaternion.LookRotation(candidate.Axis, candidate.Tooth));
             return true;
+        }
+
+        private static bool Compatible(DriveKind a, DriveKind b) => (a == DriveKind.Spur && b == DriveKind.Spur) ||
+            (a == DriveKind.Bevel && b == DriveKind.Bevel) || (a == DriveKind.Worm && b == DriveKind.WormWheel) ||
+            (a == DriveKind.WormWheel && b == DriveKind.Worm) || (a == DriveKind.Rack && b == DriveKind.Spur) || (b == DriveKind.Rack && a == DriveKind.Spur);
+
+        private static bool SpecialPose(Source source, SimulationPart target, Vector3 offset, Pose pivot, bool bypass,
+            Func<Transform, bool> ignore, out Pose pose, out Pose anchor) {
+            pose = anchor = default;
+            Vector3 radial = offset.normalized;
+            if (!bypass && target.kind != DriveKind.Rack) {
+                // Right-angle gears have intrinsic mounting offsets. Quantize the
+                // approach around their shaft while retaining their contact geometry.
+                float reference = Mathf.Max(.5f, Mathf.Round((source.radius + target.Radius) / .5f) * .5f);
+                if (!TryPatternCenter(target, reference, target.Center + radial * reference, ignore, out var point)) return false;
+                radial = (point - target.Center).normalized;
+            }
+            Vector3 contact, axis;
+            Quaternion rotation;
+            if (source.kind == DriveKind.Bevel) {
+                var face = -radial;
+                axis = face * Math.Sign(Vector3.Dot(source.face, source.axis));
+                contact = target.ContactCenter + radial * target.Radius + target.Face * source.radius;
+                rotation = Quaternion.FromToRotation(source.axis, axis);
+                float phase = Vector3.SignedAngle(target.Tooth, radial, target.Axis) * target.teeth / 360;
+                rotation = Phase(source, rotation, axis, -target.Face, .5f - phase);
+            }
+            else if (source.kind == DriveKind.Worm) {
+                axis = Vector3.Cross(target.Axis, radial).normalized;
+                contact = target.ContactCenter + radial * (source.radius + target.Radius);
+                rotation = Quaternion.FromToRotation(source.axis, axis);
+                float phase = Vector3.SignedAngle(target.Tooth, radial, target.Axis) * target.teeth / 360;
+                rotation = Phase(source, rotation, axis, -radial, phase);
+            }
+            else if (target.kind == DriveKind.Worm) {
+                axis = Vector3.Cross(target.Axis, radial).normalized;
+                contact = target.ContactCenter + radial * (source.radius + target.Radius);
+                rotation = Quaternion.FromToRotation(source.axis, axis);
+                float phase = Vector3.SignedAngle(target.Tooth, radial, target.Axis) / 360;
+                rotation = Phase(source, rotation, axis, -radial, .5f - phase);
+            }
+            else if (source.kind == DriveKind.Rack) {
+                axis = target.Axis;
+                contact = target.Center + radial * target.Radius;
+                rotation = Quaternion.LookRotation(axis, -radial) * Quaternion.Inverse(Quaternion.LookRotation(source.axis, source.face));
+            }
+            else {
+                axis = target.Axis;
+                float along = Vector3.Dot(offset, target.Travel);
+                if (!bypass) along = Mathf.Round(along / TransformSnapping.MovementIncrement) * TransformSnapping.MovementIncrement;
+                along = Mathf.Clamp(along, -target.span, target.span);
+                contact = target.ContactCenter + target.Travel * along + target.Face * source.radius;
+                rotation = Quaternion.FromToRotation(source.axis, axis);
+                rotation = Phase(source, rotation, axis, -target.Face, .5f - along / (Mathf.PI / 24));
+            }
+            var center = contact - rotation * (source.contact - source.center);
+            pose = new Pose(center + rotation * (pivot.position - source.center), rotation * pivot.rotation);
+            anchor = new Pose(contact, Quaternion.LookRotation(axis, rotation * source.tooth));
+            return true;
+        }
+
+        private static Quaternion Phase(Source source, Quaternion rotation, Vector3 axis, Vector3 toward, float phase) {
+            float pitch = 360f / Mathf.Max(1, source.teeth);
+            float adjustment = Vector3.SignedAngle(rotation * source.tooth, toward, axis) - phase * pitch;
+            return Quaternion.AngleAxis(Mathf.Repeat(adjustment + pitch / 2, pitch) - pitch / 2, axis) * rotation;
         }
 
         private static float MeshTolerance(float centerDistance) => Mathf.Max(.035f, centerDistance * .015f);

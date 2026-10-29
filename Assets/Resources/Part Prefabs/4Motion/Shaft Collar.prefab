@@ -307,6 +307,7 @@ GameObject:
   - component: {fileID: 7221011379137062386}
   - component: {fileID: 7221011379137062387}
   - component: {fileID: 7221011379262856436}
+  - component: {fileID: 6146889505127267420}
   m_Layer: 0
   m_Name: Normal Clamping Shaft Collar
   m_TagString: Motion
@@ -481,6 +482,7 @@ GameObject:
   - component: {fileID: 7221011379765375481}
   - component: {fileID: 7221011379765375486}
   - component: {fileID: 7221011379262856435}
+  - component: {fileID: 1450449766743641411}
   m_Layer: 0
   m_Name: High Strength Clamping Shaft Collar
   m_TagString: Motion
@@ -866,6 +868,7 @@ GameObject:
   - component: {fileID: 199446173735661214}
   - component: {fileID: 6981832917759890855}
   - component: {fileID: 7221011379262856437}
+  - component: {fileID: 4340162084424634383}
   m_Layer: 0
   m_Name: shaftcollar
   m_TagString: Untagged
@@ -1096,6 +1099,7 @@ GameObject:
   - component: {fileID: 1509286584800960302}
   - component: {fileID: 425192795789717879}
   - component: {fileID: 7221011379262856434}
+  - component: {fileID: 7186790212284761769}
   m_Layer: 0
   m_Name: LowProfileHSClamp
   m_TagString: Untagged
@@ -1255,3 +1259,99 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   name: Low Profile HS Clamping Shaft Collar
   weightInGrams: 8
+--- !u!114 &6146889505127267420
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7221011379137062384}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.07416982, y: -0.9972456, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &1450449766743641411
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7221011379765375484}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.058410432, y: -0.99829257, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.25
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &4340162084424634383
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7796704350143721289}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0.007, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.041891873, y: -0.9991221, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.13003314
+  localContactCenter: {x: 0, y: 0.007, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &7186790212284761769
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8175000386473230291}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.31384805, y: -0.94947326, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.12500978
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1

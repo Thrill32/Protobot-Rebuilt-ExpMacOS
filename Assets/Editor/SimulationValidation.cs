@@ -39,6 +39,14 @@ namespace ProtobotEditorTools {
             EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
             SessionState.SetBool(Key, true); EditorApplication.EnterPlaymode();
         }
+        public static void MechanismsSmoke() {
+            SessionState.SetBool(Key + ".Mechanisms", true);
+            Smoke();
+        }
+        public static void MechanismsRender() {
+            SessionState.SetBool(Key + ".Mechanisms", true);
+            Render();
+        }
         public static void Render() {
             SessionState.SetBool(Key + ".Render", true);
             File.Delete("/tmp/protobot-simulation.png");
@@ -49,10 +57,17 @@ namespace ProtobotEditorTools {
             try {
                 if (!checkedRender) {
                     Check();
+                    if (SessionState.GetBool(Key + ".Mechanisms", false)) MechanismValidation.Check();
                     Debug.Log("Simulation smoke passed: generated motor/shafts/collars/gears, ratio propagation, stationary housings/bearings, reverse/large-time evaluation, reset/cancel, click commit, undo/redo, preview-safe saves, wrapped mouse scrubbing, timeline controls, unbound/rebound actions and placement/Move/GH gear snapping.");
                     if (!SessionState.GetBool(Key + ".Render", false)) { Finish(0); return; }
                     checkedRender = true; frames = 0;
                     GameObject.Find("Splash Screen")?.SetActive(false);
+                    if (SessionState.GetBool(Key + ".Mechanisms", false)) {
+                        var view = EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView")); view.Show(); view.Focus();
+                        typeof(Protobot.Tools.KeyboardTransformTool).GetField("finishedFrame", BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, -1);
+                        MechanismValidation.PrepareRender();
+                    }
+                    else {
                     var shaft = temporary.First(o => o != null && o.GetComponent<Shaft>() != null);
                     var tool = Object.FindFirstObjectByType<SimulationTool>();
                     var view = EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView")); view.Show(); view.Focus();
@@ -61,12 +76,13 @@ namespace ProtobotEditorTools {
                     tool.Activate(); tool.Begin(shaft); tool.TogglePlayback(); tool.Seek(.6);
                     PivotCamera.Main.transform.DOKill(); PivotCamera.Main.camera.transform.DOKill();
                     PivotCamera.Main.SetTransform(shaft.transform.position + shaft.transform.right * .5f, new Vector3(23, 37, 11), -8);
+                    }
                     Canvas.ForceUpdateCanvases();
                 }
                 var game = EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView")); game.Repaint();
                 EditorApplication.QueuePlayerLoopUpdate();
                 var displayed = Object.FindFirstObjectByType<SimulationTool>();
-                if (displayed.Current == null) displayed.Begin(temporary.First(o => o != null && o.GetComponent<Shaft>() != null));
+                if (displayed.Current == null) displayed.Begin(SessionState.GetBool(Key + ".Mechanisms", false) ? MechanismValidation.RenderDriver : temporary.First(o => o != null && o.GetComponent<Shaft>() != null));
                 displayed.Seek(.6);
                 if (!captured && frames > 25) { ScreenCapture.CaptureScreenshot("/tmp/protobot-simulation.png"); captured = true; }
                 if (captured && File.Exists("/tmp/protobot-simulation.png")) { Debug.Log("Simulation render captured: /tmp/protobot-simulation.png"); Finish(0); }
@@ -74,7 +90,7 @@ namespace ProtobotEditorTools {
             }
             catch (Exception ex) { Debug.LogException(ex); Finish(1); }
         }
-        private static void Finish(int code) { EditorApplication.update -= Tick; SessionState.SetBool(Key, false); SessionState.SetBool(Key + ".Render", false); EditorApplication.Exit(code); }
+        private static void Finish(int code) { EditorApplication.update -= Tick; SessionState.SetBool(Key, false); SessionState.SetBool(Key + ".Render", false); SessionState.SetBool(Key + ".Mechanisms", false); EditorApplication.Exit(code); }
 
         public static void Validate() {
             var scene = EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);

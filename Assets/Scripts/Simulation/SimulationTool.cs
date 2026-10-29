@@ -20,7 +20,8 @@ namespace Protobot.Simulation {
         [SerializeField] private MouseCast mouseCast;
         [SerializeField] private Placement placement;
         [SerializeField] private Camera refCamera;
-        [SerializeField] private InputEvent activateInput, animationInput, playInput, resetInput, fasterInput, slowerInput, commitInput, cancelInput;
+        [SerializeField] private InputEvent activateInput, animationInput, playInput, resetInput, fasterInput, slowerInput, commitInput, cancelInput, chainInput;
+        [SerializeField] private Material chainMaterial;
 
         private static SimulationTool instance;
         private static int consumedFrame = -1;
@@ -54,6 +55,8 @@ namespace Protobot.Simulation {
             Bind(slowerInput, () => SetSpeed(speed / 1.25f));
             Bind(commitInput, Commit);
             Bind(cancelInput, Cancel);
+            Bind(chainInput, ChainSelected);
+            ChainLoop.MaterialTemplate = chainMaterial;
             panel = new SimulationPanel(this);
         }
 
@@ -61,6 +64,17 @@ namespace Protobot.Simulation {
             if (input == null) return;
             input.performed += action;
             subscriptions.Add((input, action));
+        }
+
+        public void ChainSelected() {
+            if (RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
+            var selection = selectionManager.current;
+            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
+            var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
+                .Where(p => p.kind == DriveKind.Sprocket).Distinct().ToList();
+            ExitForEdit();
+            ChainLoop.Toggle(sprockets, out var message);
+            Protobot.UI.InteractionFeedback.Notify(message);
         }
 
         public void Activate() {

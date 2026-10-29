@@ -29,6 +29,7 @@ namespace Protobot.Builds {
         /// </summary>
         public static void GenerateBuild(BuildData buildData) {
             Protobot.Simulation.SimulationTool.ExitForEdit();
+            Protobot.Simulation.ChainLoop.ClearAll();
             Debug.Log("Generating a build with " +
                       (buildData.parts == null ? 0 : buildData.parts.Length) + " parts");
 
@@ -67,6 +68,7 @@ namespace Protobot.Builds {
 
             }
             
+            foreach (var chain in buildData.chains ?? Array.Empty<ChainData>()) Protobot.Simulation.ChainLoop.FromData(chain);
             OnGenerateBuild?.Invoke(buildData);
 
             if (AppPlatform.OnMac)
@@ -85,6 +87,7 @@ namespace Protobot.Builds {
         private static GameObject GenerateObject(ObjectData objectData, BuildData buildData)
         {
             GameObject generatedObject = PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
+            generatedObject.GetComponent<SavedObject>().ConnectionId = objectData.connectionId;
             //there are only 2 versions of Protobot legacy publicly released that I could find most before Beta 1.3.1 are just guesses
             string[] versionsNoColor = new string[] {"1.0", "1.1", "1.1.1", "Beta 1.2", "Beta 1.3", "Beta 1.3.1", "1.3.2", "1.3.3", "1.3.4" };
             //Debug.Log(buildData.version);    
@@ -151,6 +154,7 @@ namespace Protobot.Builds {
                 newParts[i] = new ObjectData {
                     partId = savedData.id,
                     states = savedData.state,
+                    connectionId = savedData.ConnectionId,
 
                     xPos = position.x,
                     yPos = position.y,
@@ -170,6 +174,7 @@ namespace Protobot.Builds {
             return new BuildData {
                 camera = newCameraData,
                 parts = newParts,
+                chains = Protobot.Simulation.ChainLoop.SaveAll(),
             };
         }
     }

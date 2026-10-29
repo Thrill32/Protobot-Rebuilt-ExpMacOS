@@ -68,6 +68,7 @@ namespace Protobot {
                 if (hole != null) replacement.transform.position += holeAnchor.Value - hole.transform.position;
             }
             replacement.GetComponent<SavedObject>().state = original.GetComponent<SavedObject>().state;
+            replacement.GetComponent<SavedObject>().ConnectionId = original.GetComponent<SavedObject>().ConnectionId;
             if (original.TryGetComponent<Renderer>(out var oldRenderer) &&
                 replacement.TryGetComponent<Renderer>(out var newRenderer))
                 newRenderer.sharedMaterial = new Material(newRenderer.sharedMaterial) { color = oldRenderer.sharedMaterial.color };

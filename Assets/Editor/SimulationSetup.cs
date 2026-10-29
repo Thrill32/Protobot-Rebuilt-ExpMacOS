@@ -25,7 +25,8 @@ namespace ProtobotEditorTools {
             ("Simulation Faster", null, "fasterInput"),
             ("Simulation Slower", null, "slowerInput"),
             ("Simulation Commit", null, "commitInput"),
-            ("Simulation Cancel", null, "cancelInput")
+            ("Simulation Cancel", null, "cancelInput"),
+            ("Simulation Chain Selected Sprockets", "<Keyboard>/c", "chainInput")
         };
 
         [MenuItem("Tools/Protobot/Configure Simulation")]
@@ -56,6 +57,7 @@ namespace ProtobotEditorTools {
                 PrefabUtility.SaveAsPrefabAsset(gears, gearPath);
             }
             finally { PrefabUtility.UnloadPrefabContents(gears); }
+            MechanismSetup.ConfigureParts();
 
             var scene = EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
             var inputs = Object.FindObjectsByType<InputEvent>(FindObjectsInactive.Include, FindObjectsSortMode.None);
@@ -82,6 +84,12 @@ namespace ProtobotEditorTools {
             Set("toolbarToggle", tool.GetComponent<Toggle>());
             Set("selectionManager", GameObject.Find("Primary Selection Manager").GetComponent<SelectionManager>());
             Set("mouseCast", cast); Set("placement", placement); Set("refCamera", cast.GetComponent<Camera>());
+            var chainMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Chain.mat");
+            if (chainMaterial == null) {
+                chainMaterial = new Material(Shader.Find("Universal Render Pipeline/Unlit")) { name = "Chain" };
+                AssetDatabase.CreateAsset(chainMaterial, "Assets/Materials/Chain.mat");
+            }
+            Set("chainMaterial", chainMaterial);
             foreach (var binding in Bindings) Set(binding.field, inputs.Single(i => i.name == binding.name));
             serialized.ApplyModifiedPropertiesWithoutUndo();
 

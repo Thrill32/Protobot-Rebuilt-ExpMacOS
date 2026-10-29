@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 3320688921432821915}
   - component: {fileID: 5979358291007398093}
   - component: {fileID: 659391614}
+  - component: {fileID: 6349994334275288571}
   m_Layer: 0
   m_Name: 3.00in
   m_TagString: Motion
@@ -334,6 +335,7 @@ GameObject:
   - component: {fileID: 1367666537441297456}
   - component: {fileID: 1367666537441297459}
   - component: {fileID: 659391616}
+  - component: {fileID: 7960683982199888687}
   m_Layer: 0
   m_Name: 1.625in
   m_TagString: Motion
@@ -569,6 +571,7 @@ GameObject:
   - component: {fileID: 5547922365041594193}
   - component: {fileID: 7591749832469199636}
   - component: {fileID: 2098641633}
+  - component: {fileID: 3533739770570133371}
   m_Layer: 0
   m_Name: 4.00in (Empty)
   m_TagString: Motion
@@ -715,6 +718,7 @@ GameObject:
   - component: {fileID: 2284525947663298755}
   - component: {fileID: 3620702327394265417}
   - component: {fileID: 659391613}
+  - component: {fileID: 2843774790606663428}
   m_Layer: 0
   m_Name: 4.00in
   m_TagString: Motion
@@ -864,6 +868,7 @@ GameObject:
   - component: {fileID: 3364556042686346057}
   - component: {fileID: 4883132546669481055}
   - component: {fileID: 667463973}
+  - component: {fileID: 1504036961755815477}
   m_Layer: 0
   m_Name: 2.00in (Empty)
   m_TagString: Motion
@@ -1010,6 +1015,7 @@ GameObject:
   - component: {fileID: 5157510576965549399}
   - component: {fileID: 6872471914159348505}
   - component: {fileID: 2134857595}
+  - component: {fileID: 7785085770606810531}
   m_Layer: 0
   m_Name: 3.00in (Empty)
   m_TagString: Motion
@@ -1156,6 +1162,7 @@ GameObject:
   - component: {fileID: 717787871659633248}
   - component: {fileID: 5221294069301103450}
   - component: {fileID: 659391615}
+  - component: {fileID: 2689148846879330336}
   m_Layer: 0
   m_Name: 2.00in
   m_TagString: Motion
@@ -1478,6 +1485,7 @@ GameObject:
   - component: {fileID: 4165842209495251003}
   - component: {fileID: 9132873608812346590}
   - component: {fileID: 659391612}
+  - component: {fileID: 4817034984936644873}
   m_Layer: 0
   m_Name: 1.625in (Empty)
   m_TagString: Motion
@@ -1609,3 +1617,195 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   name: 1.625" Flex Wheel
   weightInGrams: 13.6
+--- !u!114 &6349994334275288571
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 314410163448214156}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9829563, y: -0.1838393, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.718307
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &7960683982199888687
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1367666537441297469}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9848078, y: -0.173648, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.3433067
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &3533739770570133371
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2664371925755151199}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.8660255, y: 0.49999985, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.49999905
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &2843774790606663428
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3016892791711297410}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.86602545, y: -0.49999988, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.718307
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &1504036961755815477
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3281606271635622689}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.86602545, y: 0.49999988, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.24999976
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &7785085770606810531
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4744779762384514599}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.642788, y: 0.76604414, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.49999905
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &2689148846879330336
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5950691255908903169}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: -0.86602545, y: 0.49999988, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.34330666
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
+--- !u!114 &4817034984936644873
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8108319038500407460}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90a2e9545614f45cb8a748e5cac45ca5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.Simulation.SimulationPart
+  kind: 6
+  localCenter: {x: 0, y: 0, z: 0}
+  localAxis: {x: 0, y: 0, z: 1}
+  localTooth: {x: 0.9848078, y: -0.17364791, z: 0}
+  teeth: 0
+  pitchRadius: 0
+  halfWidth: 0.24999963
+  localContactCenter: {x: 0, y: 0, z: 0}
+  localFace: {x: 0, y: 0, z: -1}
+  span: 0
+  chainPitch: 0
+  starts: 1
