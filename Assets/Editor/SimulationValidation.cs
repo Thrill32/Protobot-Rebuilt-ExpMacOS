@@ -224,13 +224,104 @@ namespace ProtobotEditorTools {
             Near(shaft.transform.rotation, selectedPose, "Tool exit did not restore");
             Require(!SimulationTool.IsActive, "Tool exit left capture active");
             CheckReboundActions(tool, shaft);
+            CheckNumericRotation(tool, shaft, motor, gearA, gearB, bearing);
             CheckKeyboardGear(gearA, gearB, manager);
             Debug.Log("Simulation graph and tool checks passed.");
+        }
+
+        private static void CheckNumericRotation(SimulationTool tool, GameObject shaft, GameObject motor,
+            SimulationPart gearA, SimulationPart gearB, GameObject bearing) {
+            Keys(); Point(new Vector2(490, 450));
+            tool.Activate(); Require(tool.Begin(shaft), "Could not start numeric simulation");
+            var model = tool.Current;
+            var starts = model.tracks.ToDictionary(t => t.body, t => t.start);
+            var inputTrack = model.tracks.Single(t => t.body == gearA.gameObject);
+            var outputTrack = model.tracks.Single(t => t.body == gearB.gameObject);
+            var index = Protobot.StateSystems.StateSystem.curIndex;
+            var housing = motor.transform.rotation; var bearingRotation = bearing.transform.rotation;
+            Press(UnityEngine.InputSystem.Key.Slash);
+            Require(tool.IsTypingRotation && SimulationTool.BlocksCamera, "Slash did not capture simulation numeric input");
+            foreach (var field in new[] { "activateInput", "playInput", "chainInput", "commitInput" })
+                Require(!SimulationTool.AllowsInput(Get<InputEvent>(tool, field)), "Typing allowed " + field);
+            Type("-450.5");
+            tool.Commit(); tool.TogglePlayback(); tool.ResetMotion();
+            Require(tool.IsTypingRotation && tool.Current == model && !tool.IsPlaying && model.Time == 0, "UI actions interrupted numeric entry");
+            Press(UnityEngine.InputSystem.Key.Enter);
+            Require(!tool.IsTypingRotation && tool.Current == null && Protobot.StateSystems.StateSystem.curIndex == index + 1,
+                "Numeric Enter must commit exactly one undoable pose");
+            Near(gearA.transform.rotation, Quaternion.AngleAxis(-450.5f * (float)inputTrack.ratio, inputTrack.axis) * inputTrack.start.rotation, "Exact relative driver rotation");
+            var expectedOutput = Quaternion.AngleAxis(-450.5f * (float)outputTrack.ratio, outputTrack.axis) * outputTrack.start.rotation;
+            Near(gearB.transform.rotation, expectedOutput, "Relative numeric input lost full turns or gear ratio");
+            Near(motor.transform.rotation, housing, "Numeric entry rotated the motor housing");
+            Near(bearing.transform.rotation, bearingRotation, "Numeric entry rotated the bearing");
+            Protobot.StateSystems.StateSystem.instance.Undo(); Complete();
+            foreach (var pair in starts) Near(pair.Key.transform.rotation, pair.Value.rotation, "Numeric undo missed a connected body");
+            Protobot.StateSystems.StateSystem.instance.Redo(); Complete();
+            Near(gearB.transform.rotation, expectedOutput, "Numeric redo missed the output gear");
+            Protobot.StateSystems.StateSystem.instance.Undo(); Complete();
+
+            Keys(); if (!SimulationTool.IsActive) tool.Activate();
+            Require(tool.Begin(shaft), "Could not restart numeric simulation");
+            model = tool.Current;
+            tool.Seek(8.25); tool.TogglePlayback();
+            Press(UnityEngine.InputSystem.Key.NumpadDivide);
+            Require(!tool.IsPlaying && tool.AnimationVisible && SimulationTool.BlocksCamera, "Numeric input did not pause animation and capture the camera");
+            Type("NaN"); Press(UnityEngine.InputSystem.Key.Enter);
+            Require(tool.Current != null && !tool.IsTypingRotation && Math.Abs(tool.Current.Time - 8.25) < .00001,
+                "Invalid input changed the preview or failed to resume");
+            Press(UnityEngine.InputSystem.Key.Slash); Press(UnityEngine.InputSystem.Key.Slash);
+            Require(Get<Protobot.Tools.TransformNumericInput>(tool, "numericInput").Mode == Protobot.Tools.TransformNumericInput.InputMode.Global,
+                "Second slash did not enter global rotation");
+            Type("30.125"); Press(UnityEngine.InputSystem.Key.NumpadEnter);
+            var axis = model.DriverAxis;
+            float global = Vector3.SignedAngle(Vector3.ProjectOnPlane(Vector3.up, axis), Vector3.ProjectOnPlane(shaft.transform.up, axis), axis);
+            Require(Mathf.Abs(Mathf.DeltaAngle(global, 30.125f)) < .01f, "Global rotation did not reach the exact world-referenced phase");
+            Require(Math.Abs(model.DriverDegrees) > 360, "Global input unexpectedly rewound full driver turns");
+            Near(gearB.transform.rotation, Quaternion.AngleAxis((float)(model.DriverDegrees * outputTrack.ratio), outputTrack.axis) * outputTrack.start.rotation,
+                "Global input did not propagate the preserved gear cycle");
+            Protobot.StateSystems.StateSystem.instance.Undo(); Complete();
+            foreach (var pair in starts) Near(pair.Key.transform.rotation, pair.Value.rotation, "Global numeric undo missed a body");
+
+            Keys(); if (!SimulationTool.IsActive) tool.Activate();
+            Require(tool.Begin(shaft), "Could not start numeric resume check");
+            tool.Seek(.75);
+            Press(UnityEngine.InputSystem.Key.Slash); Type("123");
+            Press(UnityEngine.InputSystem.Key.Slash); Press(UnityEngine.InputSystem.Key.Slash);
+            Require(!tool.IsTypingRotation && Math.Abs(tool.Current.Time - .75) < .00001, "Third slash applied discarded text");
+            if (tool.AnimationVisible) tool.ToggleAnimation();
+            Set(tool, "beganFrame", -1);
+            Keys(); Invoke(tool, "ReadInput", Mouse.current, Keyboard.current);
+            Require(Math.Abs(tool.Current.Time - .75) < .00001, "Closing numeric input caused a mouse jump");
+            Press(UnityEngine.InputSystem.Key.Slash); Type("120"); Press(UnityEngine.InputSystem.Key.Escape);
+            Require(tool.Current == null && !tool.IsTypingRotation, "Escape did not close entry and revert the preview");
+            foreach (var pair in starts) Near(pair.Key.transform.rotation, pair.Value.rotation, "Numeric cancellation missed a body");
+
+            Keys(); Require(tool.Begin(motor), "Could not start motor numeric check");
+            model = tool.Current;
+            Require(model.TrySetDriverRotation("360", false), "Full-turn motor input rejected");
+            Near(gearB.transform.rotation, Quaternion.AngleAxis(360 * (float)model.tracks.Single(t => t.body == gearB.gameObject).ratio, outputTrack.axis) * outputTrack.start.rotation,
+                "Motor numeric input did not drive the output");
+            Require(!model.TrySetDriverRotation("1e309", false) && !model.TrySetDriverRotation("bad", true), "Invalid numeric values accepted");
+            Near(motor.transform.rotation, housing, "Motor numeric output moved the casing");
+            Press(UnityEngine.InputSystem.Key.Slash); Invoke(tool, "OnApplicationFocus", false);
+            Require(!tool.IsTypingRotation && tool.Current == null, "Focus loss left a numeric subscription or preview");
+            Keys(); SimulationTool.ExitForEdit();
+            Debug.Log("Simulation numeric rotation passed: real slash/text/Enter flow, relative full turns, global phase on an oblique axis, transmission, undo/redo, modal ownership, invalid recovery, pointer resume, motor output and cancellation.");
+
+            void Press(UnityEngine.InputSystem.Key key) { Keys(); Keys(key); Invoke(tool, "ReadInput", Mouse.current, Keyboard.current); }
+            void Type(string text) {
+                foreach (char character in text) InputSystem.QueueTextEvent(Keyboard.current, character);
+                InputSystem.Update();
+                Require(Get<Protobot.Tools.TransformNumericInput>(tool, "numericInput").Text == text, "Simulation numeric text was not delivered");
+            }
         }
 
         private static void CheckReboundActions(SimulationTool tool, GameObject shaft) {
             Point(new Vector2(490, 450));
             tool.Activate(); Require(tool.Begin(shaft), "Could not start rebound-action check");
+            // This synchronous probe simulates a new interaction in the same
+            // editor frame as the preceding commit/cancel checks.
+            typeof(SimulationTool).GetField("consumedFrame", BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, -1);
             var input = Get<InputEvent>(tool, "playInput");
             var original = input.rebindAction.action;
             using var rebound = new InputAction("Simulation rebound probe", InputActionType.Button, "<Keyboard>/f8");

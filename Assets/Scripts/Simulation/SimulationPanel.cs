@@ -10,6 +10,7 @@ namespace Protobot.Simulation {
     internal sealed class SimulationPanel : IDisposable {
         private readonly SimulationTool tool;
         private readonly GameObject canvasObject;
+        private readonly CanvasGroup inputGroup;
         private readonly RectTransform panel, controls, content;
         private readonly Text status, help, clock, playLabel, speedLabel;
         private readonly Slider timeline, speed;
@@ -23,6 +24,7 @@ namespace Protobot.Simulation {
             this.tool = tool;
             canvasObject = new GameObject("Simulation Controls", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var canvas = canvasObject.GetComponent<Canvas>();
+            inputGroup = canvasObject.AddComponent<CanvasGroup>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 110;
             var scaler = canvasObject.GetComponent<CanvasScaler>();
@@ -88,12 +90,14 @@ namespace Protobot.Simulation {
             if (canvasObject == null) return;
             canvasObject.SetActive(SimulationTool.IsActive);
             if (!canvasObject.activeSelf) return;
+            inputGroup.interactable = !tool.IsTypingRotation;
             float width = Mathf.Clamp(((RectTransform)canvasObject.transform).rect.width - 150, 260, 730);
             panel.sizeDelta = new Vector2(width, tool.AnimationVisible ? 280 : 64);
             // Scale just the animation interior on narrower windows; the status remains readable.
             controls.localScale = Vector3.one * Mathf.Min(1, width / 730);
             controls.gameObject.SetActive(tool.AnimationVisible);
-            status.text = "Simulation · " + tool.Status;
+            status.text = "Simulation · " + tool.Status + (tool.Current?.DriverRotates == true
+                ? $" · {tool.Current.DriverDegrees:0.##}° relative / {tool.Current.GlobalDriverDegrees:0.##}° global" : "");
             help.text = tool.ControlsText;
             var model = tool.Current;
             play.interactable = reset.interactable = commit.interactable = model != null;

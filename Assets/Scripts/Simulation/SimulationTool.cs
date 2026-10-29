@@ -26,6 +26,7 @@ namespace Protobot.Simulation {
         private static SimulationTool instance;
         private static int consumedFrame = -1;
         private readonly List<(InputEvent input, Action action)> subscriptions = new();
+        private readonly TransformNumericInput numericInput = new();
         private MechanismSimulation simulation;
         private SimulationPanel panel;
         private bool active, animation, playing;
@@ -37,11 +38,13 @@ namespace Protobot.Simulation {
         public static bool IsActive => instance != null && instance.active;
         public static bool HasPreview => instance != null && instance.simulation != null;
         public static bool CapturesSelection => IsActive || consumedFrame == Time.frameCount;
-        public static bool BlocksCamera => IsActive && !instance.animation && instance.simulation != null;
+        public static bool BlocksCamera => consumedFrame == Time.frameCount || IsActive && instance.simulation != null &&
+            (!instance.animation || instance.IsTypingRotation || instance.simulation.DriverRotates && MoveRotation.SlashPressed(Keyboard.current));
         public static bool OverPanel => instance != null && instance.panel != null && instance.panel.ContainsPointer;
         public MechanismSimulation Current => simulation;
         public bool IsPlaying => playing;
         public bool AnimationVisible => animation;
+        public bool IsTypingRotation => numericInput.IsOpen;
         public float Speed => speed;
 
         private void Awake() {
@@ -67,7 +70,7 @@ namespace Protobot.Simulation {
         }
 
         public void ChainSelected() {
-            if (RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
+            if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
             var selection = selectionManager.current;
             var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
             var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
@@ -78,7 +81,7 @@ namespace Protobot.Simulation {
         }
 
         public void Activate() {
-            if (RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() ||
+            if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() ||
                 placement.placing || InputEvent.IsNoclipMovementCaptured) return;
             if (active) ToggleAnimation();
             else toolbarToggle.isOn = true;
@@ -124,7 +127,7 @@ namespace Protobot.Simulation {
         }
 
         public void ToggleAnimation() {
-            if (!active) return;
+            if (!active || IsTypingRotation) return;
             animation = !animation;
             playing = false;
             lastPointer = Mouse.current != null ? Mouse.current.position.ReadValue() : default;
@@ -133,18 +136,18 @@ namespace Protobot.Simulation {
         }
 
         public void TogglePlayback() {
-            if (!active || simulation == null) return;
+            if (!active || simulation == null || IsTypingRotation) return;
             animation = true;
             playing = !playing;
             panel.Refresh();
         }
 
-        public void SetSpeed(float value) { speed = Mathf.Clamp(value, .1f, 4); panel?.Refresh(); }
-        public void Seek(double seconds) { if (simulation == null) return; playing = false; simulation.Evaluate(seconds); panel?.Refresh(); }
+        public void SetSpeed(float value) { if (IsTypingRotation) return; speed = Mathf.Clamp(value, .1f, 4); panel?.Refresh(); }
+        public void Seek(double seconds) { if (simulation == null || IsTypingRotation) return; playing = false; simulation.Evaluate(seconds); panel?.Refresh(); }
         public void ResetMotion() { if (!active) return; Seek(0); }
 
         public void Commit() {
-            if (simulation == null) return;
+            if (simulation == null || IsTypingRotation) return;
             playing = false;
             var changed = simulation.tracks.Where(t => t.rotates && t.body != null &&
                 (Vector3.Distance(t.body.transform.position, t.start.position) > .00001f || Quaternion.Angle(t.body.transform.rotation, t.start.rotation) > .0001f)).ToList();
@@ -169,6 +172,7 @@ namespace Protobot.Simulation {
         }
 
         private void RestorePreview() {
+            numericInput.Close();
             playing = false;
             if (simulation == null) return;
             simulation.Restore();
@@ -192,7 +196,9 @@ namespace Protobot.Simulation {
 
         // Resolve ownership before the existing InputEvent dispatch. Tool changes and edits restore first.
         public static bool AllowsInput(InputEvent input) {
-            if (!IsActive) return consumedFrame != Time.frameCount;
+            if (consumedFrame == Time.frameCount) return false;
+            if (!IsActive) return true;
+            if (instance.IsTypingRotation || instance.simulation?.DriverRotates == true && MoveRotation.SlashPressed(Keyboard.current)) return false;
             if (input.name.StartsWith("Simulation ", StringComparison.Ordinal) || input == instance.activateInput) return true;
             if (input.name == "Grouping Bypass" || input.name == "Snap Bypass") return true;
             if (KeyboardTransformTool.IsEditingText()) return false;
@@ -215,10 +221,24 @@ namespace Protobot.Simulation {
 
         private void ReadInput(Mouse mouse, Keyboard keyboard) {
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) { Cancel(); return; }
-            if (!animation && mouse.rightButton.wasPressedThisFrame && !OverPanel) { Cancel(); return; }
+            if ((!animation || IsTypingRotation) && mouse.rightButton.wasPressedThisFrame && !OverPanel) { Cancel(); return; }
+            var pointer = mouse.position.ReadValue();
+            if (simulation?.DriverRotates == true && MoveRotation.SlashPressed(keyboard)) {
+                playing = false;
+                numericInput.Cycle(false);
+                ResumePointer(pointer);
+                panel.Refresh();
+                return;
+            }
+            if (IsTypingRotation) {
+                if (keyboard != null) {
+                    numericInput.Edit(keyboard);
+                    if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame) SubmitNumeric(pointer);
+                }
+                return;
+            }
             if (playing && simulation != null) simulation.Evaluate(simulation.Time + UnityEngine.Time.unscaledDeltaTime * speed);
             bool overUI = OverPanel || (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject());
-            var pointer = mouse.position.ReadValue();
             if (simulation != null && !animation && Time.frameCount != beganFrame) {
                 if (!OverPanel) {
                     simulation.Evaluate(simulation.Time + (pointer.x - lastPointer.x) / 90.0);
@@ -246,10 +266,35 @@ namespace Protobot.Simulation {
             panel.Refresh();
         }
 
+        private void ResumePointer(Vector2 pointer) {
+            lastPointer = pointer;
+            beganFrame = Time.frameCount;
+            consumedFrame = Time.frameCount;
+        }
+
+        private void SubmitNumeric(Vector2 pointer) {
+            bool global = numericInput.Mode == TransformNumericInput.InputMode.Global;
+            string text = numericInput.Text;
+            numericInput.Close();
+            ResumePointer(pointer);
+            if (simulation != null && simulation.TrySetDriverRotation(text, global)) Commit();
+            panel.Refresh();
+        }
+
+        private void OnGUI() {
+            if (!active || simulation == null || !IsTypingRotation) return;
+            bool global = numericInput.Mode == TransformNumericInput.InputMode.Global;
+            string next = global ? "/: mouse control" : "/: global value";
+            string reference = global ? $"Zero: world {simulation.GlobalAngleReference} in the drive plane" : "From the preview's starting pose; full turns retained";
+            TransformFeedback.DrawNumeric($"{(global ? "Global" : "Relative")} drive rotation (degrees)", numericInput.DisplayText,
+                $"Enter: set pose · Esc: revert\n{reference}\n{next}    Invalid input: mouse control");
+        }
+
         internal string Status => status;
+        private string RotationHint => simulation?.DriverRotates == true ? " · /: rotation" : "";
         internal string ControlsText => animation
-            ? $"Timeline: scrub · Set pose: keep changes · Esc: revert · {activateInput.GetCurrentKeybind()}: manual"
-            : $"Drag left/right · Click: set pose · Esc: revert · {activateInput.GetCurrentKeybind()}: animation";
+            ? $"Timeline: scrub · Set pose: keep changes{RotationHint} · Esc: revert · {activateInput.GetCurrentKeybind()}: manual"
+            : $"Drag left/right · Click: set pose{RotationHint} · Esc: revert · {activateInput.GetCurrentKeybind()}: animation";
         private void OnApplicationFocus(bool focused) { if (!focused && active) Cancel(); }
         private void OnApplicationPause(bool paused) { if (paused && active) Cancel(); }
         private void OnDisable() { if (active) SetActive(false); }

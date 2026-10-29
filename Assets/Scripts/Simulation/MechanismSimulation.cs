@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using DG.Tweening;
 using UnityEngine;
@@ -43,6 +44,12 @@ namespace Protobot.Simulation {
         public bool IsValid => tracks.All(t => t.body != null && t.body.activeInHierarchy && !t.body.IsDeleted());
         public bool HasMotion => tracks.Any(t => t.rotates);
         public GameObject Driver { get; private set; }
+        public bool DriverRotates { get; private set; }
+        public Vector3 DriverAxis { get; private set; }
+        public float InitialDriverAngle { get; private set; }
+        public string GlobalAngleReference { get; private set; }
+        public double DriverDegrees => Time * 90;
+        public double GlobalDriverDegrees => PositiveTurn(InitialDriverAngle + DriverDegrees);
         public static bool IsDriver(GameObject body) => body != null &&
             (body.GetComponent<Motor>() != null || body.GetComponent<Shaft>() != null || body.GetComponent<SimulationPart>() != null);
         public static string PartLabel(GameObject body) {
@@ -116,7 +123,17 @@ namespace Protobot.Simulation {
             var gears = ports.Where(p => p.gear != null && p.gear.CanMesh).ToArray();
             for (int i = 0; i < gears.Length; i++) for (int j = i + 1; j < gears.Length; j++)
                 if (GearSnapping.TryTransmission(gears[i].gear, gears[j].gear, out double factor)) Link(gears[i], gears[j], factor);
-            var result = new MechanismSimulation { Driver = driver };
+            var result = new MechanismSimulation { Driver = driver, DriverRotates = !source.Linear, DriverAxis = source.axis };
+            // A motor's housing is stationary. Its output angle follows the connected
+            // shaft, including the shaft's initial phase, rather than the casing.
+            var angleFrame = source.motor != null
+                ? source.node.edges.FirstOrDefault(e => e.to.shaft != null)?.to.body.transform ?? source.motor.ShaftHole.transform
+                : driver.transform;
+            var reference = Mathf.Abs(Vector3.Dot(source.axis, Vector3.up)) < .9f ? Vector3.up : Vector3.forward;
+            var radial = Mathf.Abs(Vector3.Dot(source.axis, angleFrame.up)) < .9f ? angleFrame.up : angleFrame.forward;
+            result.InitialDriverAngle = Vector3.SignedAngle(Vector3.ProjectOnPlane(reference, source.axis),
+                Vector3.ProjectOnPlane(radial, source.axis), source.axis);
+            result.GlobalAngleReference = reference == Vector3.up ? "+Y" : "+Z";
             foreach (var chain in UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None)) {
                 var members = chain.ResolveParts();
                 if (!ChainLoop.Compatible(members, out _)) continue;
@@ -165,6 +182,20 @@ namespace Protobot.Simulation {
             return result;
         }
         private static bool Live(GameObject body) => body != null && body.activeInHierarchy && !body.IsDeleted() && body.layer != Placement.PLACEMENT_LAYER;
+        // Relative values retain full turns: 360 degrees of a 12T driver is
+        // still 120 degrees of motion at its 36T output. Global angles choose
+        // the nearest equivalent phase to preserve the current gear cycle.
+        public bool TrySetDriverRotation(string text, bool global) {
+            if (!DriverRotates || !double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double degrees) ||
+                double.IsNaN(degrees) || double.IsInfinity(degrees)) return false;
+            double seconds = global ? Time + (PositiveTurn(PositiveTurn(degrees) - GlobalDriverDegrees + 180) - 180) / 90 : degrees / 90;
+            // Avoid finite input overflowing a downstream rack's float position.
+            if (tracks.Any(t => double.IsInfinity(seconds * 90 * t.ratio) ||
+                t.linear && Math.Abs(seconds * 90 * t.ratio) > float.MaxValue)) return false;
+            Evaluate(seconds);
+            return true;
+        }
+        private static double PositiveTurn(double degrees) => (degrees % 360 + 360) % 360;
         public void Evaluate(double seconds) {
             Time = seconds;
             foreach (var track in tracks.Where(t => t.body != null && t.rotates).OrderBy(t => Depth(t.body.transform))) {
