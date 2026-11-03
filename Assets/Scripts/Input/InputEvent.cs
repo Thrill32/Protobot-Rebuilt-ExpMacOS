@@ -47,7 +47,11 @@ namespace Protobot.InputEvents {
 
             IsPressed = IsCurrentlyPressed;
 
-            if (!IsPressed)
+            // Capture even when a composite chord consumed the underlying action's value.
+            // Otherwise releasing Command before C could fire the plain C action.
+            if (!Protobot.Builds.BuildTransferTool.AllowsInput(this))
+                suppressedUntilRelease = true;
+            else if (!IsPressed)
                 suppressedUntilRelease = false;
             else if (!Protobot.Tools.KeyboardTransformTool.AllowsInput(this) || !CustomModelTool.AllowsInput(this))
                 suppressedUntilRelease = true;

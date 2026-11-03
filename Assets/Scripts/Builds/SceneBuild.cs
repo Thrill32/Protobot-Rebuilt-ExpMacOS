@@ -32,11 +32,15 @@ namespace Protobot.Builds {
             foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
                 if (part.IsCustomModel) CustomModel.Validate(part.customModel);
             CustomModelTool.CancelActive();
+            BuildTransferTool.CancelPending();
+            if (Placement.IsCopyingSelection) UnityEngine.Object.FindFirstObjectByType<Placement>()?.StopPlacing();
             Protobot.Simulation.SimulationTool.ExitForEdit();
             Protobot.Simulation.ChainLoop.ClearAll();
             Debug.Log("Generating a build with " +
                       (buildData.parts == null ? 0 : buildData.parts.Length) + " parts");
 
+            foreach (var manager in UnityEngine.Object.FindObjectsByType<Protobot.SelectionSystem.SelectionManager>(FindObjectsSortMode.None))
+                manager.ClearCurrent(false, true, true);
             PartsManager.DestroyLoadedObjects();
 
             //Camera Data
@@ -88,12 +92,13 @@ namespace Protobot.Builds {
             }
         }
 
-        private static GameObject GenerateObject(ObjectData objectData, BuildData buildData)
+        internal static GameObject GenerateObject(ObjectData objectData, BuildData buildData)
         {
             GameObject generatedObject = objectData.IsCustomModel
                 ? CustomModel.Create(objectData.customModel, objectData.GetPos(), objectData.GetRot())
                 : PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
             generatedObject.GetComponent<SavedObject>().ConnectionId = objectData.connectionId;
+            generatedObject.GetComponent<SavedObject>().state = objectData.states;
             //there are only 2 versions of Protobot legacy publicly released that I could find most before Beta 1.3.1 are just guesses
             string[] versionsNoColor = new string[] {"1.0", "1.1", "1.1.1", "Beta 1.2", "Beta 1.3", "Beta 1.3.1", "1.3.2", "1.3.3", "1.3.4" };
             //Debug.Log(buildData.version);    
@@ -125,7 +130,7 @@ namespace Protobot.Builds {
         /// Converts scene objects into BuildData
         /// </summary>
         /// <remarks>Does not contain lastWriteTime, createTime, fileName, or name</remarks>
-        public static BuildData ToBuildData() {
+        public static BuildData ToBuildData(IEnumerable<GameObject> objects = null) {
             //Camera
             PivotCamera cam = PivotCamera.Main;
             ProjectionSwitcher projectionSwitcher = cam.GetComponent<ProjectionSwitcher>();
@@ -145,7 +150,7 @@ namespace Protobot.Builds {
             };
 
             //Parts
-            List<GameObject> sceneObjs = PartsManager.FindLoadedObjects();
+            List<GameObject> sceneObjs = objects != null ? objects.Distinct().ToList() : PartsManager.FindLoadedObjects();
 
             ObjectData[] newParts = new ObjectData[sceneObjs.Count];
 
@@ -178,10 +183,11 @@ namespace Protobot.Builds {
             }
 
 
+            var ids = newParts.Select(part => part.connectionId).ToHashSet();
             return new BuildData {
                 camera = newCameraData,
                 parts = newParts,
-                chains = Protobot.Simulation.ChainLoop.SaveAll(),
+                chains = Protobot.Simulation.ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray(),
             };
         }
     }

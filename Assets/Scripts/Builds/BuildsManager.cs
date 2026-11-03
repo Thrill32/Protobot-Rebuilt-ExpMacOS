@@ -35,6 +35,7 @@ namespace Protobot.Builds {
         private bool IsNotSaved => buildPath == "";
         public bool IsFileOperationInProgress { get; private set; }
         private const string LastDirectoryKey = "buildFileDirectory";
+        private const string TransferDirectoryKey = "selectionFileDirectory";
 
         private string DialogDirectory => string.IsNullOrEmpty(buildPath)
             ? PlayerPrefs.GetString(LastDirectoryKey, "") : Path.GetDirectoryName(buildPath);
@@ -90,6 +91,56 @@ namespace Protobot.Builds {
         public async void Save() => await SaveAsync();
 
         public async void SaveAs() => await SaveAsync(true);
+
+        // Selection exports always ask for a path and never mark the open project saved.
+        public async Task<bool> SaveSelectionAsAsync(BuildData snapshot) {
+            if (snapshot?.parts == null || snapshot.parts.Length == 0 || IsFileOperationInProgress || NativeFileDialogs.IsOpen) return false;
+            IsFileOperationInProgress = true;
+            try {
+                string name = string.IsNullOrEmpty(buildPath) ? "Selected Parts" : Path.GetFileNameWithoutExtension(buildPath) + " Selection";
+                var path = await NativeFileDialogs.SaveFileAsync("Save Selected Parts As", PlayerPrefs.GetString(TransferDirectoryKey, DialogDirectory), name, "pbb");
+                if (string.IsNullOrEmpty(path) || this == null) return false;
+                if (!IsBuildPath(path)) path += ".pbb";
+                snapshot.name = Path.GetFileNameWithoutExtension(path);
+                snapshot.fileName = Path.GetFileName(path);
+                await Task.Run(() => {
+                    using var file = File.Create(path);
+                    new BinaryFormatter().Serialize(file, snapshot);
+                });
+                if (this == null) return false;
+                PlayerPrefs.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
+                InteractionFeedback.Notify("Selected parts saved to " + Path.GetFileName(path));
+                return true;
+            }
+            catch (Exception exception) {
+                Debug.LogWarning("Could not save selected parts: " + exception.Message);
+                InteractionFeedback.Notify("Could not save selected parts: " + exception.Message);
+                return false;
+            }
+            finally { IsFileOperationInProgress = false; }
+        }
+
+        public async Task<BuildData> ReadImportAsync(string path = null) {
+            if (IsFileOperationInProgress || NativeFileDialogs.IsOpen) return null;
+            IsFileOperationInProgress = true;
+            try {
+                if (string.IsNullOrEmpty(path)) {
+                    var paths = await NativeFileDialogs.OpenFileAsync("Import Build", PlayerPrefs.GetString(TransferDirectoryKey, DialogDirectory), "pbb");
+                    if (paths == null || paths.Length == 0 || string.IsNullOrEmpty(paths[0]) || this == null) return null;
+                    path = paths[0];
+                }
+                var build = await Task.Run(() => ParsePath(path));
+                if (build == null || this == null) return null;
+                PlayerPrefs.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
+                return build;
+            }
+            catch (Exception exception) {
+                Debug.LogWarning("Could not import build: " + exception.Message);
+                InteractionFeedback.Notify("Could not import build: " + exception.Message);
+                return null;
+            }
+            finally { IsFileOperationInProgress = false; }
+        }
 
         public async void SaveAndQuit() {
             if (!await SaveAsync()) return;

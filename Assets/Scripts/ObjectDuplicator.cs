@@ -57,7 +57,7 @@ namespace Protobot {
 
         /// <summary>Shared by axis dragging and keyboard transforms. Copy each
         /// part once, leaving selection pivots out of the cloned hierarchy.</summary>
-        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects, Transform parent = null) {
+        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects, Transform parent = null, bool preserveConnectionIds = false) {
             var parts = objects.Where(obj => obj != null)
                 .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>(true))
                 .Select(saved => saved.gameObject).Distinct().ToList();
@@ -66,6 +66,11 @@ namespace Protobot {
             var copies = new List<GameObject>();
             foreach (var part in sourceRoots) {
                 var copy = Instantiate(part, part.transform.position, part.transform.rotation, parent);
+                if (preserveConnectionIds) {
+                    var originals = part.GetComponentsInChildren<SavedObject>(true);
+                    var cloned = copy.GetComponentsInChildren<SavedObject>(true);
+                    for (int i = 0; i < originals.Length; i++) cloned[i].ConnectionId = originals[i].ConnectionId;
+                }
                 if (parent != null && !parent.gameObject.activeInHierarchy && copy.TryGetComponent<CustomModel>(out var custom))
                     custom.InitializeTemplate();
                 copy.DisableOutline();

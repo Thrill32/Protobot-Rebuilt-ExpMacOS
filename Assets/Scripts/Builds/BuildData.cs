@@ -13,6 +13,7 @@ namespace Protobot.Builds {
         public ObjectData[] parts = Array.Empty<ObjectData>();
         public CameraData camera;
         [System.Runtime.Serialization.OptionalField] public ChainData[] chains;
+        [System.Runtime.Serialization.OptionalField] public PlacementAnchorData placementAnchor;
 
         public string lastWriteTime;
 
@@ -40,5 +41,16 @@ namespace Protobot.Builds {
     [Serializable]
     public class ChainData {
         public string[] members;
+    }
+
+    [Serializable]
+    public sealed class PlacementAnchorData {
+        public float x, y, z, qx, qy, qz, qw;
+        public bool hole;
+        public Pose GetPose() => new(new Vector3(x, y, z), new Quaternion(qx, qy, qz, qw));
+        public static PlacementAnchorData From(Pose pose, bool hole) => new() {
+            x = pose.position.x, y = pose.position.y, z = pose.position.z,
+            qx = pose.rotation.x, qy = pose.rotation.y, qz = pose.rotation.z, qw = pose.rotation.w, hole = hole
+        };
     }
 }

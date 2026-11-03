@@ -43,9 +43,14 @@ namespace Protobot.InputEvents {
                 actionNameText.text = "Select Multiple";
             else if (inputEvent.name == "Pick Part")
                 actionNameText.text = "Copy Selected Parts";
+            else if (inputEvent.name == "Save Selected Parts As")
+                actionNameText.text = "Save Selection As";
 
             if (inputEvent.name == "Grouping Bypass" && EventRebindAction.IsEmpty)
                 rebindText.text = Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor ? "Win" : "Cmd";
+            else if (EventRebindAction.IsEmpty && (inputEvent.name == "Copy Selection" || inputEvent.name == "Paste Selection"))
+                rebindText.text = (Application.platform == RuntimePlatform.OSXPlayer || Application.platform == RuntimePlatform.OSXEditor ? "Cmd+" : "Ctrl+") +
+                    (inputEvent.name == "Copy Selection" ? "C" : "V");
             else if (!EventRebindAction.IsEmpty)
                 rebindText.text = GetBindingDisplayString(EventRebindAction.action);
             else
@@ -55,6 +60,8 @@ namespace Protobot.InputEvents {
         }
 
         public string GetBindingDisplayString(InputAction action) {
+            for (int i = 0; i < action.bindings.Count; i++)
+                if (action.bindings[i].isComposite) return action.GetBindingDisplayString(i);
             string displayString = "";
 
             foreach (InputBinding binding in action.bindings) {

@@ -55,6 +55,9 @@ namespace Protobot {
         /// Returns whether all the controls in an input action are pressed
         /// </summary>
         public static bool AllControlsPressed(this InputAction action) {
+            // Composite bindings already evaluate complete chords, including alternative left/right modifiers.
+            foreach (var binding in action.bindings)
+                if (binding.isComposite) return action.IsPressed();
             if (action.IsPressed()) {
                 for (int i = 0; i < action.controls.Count; i++) {
                     if (!action.controls[i].IsPressed() && action.controls[i].path != "")

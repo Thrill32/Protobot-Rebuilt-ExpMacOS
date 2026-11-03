@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Protobot.Builds;
 using Protobot.SelectionSystem;
+using Protobot.Simulation;
 using UnityEngine;
 
 namespace Protobot {
@@ -9,24 +11,25 @@ namespace Protobot {
     public sealed class SelectionPlacementData : PlacementData, IDisposable {
         public override Transform placementTransform { get; set; }
         public override string objectId => "Selection Copy";
-        public Quaternion InitialRotation { get; }
-        public bool HasHole { get; }
+        public Quaternion InitialRotation { get; private set; }
+        public bool HasHole { get; private set; }
+        public bool RepeatPlacement { get; private set; } = true;
+        public SelectionManager ResultSelection { get; private set; }
         public int PartCount => templates.Count;
+        public readonly List<GameObject> GeneratedChains = new();
 
         private readonly GameObject templateRoot;
         private readonly List<GameObject> templates;
         private readonly ObjectDuplicator duplicator;
         private Mesh displayMesh;
         private bool disposed;
+        private ChainData[] chains = Array.Empty<ChainData>();
 
         public static SelectionPlacementData Capture(ISelection selection, Transform preview, ObjectDuplicator duplicator) {
             if (selection?.gameObject == null || duplicator == null) return null;
-            var bodies = selection.gameObject.GetConnectedObjects(true, true, !selection.individual)
-                .Where(obj => obj != null && obj.activeInHierarchy && !obj.IsDeleted())
-                .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>())
-                .Select(saved => saved.gameObject).Distinct().ToList();
+            var bodies = BuildTransfer.SelectedBodies(selection);
             if (bodies.Count == 0) return null;
-            var anchor = selection is HoleSelection hole ? SelectedHoleAnchor.From(hole) : (selection as MultiSelection)?.placementHole;
+            var anchor = BuildTransfer.HoleAnchor(selection);
             if (anchor?.Hole?.part == null || !bodies.Contains(anchor.Hole.part)) anchor = null;
             var frame = anchor != null ? anchor.Face : new Pose(selection.gameObject.transform.position, selection.gameObject.transform.rotation);
             return new SelectionPlacementData(bodies, frame, anchor != null, preview, duplicator);
@@ -37,10 +40,58 @@ namespace Protobot {
             InitialRotation = frame.rotation;
             HasHole = hasHole;
             this.duplicator = duplicator;
-            displayMesh = MeshCombiner.CombineMeshes(bodies, frame.position, frame.rotation);
             templateRoot = new GameObject("Selection placement templates");
             templateRoot.SetActive(false);
-            templates = duplicator.CreateCopies(bodies, templateRoot.transform);
+            templates = new List<GameObject>();
+            try {
+                displayMesh = MeshCombiner.CombineMeshes(bodies, frame.position, frame.rotation);
+                templates.AddRange(duplicator.CreateCopies(bodies, templateRoot.transform, true));
+                var ids = bodies.SelectMany(body => body.GetComponentsInChildren<SavedObject>()).Select(s => s.ConnectionId).ToHashSet();
+                chains = ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray();
+                Normalize(frame);
+            }
+            catch { Dispose(); throw; }
+        }
+
+        private SelectionPlacementData(Transform preview, ObjectDuplicator duplicator) {
+            placementTransform = preview;
+            this.duplicator = duplicator;
+            templateRoot = new GameObject("Imported build templates");
+            templateRoot.SetActive(false);
+            templates = new List<GameObject>();
+        }
+
+        public static SelectionPlacementData FromBuild(BuildData build, Transform preview, ObjectDuplicator duplicator, SelectionManager selectResult) {
+            BuildTransfer.Validate(build);
+            var data = new SelectionPlacementData(preview, duplicator) { RepeatPlacement = false, ResultSelection = selectResult };
+            try {
+                var renderers = new List<MeshRenderer>();
+                Bounds? bounds = null;
+                foreach (var part in build.parts.Where(p => p.partId != "Error")
+                             .OrderBy(p => !p.IsCustomModel && PartsManager.GetPartType(p.partId)?.connectingPart == true)) {
+                    var obj = SceneBuild.GenerateObject(part, build);
+                    data.templates.Add(obj);
+                    var visible = MeshCombiner.GetRenderers(new[] { obj });
+                    foreach (var renderer in visible) {
+                        if (!bounds.HasValue) bounds = renderer.bounds;
+                        else { var combined = bounds.Value; combined.Encapsulate(renderer.bounds); bounds = combined; }
+                    }
+                    renderers.AddRange(visible);
+                    obj.transform.SetParent(data.templateRoot.transform, true);
+                }
+                if (data.templates.Count == 0) throw new System.IO.InvalidDataException("This build contains no parts to import.");
+                var frame = build.placementAnchor != null ? build.placementAnchor.GetPose() : new Pose(bounds?.center ?? Vector3.zero, Quaternion.identity);
+                data.InitialRotation = frame.rotation;
+                data.HasHole = build.placementAnchor?.hole == true;
+                data.displayMesh = MeshCombiner.CombineMeshes(renderers, frame.position, frame.rotation);
+                data.chains = build.chains ?? Array.Empty<ChainData>();
+                data.Normalize(frame);
+                return data;
+            }
+            catch { data.Dispose(); throw; }
+        }
+
+        private void Normalize(Pose frame) {
             foreach (var template in templates) {
                 var position = template.transform.position;
                 var rotation = template.transform.rotation;
@@ -63,6 +114,17 @@ namespace Protobot {
                 var localPosition = copy.transform.position;
                 var localRotation = copy.transform.rotation;
                 copy.transform.SetPositionAndRotation(position + rotation * localPosition, rotation * localRotation);
+            }
+            var ids = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i < templates.Count; i++) {
+                var source = templates[i].GetComponentsInChildren<SavedObject>(true);
+                var placed = copies[i].GetComponentsInChildren<SavedObject>(true);
+                for (int j = 0; j < source.Length; j++) ids[source[j].ConnectionId] = placed[j].ConnectionId;
+            }
+            GeneratedChains.Clear();
+            foreach (var chain in chains.Where(chain => chain?.members != null && chain.members.All(id => !string.IsNullOrEmpty(id) && ids.ContainsKey(id)))) {
+                var loop = ChainLoop.FromData(new ChainData { members = chain.members.Select(id => ids[id]).ToArray() });
+                if (loop != null) GeneratedChains.Add(loop.gameObject);
             }
             Physics.SyncTransforms();
             foreach (var detector in copies.SelectMany(copy => copy.GetComponentsInChildren<HoleDetector>())) detector.RefreshOverlaps();

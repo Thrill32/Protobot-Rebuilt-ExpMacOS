@@ -9,6 +9,7 @@ using Protobot.InputEvents;
 using Protobot.Tools;
 using Protobot.Transformations;
 using UnityEngine.InputSystem;
+using Protobot.SelectionSystem;
 
 namespace Protobot {
     public class Placement : MonoBehaviour { 
@@ -346,10 +347,25 @@ namespace Protobot {
                 StateSystem.AddState(objElement);
             }
             else if (currentPlacementData is SelectionPlacementData selection) {
+                var resultSelection = selection.ResultSelection;
+                var previousSelection = resultSelection != null ? resultSelection.current : null;
+                if (resultSelection != null) StateSystem.AddElement(new PlacedSelectionElement(resultSelection, previousSelection));
                 var copies = selection.Generate(displacePos, displaceRot);
                 foreach (var copy in copies) StateSystem.AddElement(new ObjectElement(copy) { existing = false });
                 var elements = new List<IElement>();
                 foreach (var copy in copies) elements.Add(new ObjectElement(copy));
+                foreach (var chain in selection.GeneratedChains) {
+                    StateSystem.AddElement(new ActiveElement(chain, false));
+                    elements.Add(new ActiveElement(chain, true));
+                }
+                if (!selection.RepeatPlacement) StopPlacing();
+                if (resultSelection != null) {
+                    ISelection placed = copies.Count == 1 ? new ObjectSelection { gameObject = copies[0], individual = true }
+                        : new MultiSelection(null, copies) { individual = true };
+                    var selected = new PlacedSelectionElement(resultSelection, placed);
+                    selected.Load();
+                    elements.Add(selected);
+                }
                 StateSystem.AddState(new State(elements));
                 FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
             }
@@ -360,6 +376,28 @@ namespace Protobot {
 
             rotating = false;
             OnStopRotate?.Invoke();
+        }
+
+        private sealed class ActiveElement : IElement {
+            private readonly GameObject obj;
+            private readonly bool active;
+            public ActiveElement(GameObject obj, bool active) { this.obj = obj; this.active = active; }
+            public void Load() { if (obj != null) obj.SetActive(active); }
+        }
+
+        private sealed class PlacedSelectionElement : IElement {
+            private readonly SelectionManager manager;
+            private readonly ISelection selection;
+            public PlacedSelectionElement(SelectionManager manager, ISelection selection) { this.manager = manager; this.selection = selection; }
+            public void Load() {
+                if (manager == null) return;
+                if (manager.current != null) manager.current.selector = null;
+                manager.ClearCurrent(false, true, true);
+                if (selection?.gameObject != null && selection.gameObject.activeInHierarchy) {
+                    selection.selector = null;
+                    manager.SetCurrent(selection, true);
+                }
+            }
         }
         public void InitRotation() {
             if (!placing || rotating) return;

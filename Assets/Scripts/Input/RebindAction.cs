@@ -36,6 +36,8 @@ namespace Protobot.InputEvents {
                     inputs.Add(Keyboard.current.rightShiftKey);
                     inputs.Add(Keyboard.current.leftAltKey);
                     inputs.Add(Keyboard.current.rightAltKey);
+                    inputs.Add(Keyboard.current.leftMetaKey);
+                    inputs.Add(Keyboard.current.rightMetaKey);
                 }
 
                 return inputs;
@@ -115,7 +117,8 @@ namespace Protobot.InputEvents {
             var keyboard = Keyboard.current;
             return input == keyboard.leftCtrlKey || input == keyboard.rightCtrlKey ||
                    input == keyboard.leftShiftKey || input == keyboard.rightShiftKey ||
-                   input == keyboard.leftAltKey || input == keyboard.rightAltKey;
+                   input == keyboard.leftAltKey || input == keyboard.rightAltKey ||
+                   input == keyboard.leftMetaKey || input == keyboard.rightMetaKey;
         }
 
         public string ConvertToBindingPath(string path) {
@@ -130,6 +133,7 @@ namespace Protobot.InputEvents {
                 curKeyboard.ctrlKey,
                 curKeyboard.shiftKey,
                 curKeyboard.altKey,
+                curKeyboard.leftMetaKey.isPressed ? curKeyboard.leftMetaKey : curKeyboard.rightMetaKey,
             };
 
             var keyPaths = new List<string>();
