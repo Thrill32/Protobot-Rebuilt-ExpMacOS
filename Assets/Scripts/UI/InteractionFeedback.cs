@@ -45,6 +45,7 @@ namespace Protobot.UI {
                 GroupingBypassInput.IsHeld, SnapBypassInput.IsHeld, multiSelector != null && multiSelector.IsMultiSelectHeld);
             if (KeyboardTransformTool.ControlsText != null) messages.Add(KeyboardTransformTool.ControlsText);
             if (placement != null && placement.ControlsText != null) messages.Add(placement.ControlsText);
+            if (CustomModelTool.ControlsText != null) messages.Add(CustomModelTool.ControlsText);
             if (messages.Count == 0) return;
 
             occupied.Clear();

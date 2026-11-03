@@ -26,7 +26,7 @@ namespace Protobot.Tools {
 
         public abstract void OnPointerDown();
         public void OnPointerDown(PointerEventData eventData) {
-            if (KeyboardTransformTool.IsCapturingInput)
+            if (KeyboardTransformTool.IsCapturingInput || Placement.IsCopyingSelection)
                 return;
             startPosition = refObj.transform.position;
             feedbackDegrees = 0f;
@@ -38,7 +38,7 @@ namespace Protobot.Tools {
 
         public abstract void OnDrag();
         public void OnDrag(PointerEventData eventData) {
-            if (!KeyboardTransformTool.IsCapturingInput)
+            if (!KeyboardTransformTool.IsCapturingInput && !Placement.IsCopyingSelection)
                 OnDrag();
         }
 
@@ -47,7 +47,7 @@ namespace Protobot.Tools {
 
         public abstract void OnPointerUp();
         public void OnPointerUp(PointerEventData eventData) {
-            if (KeyboardTransformTool.IsCapturingInput)
+            if (KeyboardTransformTool.IsCapturingInput || Placement.IsCopyingSelection)
                 return;
             dragging = false;
             OnPointerUp();

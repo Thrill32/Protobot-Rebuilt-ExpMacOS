@@ -28,6 +28,10 @@ namespace Protobot.Builds {
         /// Generates all the objects into the scene using given BuildData
         /// </summary>
         public static void GenerateBuild(BuildData buildData) {
+            // Validate embedded geometry before replacing any current scene objects.
+            foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
+                if (part.IsCustomModel) CustomModel.Validate(part.customModel);
+            CustomModelTool.CancelActive();
             Protobot.Simulation.SimulationTool.ExitForEdit();
             Protobot.Simulation.ChainLoop.ClearAll();
             Debug.Log("Generating a build with " +
@@ -56,7 +60,7 @@ namespace Protobot.Builds {
 
                 foreach (ObjectData part in buildData.parts) {
                     if (part.partId == "Error") continue; //this is jank but I'm avoiding editing main scene
-                    if (PartsManager.GetPartType(part.partId).connectingPart) {
+                    if (!part.IsCustomModel && PartsManager.GetPartType(part.partId)?.connectingPart == true) {
                         connectingObjects.Add(part);
                     }
                     else
@@ -86,7 +90,9 @@ namespace Protobot.Builds {
 
         private static GameObject GenerateObject(ObjectData objectData, BuildData buildData)
         {
-            GameObject generatedObject = PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
+            GameObject generatedObject = objectData.IsCustomModel
+                ? CustomModel.Create(objectData.customModel, objectData.GetPos(), objectData.GetRot())
+                : PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
             generatedObject.GetComponent<SavedObject>().ConnectionId = objectData.connectionId;
             //there are only 2 versions of Protobot legacy publicly released that I could find most before Beta 1.3.1 are just guesses
             string[] versionsNoColor = new string[] {"1.0", "1.1", "1.1.1", "Beta 1.2", "Beta 1.3", "Beta 1.3.1", "1.3.2", "1.3.3", "1.3.4" };
@@ -155,6 +161,7 @@ namespace Protobot.Builds {
                     partId = savedData.id,
                     states = savedData.state,
                     connectionId = savedData.ConnectionId,
+                    customModel = tForm.TryGetComponent<CustomModel>(out var custom) ? custom.Snapshot() : null,
 
                     xPos = position.x,
                     yPos = position.y,

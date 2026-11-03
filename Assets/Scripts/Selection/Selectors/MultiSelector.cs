@@ -18,28 +18,40 @@ namespace Protobot.SelectionSystem {
         private bool lastIndividual;
 
         public override void OnSet(ISelection selection) {
-            if (IsObjectSelection(selection)) {
-                lastSelectedObj = selection.gameObject;
+            if (IsBodySelection(selection)) {
+                lastSelectedObj = selection is HoleSelection hole ? hole.holeData.part : selection.gameObject;
                 lastIndividual = selection.individual;
             }
         }
 
-        private bool IsObjectSelection(ISelection sel) {
-            return (sel as ObjectSelection != null);
+        private bool IsBodySelection(ISelection sel) {
+            return sel is ObjectSelection || sel is HoleSelection || sel is MultiSelection;
         }
 
         public ISelection GetResponseSelection(ISelection incomingSelection) {
 
-            if (IsObjectSelection(incomingSelection)) {
+            if (incomingSelection is ObjectSelection || incomingSelection is HoleSelection) {
                 if (mutliSelectInput.IsPressed && lastSelectedObj != null) {
-                    incomingSelection.gameObject.GetConnectedObjects(true, false, !incomingSelection.individual).ForEach(x => objs.Add(x));
-                    lastSelectedObj.GetConnectedObjects(true, false, !lastIndividual).ForEach(x => objs.Add(x));
+                    objs.Clear();
+                    var hole = incomingSelection as HoleSelection;
+                    var body = hole != null ? hole.holeData.part : incomingSelection.gameObject;
+                    AddBodies(body, !incomingSelection.individual);
+                    AddBodies(lastSelectedObj, !lastIndividual);
 
-                    return new MultiSelection(incomingSelection.selector, objs.ToList()) { individual = incomingSelection.individual || lastIndividual };
+                    return new MultiSelection(incomingSelection.selector, objs.ToList()) {
+                        individual = incomingSelection.individual || lastIndividual,
+                        placementHole = hole != null ? SelectedHoleAnchor.From(hole) : null
+                    };
                 }
             }
 
             return null;
+        }
+
+        private void AddBodies(GameObject body, bool includeConnections) {
+            foreach (var connected in body.GetConnectedObjects(true, true, includeConnections))
+                foreach (var saved in connected.GetComponentsInChildren<SavedObject>())
+                    if (!saved.gameObject.IsDeleted()) objs.Add(saved.gameObject);
         }
 
         public override void OnClear(ClearInfo info) {

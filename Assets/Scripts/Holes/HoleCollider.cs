@@ -39,7 +39,7 @@ namespace Protobot {
                 forward = transform.forward,
 
                 shape = meshCollider.sharedMesh,
-                depth = transform.localScale.z,
+                depth = TryGetComponent<CustomMountPoint>(out var customMount) ? customMount.Depth : transform.localScale.z,
                 size = new Vector2(transform.localScale.x, transform.localScale.y),
                 part = transform.parent.gameObject
             };

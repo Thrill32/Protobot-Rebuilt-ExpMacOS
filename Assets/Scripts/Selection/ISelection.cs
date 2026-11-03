@@ -26,6 +26,7 @@ namespace Protobot.SelectionSystem {
         public Selector selector { get; set; }
 
         public Pivot pivot;
+        public SelectedHoleAnchor placementHole;
 
         public List<GameObject> objs = new List<GameObject>();
 
@@ -43,9 +44,11 @@ namespace Protobot.SelectionSystem {
         public void Select() {
             pivot.AddObjects(objs, !individual);
             pivot.Center();
+            placementHole?.Show();
         }
 
         public void Deselect() {
+            placementHole?.Hide();
             if (gameObject.activeInHierarchy)
                 pivot.DetachObjects();
         }
@@ -72,5 +75,34 @@ namespace Protobot.SelectionSystem {
         public void Deselect() {
             holeFace.gameObject.SetActive(false);
         }
+    }
+
+    // Keep the chosen face relative to its body; the shared HoleFace marker can be reused by later clicks.
+    public sealed class SelectedHoleAnchor {
+        public HoleData Hole { get; }
+        private readonly Vector3 localDirection;
+        private readonly HoleFace marker;
+        public Vector3 Direction => Hole.part.transform.TransformDirection(localDirection).normalized;
+        public Pose Face => MoveTargeting.HoleFace(Hole, Direction);
+
+        private SelectedHoleAnchor(HoleData hole, Vector3 direction, HoleFace marker) {
+            Hole = hole;
+            localDirection = hole.part.transform.InverseTransformDirection(direction);
+            this.marker = marker;
+        }
+
+        public static SelectedHoleAnchor From(HoleSelection selection) {
+            if (selection.holeData?.part == null) return null;
+            selection.holeFace?.Refresh();
+            var direction = selection.holeFace != null && selection.holeFace.hole == selection.holeData
+                ? selection.holeFace.direction : selection.faceDirection;
+            return new SelectedHoleAnchor(selection.holeData, direction, selection.holeFace);
+        }
+
+        public void Show() {
+            if (marker == null || Hole.part == null) return;
+            marker.Set(Hole, Direction); marker.gameObject.SetActive(true);
+        }
+        public void Hide() { if (marker != null && marker.hole == Hole) marker.gameObject.SetActive(false); }
     }
 }

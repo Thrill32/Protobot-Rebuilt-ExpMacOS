@@ -12,16 +12,22 @@ namespace Protobot.Builds {
         public string states;
         [FormerlySerializedAs("meshId")] public string partId;
         [System.Runtime.Serialization.OptionalField] public string connectionId;
+        [System.Runtime.Serialization.OptionalField] public CustomModelData customModel;
+        public bool IsCustomModel => partId == CustomModel.PartId;
         public Vector3 GetPos() => new Vector3((float)xPos, (float)yPos, (float)zPos);
         public Quaternion GetRot() => Quaternion.Euler((float)xRot, (float)yRot, (float)zRot);
         public Color GetColor() => new Color((float)rColor, (float)gColor, (float)bColor, 1);
 
         public override bool Equals(object obj) {
             var data = obj as ObjectData;
+            if (data == null) return false;
             
             if (data.GetPos() != GetPos()) return false;
             if (data.GetRot() != GetRot()) return false;
             if (data.partId != partId) return false;
+            // Unity's inline JSON serializer can expand a null class into empty fields.
+            if (IsCustomModel && (customModel == null || !customModel.SameAs(data.customModel))) return false;
+            if (IsCustomModel && data.GetColor() != GetColor()) return false;
 
             return true;
         }

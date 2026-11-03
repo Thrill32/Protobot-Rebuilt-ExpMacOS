@@ -57,19 +57,24 @@ namespace Protobot {
 
         /// <summary>Shared by axis dragging and keyboard transforms. Copy each
         /// part once, leaving selection pivots out of the cloned hierarchy.</summary>
-        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects) {
+        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects, Transform parent = null) {
             var parts = objects.Where(obj => obj != null)
-                .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>())
+                .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>(true))
                 .Select(saved => saved.gameObject).Distinct().ToList();
             var sourceRoots = parts.Where(part => !parts.Any(other =>
                 other != part && part.transform.IsChildOf(other.transform))).ToList();
             var copies = new List<GameObject>();
             foreach (var part in sourceRoots) {
-                var copy = Instantiate(part, part.transform.position, part.transform.rotation);
+                var copy = Instantiate(part, part.transform.position, part.transform.rotation, parent);
+                if (parent != null && !parent.gameObject.activeInHierarchy && copy.TryGetComponent<CustomModel>(out var custom))
+                    custom.InitializeTemplate();
                 copy.DisableOutline();
-                foreach (var renderer in copy.GetComponentsInChildren<Renderer>(true))
-                    renderer.sharedMaterials = renderer.sharedMaterials.Select(material =>
-                        material != null ? new Material(material) : null).ToArray();
+                // CustomModel.Awake creates its owned body material; mounting rings
+                // intentionally share their immutable resource material.
+                if (copy.GetComponent<CustomModel>() == null)
+                    foreach (var renderer in copy.GetComponentsInChildren<Renderer>(true))
+                        renderer.sharedMaterials = renderer.sharedMaterials.Select(material =>
+                            material != null ? new Material(material) : null).ToArray();
                 copies.Add(copy);
             }
             return copies;
@@ -78,11 +83,13 @@ namespace Protobot {
         public static void DiscardCopies(List<GameObject> copies) {
             foreach (var copy in copies.Where(copy => copy != null)) {
                 copy.SetActive(false);
-                foreach (var material in copy.GetComponentsInChildren<Renderer>(true)
-                             .SelectMany(renderer => renderer.sharedMaterials).Where(material => material != null).Distinct()) {
-                    if (Application.isPlaying) Destroy(material);
-                    else DestroyImmediate(material);
-                }
+                if (copy.TryGetComponent<CustomModel>(out var custom)) custom.ReleaseGeometry();
+                else
+                    foreach (var material in copy.GetComponentsInChildren<Renderer>(true)
+                                 .SelectMany(renderer => renderer.sharedMaterials).Where(material => material != null).Distinct()) {
+                        if (Application.isPlaying) Destroy(material);
+                        else DestroyImmediate(material);
+                    }
                 if (Application.isPlaying) Destroy(copy);
                 else DestroyImmediate(copy);
             }

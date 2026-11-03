@@ -13,6 +13,8 @@ using UnityEngine.InputSystem;
 namespace Protobot {
     public class Placement : MonoBehaviour { 
         public static int PLACEMENT_LAYER => 14;
+        private static Placement instance;
+        public static bool IsCopyingSelection => instance != null && instance.placing && instance.currentPlacementData is SelectionPlacementData;
 
         [SerializeField] private MovementManager movementManager;
 
@@ -22,6 +24,8 @@ namespace Protobot {
         private PlacementData currentPlacementData;
         private int placementStartFrame = -1;
         public PartPlacementData CurrentPartPlacement => placing ? currentPlacementData as PartPlacementData : null;
+        public SelectionPlacementData CurrentSelectionPlacement => placing ? currentPlacementData as SelectionPlacementData : null;
+        private Coroutine stopping;
 
         public void RefreshPartPreview() {
             if (CurrentPartPlacement != null) {
@@ -45,7 +49,9 @@ namespace Protobot {
         private void OnDestroy() {
             moveRotation.End();
             ReleaseMovePreview();
+            ReleaseSelectionPreview();
             ReleasePreviewMesh();
+            if (instance == this) instance = null;
         }
 
         private void ReleasePreviewMesh() {
@@ -64,9 +70,17 @@ namespace Protobot {
 
         private void OnDisable() {
             ReleaseMovePreview();
+            ReleaseSelectionPreview();
             moveRotation.End();
             placing = rotating = false;
             if (meshRenderer != null) meshRenderer.enabled = false;
+        }
+
+        private void ReleaseSelectionPreview() {
+            if (currentPlacementData is not SelectionPlacementData selection) return;
+            selection.Dispose();
+            currentPlacementData = null;
+            ReleasePreviewMesh();
         }
 
         [SerializeField] private List<PlaceDisplacement> placePositions;
@@ -103,6 +117,7 @@ namespace Protobot {
             : $"{toggleRotateInput.GetCurrentKeybind()}: rotate    Click: place    Esc: cancel";
         
         private void Awake() {
+            instance = this;
             placing = false;
             rotating = false;
             keyboardTool = GetComponent<KeyboardTransformTool>();
@@ -149,7 +164,12 @@ namespace Protobot {
         }
 
         private void UpdatePosition() {
+            if (currentPlacementData is SelectionPlacementData && (IsNavigatingCamera || MouseInput.overUI)) return;
             foreach (PlaceDisplacement placePosition in placePositions) {
+                // P uses only its explicitly selected source face, or the grid.
+                // Hardware and gear rules must never infer an anchor for this rigid copy.
+                if (currentPlacementData is SelectionPlacementData selection && placePosition is not PlanePlaceDisplacement &&
+                    (!selection.HasHole || placePosition is not HolePlaceDisplacement)) continue;
                 if (placePosition.TryGetDisplacement(currentPlacementData, out Displacement displacement)) {
                     var newDisplacement = displacement;
 
@@ -222,8 +242,11 @@ namespace Protobot {
         }
 
         public void StartPlacing(PlacementData newPlacementData) {
+            CustomModelTool.CancelActive();
             Protobot.Simulation.SimulationTool.ExitForEdit();
+            if (stopping != null) { StopCoroutine(stopping); stopping = null; }
             ReleaseMovePreview();
+            ReleaseSelectionPreview();
             currentPlacementData = newPlacementData;
             placementStartFrame = Time.frameCount;
             placing = true;
@@ -236,6 +259,8 @@ namespace Protobot {
 
             if (newPlacementData is PartPlacementData partPlacement)
                 transform.rotation = partPlacement.initialRotation;
+            else if (newPlacementData is SelectionPlacementData selectionPlacement)
+                transform.rotation = selectionPlacement.InitialRotation;
 
             if (currentPlacementData.TryParse(out GameObjectPlacementData objPlaceData)) {
                 var objTransform = objPlaceData.GetGameObject().transform;
@@ -269,9 +294,12 @@ namespace Protobot {
             yield return new WaitForEndOfFrame();
             OnStopPlacing?.Invoke();
             placing = false;
+            ReleaseSelectionPreview();
+            stopping = null;
         }
 
         public void StopPlacing() {
+            if (stopping != null) return;
             ReleaseMovePreview();
             transform.DOKill();
             
@@ -280,7 +308,16 @@ namespace Protobot {
             rotating = false;
             OnStopRotate?.Invoke();
 
-            StartCoroutine(WaitStopPlacing());
+            if (currentPlacementData is SelectionPlacementData) {
+                placing = false;
+                meshRenderer.enabled = false;
+                ReleaseSelectionPreview();
+                KeyboardTransformTool.CaptureCurrentFrame();
+                OnStopPlacing?.Invoke();
+                return;
+            }
+
+            stopping = StartCoroutine(WaitStopPlacing());
         }
 
         private void Place() {
@@ -307,6 +344,14 @@ namespace Protobot {
 
                 ObjectElement objElement = new ObjectElement(placedObj);
                 StateSystem.AddState(objElement);
+            }
+            else if (currentPlacementData is SelectionPlacementData selection) {
+                var copies = selection.Generate(displacePos, displaceRot);
+                foreach (var copy in copies) StateSystem.AddElement(new ObjectElement(copy) { existing = false });
+                var elements = new List<IElement>();
+                foreach (var copy in copies) elements.Add(new ObjectElement(copy));
+                StateSystem.AddState(new State(elements));
+                FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
             }
             else if (isGameObjectPlacement) {
                 movementManager.DisplaceTo(currentDisplacement, 0);

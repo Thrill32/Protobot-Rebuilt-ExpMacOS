@@ -17,7 +17,19 @@ namespace Protobot {
             var obj = refObj.obj;
 
             if (obj.TryGetComponent(out HoleFace holeFace)) {
+                var customPoint = holeFace.hole.source != null ? holeFace.hole.source.GetComponent<CustomMountPoint>() : null;
+                if (customPoint != null) {
+                    customPoint.Delete(FindObjectsByType<Protobot.SelectionSystem.SelectionManager>(FindObjectsSortMode.None)
+                        .FirstOrDefault(manager => manager.current?.gameObject == obj));
+                    return;
+                }
                 obj = holeFace.hole.part;
+            }
+
+            if (obj.TryGetComponent<CustomMountPoint>(out var point)) {
+                point.Delete(FindObjectsByType<Protobot.SelectionSystem.SelectionManager>(FindObjectsSortMode.None)
+                    .FirstOrDefault(manager => manager.current?.gameObject == obj));
+                return;
             }
 
             Pivot pivot = obj.GetComponent<Pivot>();

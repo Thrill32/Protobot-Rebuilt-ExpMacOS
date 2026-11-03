@@ -113,11 +113,12 @@ namespace Protobot.UI {
         }
 
         private void PlacePickedPart() {
-            var source = SelectedPart();
-            if (source == null || !ConfigureFrom(source)) return;
+            var copy = SelectionPlacementData.Capture(selectionManager.current, placement.transform, FindFirstObjectByType<ObjectDuplicator>());
+            if (copy == null) return;
             editingObject = null;
-            RefreshDisplay();
-            placement.StartPlacing(new PartPlacementData(generator, partType, placement.transform));
+            generator = null;
+            Show(false);
+            placement.StartPlacing(copy);
         }
 
         public void UpdateDisplay(PartDisplayUI display) {

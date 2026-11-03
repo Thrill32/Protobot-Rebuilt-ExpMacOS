@@ -41,6 +41,8 @@ namespace Protobot.InputEvents {
                 actionNameText.text = "Bypass Snap";
             else if (inputEvent.name == "Multi-Select Button")
                 actionNameText.text = "Select Multiple";
+            else if (inputEvent.name == "Pick Part")
+                actionNameText.text = "Copy Selected Parts";
 
             if (inputEvent.name == "Grouping Bypass" && EventRebindAction.IsEmpty)
                 rebindText.text = Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor ? "Win" : "Cmd";

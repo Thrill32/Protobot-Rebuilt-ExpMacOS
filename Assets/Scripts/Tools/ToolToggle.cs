@@ -12,7 +12,7 @@ namespace Protobot.Tools {
 
         public bool active {
             get {
-                if (hideDuringKeyboardTransform && KeyboardTransformTool.IsCapturingInput)
+                if (hideDuringKeyboardTransform && (KeyboardTransformTool.IsCapturingInput || CustomModelTool.IsCapturingInput || Placement.IsCopyingSelection))
                     return false;
                 if (toggled) {
                     foreach (IToolRequirement req in requirements) {

@@ -49,7 +49,7 @@ namespace Protobot.InputEvents {
 
             if (!IsPressed)
                 suppressedUntilRelease = false;
-            else if (!Protobot.Tools.KeyboardTransformTool.AllowsInput(this))
+            else if (!Protobot.Tools.KeyboardTransformTool.AllowsInput(this) || !CustomModelTool.AllowsInput(this))
                 suppressedUntilRelease = true;
 
             if (suppressedUntilRelease)

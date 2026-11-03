@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Protobot;
 using Protobot.InputEvents;
 using Protobot.SelectionSystem;
@@ -48,7 +49,7 @@ namespace ProtobotEditorTools {
             EditorApplication.EnterPlaymode();
         }
 
-        private static void SmokeTick() {
+        private static async void SmokeTick() {
             if (!EditorApplication.isPlaying || EditorApplication.isCompiling) return;
             if (++smokeStart < 15) return;
             EditorApplication.update -= SmokeTick;
@@ -83,13 +84,20 @@ namespace ProtobotEditorTools {
                 // Batch mode has no focused application window; exercise the
                 // command after its UI/focus guards. Binding wiring is checked above.
                 Invoke(ui, "PlacePickedPart");
-                Require(placement.CurrentPartPlacement != null && placement.CurrentPartPlacement.partGenerator.GetId() == "SHFT-Normal-7.5", "Pick Part did not start ordinary placement with selected properties.");
+                Require(placement.CurrentSelectionPlacement?.PartCount == 1 && !placement.CurrentSelectionPlacement.HasHole,
+                    "Pick Part did not start grid-only cloning of the selected part.");
+                placement.StopPlacing();
+                int stoppedFrame = Time.frameCount;
+                while (Time.frameCount == stoppedFrame) await Task.Yield();
+                var shaftRow = Object.FindFirstObjectByType<AddPartsUI>().partUIsContainer.GetComponentsInChildren<PartDisplayUI>()
+                    .First(row => row.partType.id == "SHFT");
+                ui.UpdateDisplay(shaftRow);
                 CheckArrowFocus(ui);
                 var position = placement.transform.position;
                 ui.UpdateParam2("8");
                 Near(placement.transform.position, position, "Changing preview properties reset placement position.");
                 Require(placement.CurrentPartPlacement.partGenerator.GetId() == "SHFT-Normal-8", "Preview property edit failed.");
-                Debug.Log("Interaction runtime smoke passed: shaft geometry/detector resize, undo/redo, persistent property shortcuts, pick-part placement, and live preview properties.");
+                Debug.Log("Interaction runtime smoke passed: shaft geometry/detector resize, undo/redo, persistent property shortcuts, P selection cloning, and live catalog-preview properties.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) {

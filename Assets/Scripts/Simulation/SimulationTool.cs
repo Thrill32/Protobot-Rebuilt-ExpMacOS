@@ -88,6 +88,7 @@ namespace Protobot.Simulation {
         }
 
         public void SetActive(bool value) {
+            if (value) CustomModelTool.CancelActive();
             if (value && (placement.placing || KeyboardTransformTool.IsCapturingInput)) {
                 toolbarToggle.SetIsOnWithoutNotify(false);
                 return;

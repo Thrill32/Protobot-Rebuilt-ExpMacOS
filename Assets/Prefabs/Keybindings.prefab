@@ -1543,6 +1543,8 @@ Transform:
   - {fileID: 673633622585726295}
   - {fileID: 731688254622908064}
   - {fileID: 4745564991182709467}
+  - {fileID: 5154570558998554309}
+  - {fileID: 404149706195505174}
   m_Father: {fileID: 246119428735506766}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5516306830252511493
@@ -3061,6 +3063,134 @@ MonoBehaviour:
     - m_Name:
       m_Id: 2e75c057-6f99-419d-aa4d-c27d21116598
       m_Path: <Keyboard>/c
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    m_Flags: 0
+    m_Priority: 0
+  allowModifierOnly: 0
+  IsPressed: 0
+--- !u!1 &52263214500269633
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 404149706195505174}
+  - component: {fileID: 8376699109920776826}
+  m_Layer: 0
+  m_Name: Add Custom Mounting Points
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &404149706195505174
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 52263214500269633}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7594549906293032880}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8376699109920776826
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 52263214500269633}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.InputEvent
+  defaultAction:
+    m_Name: Default
+    m_Type: 1
+    m_ExpectedControlType:
+    m_Id: 01cedd61-8819-4150-b733-278c14244980
+    m_Processors:
+    m_Interactions:
+    m_SingletonActionBindings:
+    - m_Name:
+      m_Id: ca0a2ab1-5d1d-41be-875e-a3f847f31a54
+      m_Path: <Keyboard>/m
+      m_Interactions:
+      m_Processors:
+      m_Groups:
+      m_Action: Default
+      m_Flags: 0
+    m_Flags: 0
+    m_Priority: 0
+  allowModifierOnly: 0
+  IsPressed: 0
+--- !u!1 &670920411434264014
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5154570558998554309}
+  - component: {fileID: 8630502160167587742}
+  m_Layer: 0
+  m_Name: Import Custom Model
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5154570558998554309
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 670920411434264014}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7594549906293032880}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8630502160167587742
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 670920411434264014}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc743e69daf85714a8136d19802c3cb3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.InputEvents.InputEvent
+  defaultAction:
+    m_Name: Default
+    m_Type: 1
+    m_ExpectedControlType:
+    m_Id: 38a53993-d66a-4aa3-ad1e-07771e1bacb6
+    m_Processors:
+    m_Interactions:
+    m_SingletonActionBindings:
+    - m_Name:
+      m_Id: 583f225d-8348-4261-853c-1c71cb893eee
+      m_Path: <Keyboard>/i
       m_Interactions:
       m_Processors:
       m_Groups:
