@@ -31,13 +31,47 @@ namespace Protobot {
         public static MoveTarget ForScrew(Screw screw, Func<Transform, bool> ignore = null) => new(
             new Pose(screw.GetLowestPoint(ignore), screw.transform.GetAlignmentRotation(true)), screw: screw);
 
+        public static MoveTarget ForHole(HoleData hole, Vector3 normal, bool opposite,
+            Func<Transform, bool> ignore = null, Func<Transform, bool> stackMember = null) {
+            var last = hole;
+            var direction = -normal.normalized;
+            // Follow the bore, not the camera ray: an oblique view can miss the
+            // later holes even though their mating faces touch along one axis.
+            if (opposite && Mathf.Abs(Vector3.Dot(direction, hole.forward)) > .9999f &&
+                (stackMember == null || hole.source != null && stackMember(hole.source))) {
+                const float tolerance = .002f;
+                float end = hole.depth * .5f;
+                var ray = new Ray(hole.position - direction * (end + .01f), direction);
+                foreach (var hit in Physics.RaycastAll(ray, Mathf.Infinity, HoleCollider.HOLE_COLLISIONS_MASK,
+                             QueryTriggerInteraction.Ignore).OrderBy(hit => hit.distance)) {
+                    var transform = hit.collider.transform;
+                    if (Excluded(transform) || ignore != null && ignore(transform) ||
+                        stackMember != null && !stackMember(transform) ||
+                        !hit.collider.TryGetComponent<HoleCollider>(out var collider) || !collider.isActiveAndEnabled || collider.holeData?.part == null) continue;
+                    var candidate = collider.holeData;
+                    if (candidate == hole || Mathf.Abs(Vector3.Dot(direction, candidate.forward)) < .9999f) continue;
+                    var offset = candidate.position - hole.position;
+                    float center = Vector3.Dot(offset, direction);
+                    if ((offset - direction * center).sqrMagnitude > tolerance * tolerance) continue;
+                    float far = center + candidate.depth * .5f;
+                    if (far <= end + .0001f) continue;
+                    // A free gap ends this stack; do not jump to unrelated parts
+                    // that happen to have a hole on the same infinite line.
+                    if (center - candidate.depth * .5f > end + tolerance) break;
+                    last = candidate;
+                    end = far;
+                }
+            }
+            return new MoveTarget(HoleFace(last, opposite ? direction : normal), last);
+        }
+
         public static bool TryRaycast(Ray ray, int mask, bool opposite, bool allowScrews,
-            Func<Transform, bool> ignore, out MoveTarget target) {
+            Func<Transform, bool> ignore, out MoveTarget target, Func<Transform, bool> stackMember = null) {
             bool Ignored(Transform transform) => Excluded(transform) || (ignore != null && ignore(transform));
             foreach (var hit in Physics.RaycastAll(ray, Mathf.Infinity, mask, QueryTriggerInteraction.Ignore).OrderBy(hit => hit.distance)) {
                 if (Ignored(hit.collider.transform)) continue;
                 if (hit.collider.TryGetComponent<HoleCollider>(out var collider) && collider.holeData?.part != null) {
-                    target = new MoveTarget(HoleFace(collider.holeData, opposite ? -hit.normal : hit.normal), collider.holeData);
+                    target = ForHole(collider.holeData, hit.normal, opposite, Ignored, stackMember);
                     return true;
                 }
                 var screw = allowScrews ? hit.collider.GetComponentInParent<Screw>() : null;

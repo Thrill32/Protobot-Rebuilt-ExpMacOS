@@ -34,11 +34,12 @@ namespace Protobot.SelectionSystem {
                     setEvent?.Invoke(selection);
 
                     // Selection must finish first so Move uses the chosen face
-                    // and the grouping scope captured by this click.
+                    // and the grouping scope captured by this click. With Space,
+                    // the resolved face may belong to a later hole in a stack.
                     if (moveTool != null && moveTool.active && moveToolManager != null && selectionManager != null &&
-                        selection.gameObject.TryGetComponent<HoleCollider>(out var clickedHole) &&
+                        selection.gameObject.TryGetComponent<HoleCollider>(out _) &&
                         selectionManager.current is HoleSelection holeSelection &&
-                        holeSelection != previousSelection && holeSelection.holeData == clickedHole.holeData)
+                        holeSelection != previousSelection)
                         moveToolManager.StartMoving();
                 }
                 else {

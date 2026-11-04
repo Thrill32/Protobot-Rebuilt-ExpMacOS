@@ -307,7 +307,8 @@ namespace Protobot.Tools {
             var ray = mouseCast != null ? mouseCast.ray : refCamera.ScreenPointToRay(MouseInput.Position);
             int mask = mouseCast != null ? mouseCast.layerMask : LayerMask.GetMask("Default", "HoleCollisions");
             bool opposite = oppositeHoleInput != null && oppositeHoleInput.IsCurrentlyPressed;
-            return MoveTargeting.TryRaycast(ray, mask, opposite, !source, source ? null : IsMoving, out target) &&
+            return MoveTargeting.TryRaycast(ray, mask, opposite, !source, source ? null : IsMoving, out target,
+                source ? IsMoving : null) &&
                 (!source || IsMoving(target.Body.transform));
         }
 

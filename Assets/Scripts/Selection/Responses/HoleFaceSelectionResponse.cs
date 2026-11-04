@@ -14,16 +14,9 @@ namespace Protobot.SelectionSystem {
 
         public override void OnSet(ISelection holeColliderSel) {
             if (holeColliderSel.gameObject.TryGetComponent(out HoleCollider holeCollider)) {
-                HoleData selHole = holeCollider.holeData;
-
                 holeFace.gameObject.SetActive(true);
-
-                Vector3 faceDir = mouseCast.hit.normal;
-
-                if (flipFaceDir)
-                    faceDir = -faceDir;
-
-                holeFace.Set(selHole, faceDir);
+                var target = MoveTargeting.ForHole(holeCollider.holeData, mouseCast.hit.normal, flipFaceDir);
+                holeFace.Set(target.hole, target.face.rotation * Vector3.forward);
             }
         }
 
