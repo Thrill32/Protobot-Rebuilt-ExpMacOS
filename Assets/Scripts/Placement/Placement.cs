@@ -416,7 +416,7 @@ namespace Protobot {
                 manager.ClearCurrent(false, true, true);
                 if (selection?.gameObject != null && selection.gameObject.activeInHierarchy) {
                     selection.selector = null;
-                    manager.SetCurrent(selection, true);
+                    manager.SetCurrent(selection, true, bypassResponseSelectors: true);
                 }
             }
         }

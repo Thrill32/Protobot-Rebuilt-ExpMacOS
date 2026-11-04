@@ -213,6 +213,25 @@ namespace ProtobotEditorTools {
                 CheckCommandKeys(tool);
                 await Until(() => !BuildTransferTool.IsBusy);
 
+                // Control also bypasses snapping during placement. It must not
+                // merge a one-part paste (or its undo selection) with the old set.
+                var multiInput = Get<InputEvent>(selection.GetComponent<MultiSelector>(), "mutliSelectInput");
+                multiInput.IsPressed = false;
+                selection.SetCurrent(new ObjectSelection { gameObject = destination, individual = true }, true);
+                GUIUtility.systemCopyBuffer = BuildTransfer.ToClipboard(BuildTransfer.Capture(selection.current));
+                Require(await tool.PasteAsync(), "Single-part paste did not start.");
+                multiInput.IsPressed = true;
+                Invoke(placement, "ApplyPose", new Pose(new Vector3(100, 30, 40), Quaternion.identity));
+                Invoke(placement, "Place");
+                var singlePaste = PartsManager.FindLoadedObjects().Single(part => part != destination && part.GetComponent<SavedObject>().id == destination.GetComponent<SavedObject>().id);
+                Require(selection.current?.gameObject == singlePaste, "Holding Snap Bypass merged a single-part paste with the previous selection.");
+                StateSystem.instance.Undo();
+                Require(selection.current?.gameObject == destination, "Undo merged the previous selection while Control was held.");
+                StateSystem.instance.Redo();
+                Require(selection.current?.gameObject == singlePaste, "Redo merged the pasted selection while Control was held.");
+                StateSystem.instance.Undo();
+                multiInput.IsPressed = false;
+
                 var finalData = SceneBuild.ToBuildData();
                 using var stream = new MemoryStream(); new BinaryFormatter().Serialize(stream, finalData); stream.Position = 0;
                 var restored = (BuildData)new BinaryFormatter().Deserialize(stream);

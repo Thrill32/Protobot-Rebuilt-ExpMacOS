@@ -12,6 +12,10 @@ namespace Protobot.InputEvents {
         public InputAction action;
         private readonly string id;
         private readonly bool allowModifierOnly;
+        // Keep the trigger at index 3 so existing saved override IDs still load.
+        // The appended slot holds the fourth modifier (Command/Windows).
+        private const int TriggerBinding = 3;
+        private static readonly int[] ModifierBindings = { 0, 1, 2, 4 };
         private string SavedRebinds => PlayerPrefs.GetString(id);
         public bool IsEmpty => string.IsNullOrEmpty(SavedRebinds);
 
@@ -56,8 +60,7 @@ namespace Protobot.InputEvents {
 
             action.Disable();
             
-            //add four empty bindings to the rebindAction
-            for (int i = 0; i <= 3; i++) {
+            for (int i = 0; i <= 4; i++) {
                 InputBinding binding = new InputBinding {
                     id = new Guid("00000000-0000-0000-0000-00000000000" + i.ToString()),
                     path = ""
@@ -88,25 +91,23 @@ namespace Protobot.InputEvents {
                 }
                 else {
                     if (allowModifierOnly && IsModifier(input)) {
-                        for (int i = 0; i <= 2; i++) {
-                            action.RemoveBindingOverride(i);
-                        }
+                        foreach (int binding in ModifierBindings) action.RemoveBindingOverride(binding);
 
-                        action.ApplyBindingOverride(3, ConvertToBindingPath(input.path));
+                        action.ApplyBindingOverride(TriggerBinding, ConvertToBindingPath(input.path));
                     }
                     else {
                         var keyPaths = GetPressedModifiers();
 
-                        for (int i = 0; i <= 2; i++) {
+                        for (int i = 0; i < ModifierBindings.Length; i++) {
                             if (i < keyPaths.Count) {
-                                action.ApplyBindingOverride(i, keyPaths[i]);
+                                action.ApplyBindingOverride(ModifierBindings[i], keyPaths[i]);
                             }
                             else {
-                                action.RemoveBindingOverride(i);
+                                action.RemoveBindingOverride(ModifierBindings[i]);
                             }
                         }
 
-                        action.ApplyBindingOverride(3, ConvertToBindingPath(input.path));
+                        action.ApplyBindingOverride(TriggerBinding, ConvertToBindingPath(input.path));
                     }
                     
                     SaveRebinds();

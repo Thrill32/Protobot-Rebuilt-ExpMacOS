@@ -29,8 +29,11 @@ namespace Protobot.InputEvents {
             // Modifier-only actions (snap/grouping/duplicate) have no trigger
             // here and remain available alongside modified shortcuts.
             foreach (var entry in priorities) {
-                int own = Mathf.Max(Score(input.defaultAction, entry.Key, false), Score(input.rebindAction?.action, entry.Key, false));
-                if (own >= 0 && own < entry.Value) return false;
+                int bound = Mathf.Max(Score(input.defaultAction, entry.Key, false), Score(input.rebindAction?.action, entry.Key, false));
+                int pressed = Mathf.Max(Score(input.defaultAction, entry.Key, true), Score(input.rebindAction?.action, entry.Key, true));
+                // An incomplete, more-specific alternative cannot lend its
+                // modifier count to a currently pressed simpler binding.
+                if (bound >= 0 && pressed < entry.Value) return false;
             }
             return true;
         }
@@ -46,6 +49,7 @@ namespace Protobot.InputEvents {
 
         private static int Score(InputAction action, InputControl trigger, bool requirePressed) {
             if (action == null || !action.enabled) return -1;
+            if (requirePressed && !action.AllControlsPressed()) return -1;
             bool composite = false;
             foreach (var binding in action.bindings) if (binding.isComposite) { composite = true; break; }
             if (!composite) {

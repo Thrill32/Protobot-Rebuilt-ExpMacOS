@@ -88,7 +88,7 @@ namespace Protobot.SelectionSystem {
             return null;
         }
 
-        public void SetCurrent(ISelection newSelection, bool bypassConditions = false) {
+        public void SetCurrent(ISelection newSelection, bool bypassConditions = false, bool bypassResponseSelectors = false) {
             if (!bypassConditions && !PassedAllConditions(newSelection)) {
                 if (clearOnFailConditions)
                     ClearCurrent();
@@ -100,7 +100,9 @@ namespace Protobot.SelectionSystem {
 
             ClearCurrent(true, false, bypassConditions);
 
-            ISelection responseSelection = GetLatestResponseSelection(newSelection);
+            // Programmatic selection restoration already defines the full set;
+            // held pointer modifiers must not add bodies to that snapshot.
+            ISelection responseSelection = bypassResponseSelectors ? null : GetLatestResponseSelection(newSelection);
 
             if (responseSelection != null)
                 SetCurrent(responseSelection, bypassConditions);
