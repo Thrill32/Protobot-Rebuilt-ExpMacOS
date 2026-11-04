@@ -70,8 +70,6 @@ namespace ProtobotEditorTools {
                 obj.name = "Simulation Tool";
                 Object.DestroyImmediate(obj.GetComponent<ConnectTool>());
                 tool = obj.AddComponent<SimulationTool>();
-                var rect = (RectTransform)obj.transform;
-                rect.anchoredPosition = ((RectTransform)connect.transform).anchoredPosition + new Vector2(0, -45);
                 obj.GetComponent<Tooltip>().text = "Simulation (5) · press again for animation";
                 foreach (var image in obj.GetComponentsInChildren<Image>(true))
                     if (image.name.Contains("Icon")) image.sprite = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/Tools Icons/settings-gears.png");
@@ -79,6 +77,9 @@ namespace ProtobotEditorTools {
                 foreach (var text in obj.GetComponentsInChildren<TMP_Text>(true)) if (text.text == "4") text.text = "5";
                 obj.GetComponent<Toggle>().SetIsOnWithoutNotify(false);
             }
+            var connectRect = (RectTransform)connect.transform;
+            var colorRect = (RectTransform)connect.transform.parent.Find("Color Tool");
+            ((RectTransform)tool.transform).anchoredPosition = connectRect.anchoredPosition * 2 - colorRect.anchoredPosition;
             var serialized = new SerializedObject(tool);
             void Set(string field, Object value) => serialized.FindProperty(field).objectReferenceValue = value;
             Set("toolbarToggle", tool.GetComponent<Toggle>());

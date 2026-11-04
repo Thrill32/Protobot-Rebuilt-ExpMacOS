@@ -71,6 +71,7 @@ namespace Protobot {
                              .OrderBy(p => !p.IsCustomModel && PartsManager.GetPartType(p.partId)?.connectingPart == true)) {
                     var obj = SceneBuild.GenerateObject(part, build);
                     data.templates.Add(obj);
+                    OwnedPartMaterials.CaptureGenerated(obj);
                     var visible = MeshCombiner.GetRenderers(new[] { obj });
                     foreach (var renderer in visible) {
                         if (!bounds.HasValue) bounds = renderer.bounds;

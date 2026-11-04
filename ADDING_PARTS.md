@@ -161,6 +161,8 @@ In M mode, clicking an existing ring selects the individual point. [CustomMountE
 
 File → Save Selected Parts As… exports the captured set as `.pbb` through a Save As panel every time. It does not change the open project's save target or saved snapshot. This lets the same set enter another project through Import Build, in addition to cross-project clipboard paste.
 
+[OwnedPartMaterials.cs](<Assets/Scripts/Part Management/OwnedPartMaterials.cs>) tracks ordinary copies' private runtime materials. Build/paste templates instance all renderer slots, including nested wheel geometry; live duplicates explicitly clone their materials. Discarding templates/copies releases only tracked instances, leaving catalog/source materials, textures and shaders intact. The ownership list is not serialized into subsequent clones. Custom models retain their separate geometry/material ownership.
+
 ## Where to investigate failures
 
 | Symptom | First places to inspect |

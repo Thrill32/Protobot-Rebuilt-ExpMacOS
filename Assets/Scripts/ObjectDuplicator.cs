@@ -81,10 +81,7 @@ namespace Protobot {
                 copy.DisableOutline();
                 // CustomModel.Awake creates its owned body material; mounting rings
                 // intentionally share their immutable resource material.
-                if (copy.GetComponent<CustomModel>() == null)
-                    foreach (var renderer in copy.GetComponentsInChildren<Renderer>(true))
-                        renderer.sharedMaterials = renderer.sharedMaterials.Select(material =>
-                            material != null ? new Material(material) : null).ToArray();
+                OwnedPartMaterials.CloneForCopy(copy);
                 copies.Add(copy);
             }
             return copies;
@@ -94,12 +91,7 @@ namespace Protobot {
             foreach (var copy in copies.Where(copy => copy != null)) {
                 copy.SetActive(false);
                 if (copy.TryGetComponent<CustomModel>(out var custom)) custom.ReleaseGeometry();
-                else
-                    foreach (var material in copy.GetComponentsInChildren<Renderer>(true)
-                                 .SelectMany(renderer => renderer.sharedMaterials).Where(material => material != null).Distinct()) {
-                        if (Application.isPlaying) Destroy(material);
-                        else DestroyImmediate(material);
-                    }
+                copy.GetComponent<OwnedPartMaterials>()?.Release();
                 if (Application.isPlaying) Destroy(copy);
                 else DestroyImmediate(copy);
             }
