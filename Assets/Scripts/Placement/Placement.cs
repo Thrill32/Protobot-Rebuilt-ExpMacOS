@@ -111,11 +111,21 @@ namespace Protobot {
         private bool IsNavigatingCamera => keyboardTool != null && keyboardTool.IsCameraNavigationHeld;
         public bool IsTypingRotation => placing && rotating && moveRotation.NumericInput.IsOpen;
 
-        public string ControlsText => !placing ? null : IsTypingRotation
-            ? "Rotate · Exact entry\nEnter: place    /: value mode    Esc: cancel"
-            : rotating
-            ? $"Rotate · {(rotationAnchor.HasValue ? "Attachment axis" : "Camera axis")}\n/: type angle    {toggleRotateInput.GetCurrentKeybind()}: resume positioning    Click: place    Esc: cancel"
-            : $"{toggleRotateInput.GetCurrentKeybind()}: rotate    Click: place    Esc: cancel";
+        public string ControlsText {
+            get {
+                if (!placing) return null;
+                var controls = IsTypingRotation
+                    ? "Rotate · Exact entry\nEnter: place    /: value mode    Esc: cancel"
+                    : rotating
+                    ? $"Rotate · {(rotationAnchor.HasValue ? "Attachment axis" : "Camera axis")}\n/: type angle    {toggleRotateInput.GetCurrentKeybind()}: resume positioning    Click: place    Esc: cancel"
+                    : $"{toggleRotateInput.GetCurrentKeybind()}: rotate    Click: place    Esc: cancel";
+                // Placement status follows the preview lifetime, rather than
+                // lingering as a timed notification after a quick click/cancel.
+                return currentPlacementData is SelectionPlacementData selection
+                    ? $"Placing {selection.PartCount} parts · {(selection.RepeatPlacement ? "repeat placement" : "place and select")}\n{controls}"
+                    : controls;
+            }
+        }
         
         private void Awake() {
             instance = this;

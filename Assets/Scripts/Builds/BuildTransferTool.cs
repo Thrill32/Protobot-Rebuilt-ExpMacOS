@@ -112,7 +112,6 @@ namespace Protobot.Builds {
             if (placement.placing || !isActiveAndEnabled) return false;
             var copied = SelectionPlacementData.FromBuild(data, placement.transform, duplicator, selectionManager);
             placement.StartPlacing(copied);
-            InteractionFeedback.Notify($"Placing {copied.PartCount} parts · click to place and select · Esc to cancel.");
             return true;
         }
 
