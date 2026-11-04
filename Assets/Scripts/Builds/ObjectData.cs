@@ -13,6 +13,7 @@ namespace Protobot.Builds {
         [FormerlySerializedAs("meshId")] public string partId;
         [System.Runtime.Serialization.OptionalField] public string connectionId;
         [System.Runtime.Serialization.OptionalField] public CustomModelData customModel;
+        [System.Runtime.Serialization.OptionalField] public bool hasPaint;
         public bool IsCustomModel => partId == CustomModel.PartId;
         public Vector3 GetPos() => new Vector3((float)xPos, (float)yPos, (float)zPos);
         public Quaternion GetRot() => Quaternion.Euler((float)xRot, (float)yRot, (float)zRot);
@@ -27,7 +28,10 @@ namespace Protobot.Builds {
             if (data.partId != partId) return false;
             // Unity's inline JSON serializer can expand a null class into empty fields.
             if (IsCustomModel && (customModel == null || !customModel.SameAs(data.customModel))) return false;
-            if (IsCustomModel && data.GetColor() != GetColor()) return false;
+            if (data.hasPaint != hasPaint) return false;
+            // Pre-color builds omit ordinary RGB values. Preserve their legacy
+            // comparison while tracking every tint created by the paint tool.
+            if ((IsCustomModel || hasPaint) && data.GetColor() != GetColor()) return false;
 
             return true;
         }

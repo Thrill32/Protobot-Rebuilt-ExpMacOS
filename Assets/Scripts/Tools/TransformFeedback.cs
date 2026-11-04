@@ -23,8 +23,36 @@ namespace Protobot.Tools {
         }
 
         private static Font feedbackFont;
-        public static Font FeedbackFont => feedbackFont != null ? feedbackFont :
-            feedbackFont = Resources.Load<Font>("Fonts/InteractionFont");
+        private static int preparedLabelSize, preparedFieldSize;
+        private const string NumericCharacters = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~°·";
+        public static Font FeedbackFont {
+            get {
+                if (feedbackFont != null) return feedbackFont;
+                feedbackFont = Resources.Load<Font>("Fonts/InteractionFont");
+                Font.textureRebuilt -= OnFontTextureRebuilt;
+                Font.textureRebuilt += OnFontTextureRebuilt;
+                preparedLabelSize = preparedFieldSize = 0;
+                return feedbackFont;
+            }
+        }
+
+        private static void OnFontTextureRebuilt(Font font) {
+            if (font == feedbackFont) preparedLabelSize = preparedFieldSize = 0;
+        }
+
+        // Prepare both numeric text sizes before slash is pressed. The field is
+        // larger than ordinary help/measurements, so its first use would otherwise
+        // perform synchronous dynamic-font work during the opening repaint.
+        public static void PrepareNumericInput() {
+            var font = FeedbackFont;
+            if (font == null) return;
+            int labelSize = Mathf.RoundToInt(18f * Scale), fieldSize = Mathf.RoundToInt(23f * Scale);
+            if (labelSize == preparedLabelSize && fieldSize == preparedFieldSize) return;
+            font.RequestCharactersInTexture(NumericCharacters, labelSize, FontStyle.Normal);
+            font.RequestCharactersInTexture(NumericCharacters, fieldSize, FontStyle.Normal);
+            preparedLabelSize = labelSize;
+            preparedFieldSize = fieldSize;
+        }
 
         private static GUIStyle BoxStyle(int fontSize, TextAnchor alignment, float scale) {
             return new GUIStyle {

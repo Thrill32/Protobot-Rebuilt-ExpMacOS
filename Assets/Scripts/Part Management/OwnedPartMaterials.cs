@@ -4,7 +4,7 @@ using System.Linq;
 using UnityEngine;
 
 namespace Protobot {
-    /// <summary>Releases only runtime materials explicitly owned by a copied part.</summary>
+    /// <summary>Releases only runtime materials explicitly owned by a part.</summary>
     public sealed class OwnedPartMaterials : MonoBehaviour {
         // Never copy ownership references when Unity clones a part's components.
         [NonSerialized] private readonly HashSet<Material> materials = new();
@@ -24,7 +24,7 @@ namespace Protobot {
             CaptureGenerated(part);
         }
 
-        // Freshly generated build templates still reference prefab materials,
+        // Freshly generated templates and unpainted parts reference prefab materials,
         // especially wheel tires/rollers in child renderers. Unity's materials
         // getter instances every slot; existing root color instances are retained.
         public static void CaptureGenerated(GameObject part) {

@@ -1,63 +1,40 @@
-using Models;
+using System.Collections.Generic;
+using System.Linq;
+using Protobot.Builds;
+using Protobot.StateSystems;
 using UnityEngine;
-using Protobot.Outlining;
-using UnityEngine.UIElements;
 
-namespace Protobot.SelectionSystem
-{
-    public class ColorSelectionResponse : SelectionResponse
-    {
-        public override bool RespondOnlyToSelectors => false;
+namespace Protobot.SelectionSystem {
+    public class ColorSelectionResponse : SelectionResponse {
+        // Undo/redo and other programmatic selection restoration must never paint.
+        public override bool RespondOnlyToSelectors => true;
 
-        //This feels so wrong feel free to PR it if you have a better solution this is being called by HoleFaceResponseSelector.getresponseslection 
-        public void HoleColliderException(ISelection sel)
-        {
-            OnSet(sel);
+        public override void OnSet(ISelection selection) {
+            if (selection?.gameObject == null) return;
+            var body = PartColors.BodyOf(selection.gameObject);
+            var scope = body != null ? new ObjectSelection { gameObject = body, individual = selection.individual } : selection;
+            ChangeColors(BuildTransfer.SelectedBodies(scope));
         }
-        public override void OnSet(ISelection sel)
-        {
-            if (sel == null)  
-                return;
-            ChangeColor(sel.gameObject);
-        }
-        public void ChangeColor(GameObject targetGameObject)
-        {
-            Renderer component;
-            if (targetGameObject != null)
-            {
-                targetGameObject.TryGetComponent<Renderer>(out component);
 
-                if (component == null)
-                {
-                    if (targetGameObject.transform.parent != null)
-                    {
-                        targetGameObject.transform.parent.gameObject.TryGetComponent<Renderer>(out component);
-                        if (targetGameObject.transform.parent.gameObject != null)
-                        {
-                            targetGameObject.transform.parent.gameObject.TryGetComponent<Renderer>(out component);
-                        }
-                    }
-                }
-                if (component == null)
-                    return;
+        public void ChangeColor(GameObject target) => ChangeColors(new[] { PartColors.BodyOf(target) });
+
+        private static void ChangeColors(IEnumerable<GameObject> bodies) {
+            var parts = bodies.Where(p => p != null).Distinct().ToArray();
+            ColorTool.Material = parts.Select(PartColors.SampleMaterial).FirstOrDefault(m => m != null);
+            if (!ColorToolActiveCheck.colorToolActive) return;
+            var changed = parts.Where(p => PartColors.Materials(p).Any(m => !PartColors.SameRGB(m.color, ColorTool.ColorToSet))).ToArray();
+            if (changed.Length == 0) return;
+            var after = new List<IElement>();
+            foreach (var part in changed) {
+                OwnedPartMaterials.CaptureGenerated(part);
+                StateSystem.AddElement(new ColorElement(part));
+                PartColors.ApplyPaint(part, ColorTool.ColorToSet);
+                after.Add(new ColorElement(part));
             }
-            if (targetGameObject.TryGetComponent<Renderer>(out component) ||
-                targetGameObject.transform.parent.gameObject.TryGetComponent<Renderer>(out component))
-            {
-                if (component == null)
-                    return;
-                if (component.material.GetFloat("_Metallic") == .754f)
-                {
-                    ColorTool.Material = component.material;
-                    if (ColorToolActiveCheck.colorToolActive)
-                        component.material.color = ColorTool.ColorToSet;
-                }
-            }
+            StateSystem.AddState(new State(after));
+            ColorTool.Material = parts.Select(PartColors.SampleMaterial).FirstOrDefault(m => m != null);
         }
 
-        public override void OnClear(ClearInfo info)
-        {
-            info.selection.Deselect();
-        }
+        public override void OnClear(ClearInfo info) { }
     }
 }

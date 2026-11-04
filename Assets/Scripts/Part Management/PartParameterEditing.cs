@@ -69,7 +69,9 @@ namespace Protobot {
             }
             replacement.GetComponent<SavedObject>().state = original.GetComponent<SavedObject>().state;
             replacement.GetComponent<SavedObject>().ConnectionId = original.GetComponent<SavedObject>().ConnectionId;
-            if (original.TryGetComponent<Renderer>(out var oldRenderer) &&
+            if (original.GetComponent<SavedObject>().hasPaint)
+                PartColors.ApplyPaint(replacement, PartColors.GetColor(original));
+            else if (original.TryGetComponent<Renderer>(out var oldRenderer) &&
                 replacement.TryGetComponent<Renderer>(out var newRenderer))
                 newRenderer.sharedMaterial = new Material(newRenderer.sharedMaterial) { color = oldRenderer.sharedMaterial.color };
             return replacement;

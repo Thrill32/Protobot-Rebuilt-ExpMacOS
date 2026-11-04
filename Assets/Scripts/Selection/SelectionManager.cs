@@ -47,8 +47,11 @@ namespace Protobot.SelectionSystem {
         }
 
         private void RunSetResponses(ISelection newSel) {
+            // State recording clears the selector on its saved selection. Capture
+            // the dispatch source before any response mutates that shared object.
+            bool fromSelector = newSel.selector != null;
             foreach (SelectionResponse r in responses) {
-                if ((r.RespondOnlyToSelectors && newSel.selector != null) || !r.RespondOnlyToSelectors)
+                if (fromSelector || !r.RespondOnlyToSelectors)
                     r.OnSet(newSel);
             }
         }

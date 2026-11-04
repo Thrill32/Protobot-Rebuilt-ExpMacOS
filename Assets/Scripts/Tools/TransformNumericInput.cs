@@ -64,7 +64,7 @@ namespace Protobot.Tools {
         }
 
         public string DisplayText => selectAll ? "[ " + Text + " ]" :
-            Text.Insert(cursor, Time.unscaledTime % 1f < .5f ? "│" : " ");
+            Text.Insert(cursor, Time.unscaledTime % 1f < .5f ? "|" : " ");
 
         public static bool TryEvaluate(string text, bool global, bool rotating, Vector3 axis,
             Vector3 origin, Quaternion initialRotation, out Vector3 offset, out Quaternion rotation, out float degrees) {

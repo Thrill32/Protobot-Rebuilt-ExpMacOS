@@ -23,10 +23,13 @@ namespace Protobot.UI {
         public void Initialize(ObjectDuplicator source) => duplicator = source;
 
         private void Start() {
+            TransformFeedback.PrepareNumericInput();
             multiSelector = FindFirstObjectByType<MultiSelector>();
             placement = FindFirstObjectByType<Placement>();
             canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         }
+
+        private void Update() => TransformFeedback.PrepareNumericInput();
 
         public static void AddModifierMessages(List<string> result, bool duplicate, bool grouping, bool snap, bool multiple) {
             if (duplicate) result.Add("Duplicating");

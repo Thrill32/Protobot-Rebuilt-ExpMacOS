@@ -104,7 +104,11 @@ namespace Protobot.Builds {
             //Debug.Log(buildData.version);    
             if(!versionsNoColor.Contains(buildData.version) && buildData.version != null)
             { 
-                generatedObject.GetComponent<Renderer>().material.color = objectData.GetColor();
+                if (objectData.hasPaint) PartColors.ApplyPaint(generatedObject, objectData.GetColor());
+                else if (PartColors.SampleMaterial(generatedObject) != null) {
+                    OwnedPartMaterials.CaptureGenerated(generatedObject);
+                    PartColors.SampleMaterial(generatedObject).color = objectData.GetColor();
+                }
             }
             return generatedObject;
         }
@@ -157,7 +161,7 @@ namespace Protobot.Builds {
             for (int i = 0; i < newParts.Length; i++) {
                 Transform tForm = sceneObjs[i].transform;
                 SavedObject savedData = tForm.GetComponent<SavedObject>();
-                Renderer savedColor = tForm.GetComponent<Renderer>();
+                var savedColor = PartColors.GetColor(tForm.gameObject);
 
                 var savedPose = Protobot.Simulation.SimulationTool.SavedPose(sceneObjs[i]);
                 var position = savedPose.position;
@@ -167,6 +171,7 @@ namespace Protobot.Builds {
                     states = savedData.state,
                     connectionId = savedData.ConnectionId,
                     customModel = tForm.TryGetComponent<CustomModel>(out var custom) ? custom.Snapshot() : null,
+                    hasPaint = savedData.hasPaint,
 
                     xPos = position.x,
                     yPos = position.y,
@@ -176,9 +181,9 @@ namespace Protobot.Builds {
                     yRot = eulerAngles.y,
                     zRot = eulerAngles.z,
 
-                    rColor = savedColor.material.color.r,
-                    bColor = savedColor.material.color.b,
-                    gColor = savedColor.material.color.g,
+                    rColor = savedColor.r,
+                    bColor = savedColor.b,
+                    gColor = savedColor.g,
                 };
             }
 

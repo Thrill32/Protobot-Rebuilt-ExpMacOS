@@ -24,6 +24,7 @@ namespace Protobot {
 
         private PlacementData currentPlacementData;
         private int placementStartFrame = -1;
+        private bool awaitingPlaceInputRelease;
         public PartPlacementData CurrentPartPlacement => placing ? currentPlacementData as PartPlacementData : null;
         public SelectionPlacementData CurrentSelectionPlacement => placing ? currentPlacementData as SelectionPlacementData : null;
         private Coroutine stopping;
@@ -135,7 +136,7 @@ namespace Protobot {
             keyboardTool = GetComponent<KeyboardTransformTool>();
             
             placeInput.performed += () => {
-                if (placing && Time.frameCount != placementStartFrame && !MouseInput.overUI && !IsNavigatingCamera && !IsTypingRotation)
+                if (placing && !awaitingPlaceInputRelease && Time.frameCount != placementStartFrame && !MouseInput.overUI && !IsNavigatingCamera && !IsTypingRotation)
                     Place();
             };
 
@@ -151,11 +152,21 @@ namespace Protobot {
 
         void Update() {
             if (placing) {
+                // A native file picker's closing click can reach Unity after the
+                // preview starts. Require a released input on a later frame first.
+                if (Time.frameCount != placementStartFrame && !placeInput.IsCurrentlyPressed)
+                    awaitingPlaceInputRelease = false;
                 if (rotating) Rotate();
                 else UpdatePosition();
             }
 
             meshRenderer.enabled = placing;
+        }
+
+        private void OnApplicationFocus(bool focused) {
+            if (!placing) return;
+            awaitingPlaceInputRelease = true;
+            placementStartFrame = Time.frameCount;
         }
 
         private void LateUpdate() {
@@ -260,6 +271,7 @@ namespace Protobot {
             ReleaseSelectionPreview();
             currentPlacementData = newPlacementData;
             placementStartFrame = Time.frameCount;
+            awaitingPlaceInputRelease = true;
             placing = true;
             rotating = false;
             moveRotation.End();

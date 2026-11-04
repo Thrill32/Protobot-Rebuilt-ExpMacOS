@@ -34,14 +34,6 @@ namespace Protobot.SelectionSystem {
                 if (objs.Count > 0) {
                     var selection = new MultiSelection(this, objs);
                     setEvent?.Invoke(selection);
-                    foreach (var obj in objs)
-                    {
-                        ColorSelectionResponse colorResponse = obj.GetComponent<ColorSelectionResponse>();
-                        if (colorResponse == null) {
-                            colorResponse = obj.AddComponent<ColorSelectionResponse>();
-                        }
-                        colorResponse.ChangeColor(obj);
-                    }
                 }
             }
         }

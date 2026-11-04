@@ -51,8 +51,8 @@ namespace ProtobotEditorTools {
             Require(TransformFeedback.ScaleForScreen(1280f, 720f) >= 1f, "Transform UI must remain readable in smaller windows.");
             Require(TransformFeedback.FeedbackFont != null && TransformFeedback.FeedbackFont.dynamic,
                 "Feedback must include a portable dynamic font in player Resources.");
-            Require(TransformFeedback.FeedbackFont.HasCharacter('°') && TransformFeedback.FeedbackFont.HasCharacter('·'),
-                "Feedback font must include degree and separator glyphs.");
+            Require(TransformFeedback.FeedbackFont.HasCharacter('|') && TransformFeedback.FeedbackFont.HasCharacter('°') && TransformFeedback.FeedbackFont.HasCharacter('·'),
+                "Feedback font must include caret, degree and separator glyphs.");
             foreach (float scale in new[] { 1f, 2f }) {
                 var angle = TransformFeedback.MeasurementSize("15°", scale);
                 var distance = TransformFeedback.MeasurementSize("1.5 in", scale);
@@ -151,6 +151,8 @@ namespace ProtobotEditorTools {
                 Reset(false, Vector3.right);
                 numeric.Cycle(false);
                 Require(numeric.Mode == TransformNumericInput.InputMode.Relative, "First slash must open relative entry.");
+                Require(numeric.DisplayText.All(character => character >= ' ' && character <= '~'),
+                    "An empty numeric field must use an ASCII caret instead of triggering font fallback.");
                 Require(!KeyboardTransformTool.AllowsInput(Get<InputEvent>(controller, "rotateInput")), "Typing R must not start another transform.");
                 numeric.Cycle(false);
                 Require(numeric.Mode == TransformNumericInput.InputMode.Global && numeric.Text == "", "Second slash must open global entry.");

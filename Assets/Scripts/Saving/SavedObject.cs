@@ -8,6 +8,7 @@ namespace Protobot {
         public string id;
         public string nameId => id.Split('-')[0];
         public string state;
+        public bool hasPaint;
         [NonSerialized] private string connectionId;
         public string ConnectionId {
             get => connectionId ??= Guid.NewGuid().ToString("N");

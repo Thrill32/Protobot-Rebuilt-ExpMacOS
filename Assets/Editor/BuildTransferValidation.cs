@@ -186,7 +186,7 @@ namespace ProtobotEditorTools {
                 Require(dialogs.OpenCalls == 1 && dialogs.OpenTitle == "Import Build", "Import did not open a build-file picker.");
                 dialogs.OpenComplete(new[] { selectionPath }); Require(await importTask, "Selection-file import failed.");
                 Require(manager.buildPath == destinationPath && PartsManager.FindLoadedObjects().Count == 5 && placement.placing, "Import replaced the current project or created parts before placement.");
-                Invoke(placement, "ApplyPose", new Pose(new Vector3(70, 30, 40), Quaternion.identity)); Invoke(placement, "Place");
+                await CheckImportClickHandoff(placement);
                 Require(PartsManager.FindLoadedObjects().Count == 9 && BuildTransfer.SelectedBodies(selection.current).Count == 4 && ChainLoop.SaveAll().Length == 2,
                     "Import did not add/select the full set and its independent chain.");
                 await NextFrame();
@@ -282,6 +282,56 @@ namespace ProtobotEditorTools {
                 foreach (var pref in prefs) { if (pref.present) PlayerPrefs.SetString(pref.key, pref.value); else PlayerPrefs.DeleteKey(pref.key); }
                 Keys(); Directory.Delete(directory, true);
             }
+        }
+
+        private static async Task CheckImportClickHandoff(Placement placement) {
+            var input = Get<InputEvent>(placement, "placeInput");
+            bool defaultEnabled = input.defaultAction.enabled, rebindEnabled = input.rebindAction.action.enabled;
+            int count = PartsManager.FindLoadedObjects().Count, state = StateSystem.curIndex;
+            try {
+                input.rebindAction.action.Disable(); input.defaultAction.Enable();
+                // The native picker can return before Unity processes the closing
+                // double-click. Clear the busy capture, then deliver its held press.
+                Pointer(false); input.Update();
+                Pointer(true);
+                for (int i = 0; i < 3; i++) await NextFrame();
+                Require(!MouseInput.overUI, "Import handoff pointer must be in the viewport.");
+                Require(placement.placing && PartsManager.FindLoadedObjects().Count == count && StateSystem.curIndex == state,
+                    "The file picker's held double-click immediately placed the imported build.");
+
+                Pointer(false);
+                for (int i = 0; i < 2; i++) await NextFrame();
+                // Focus restoration can arrive after the preview has already
+                // observed a release; it must rearm the same confirmation guard.
+                Invoke(placement, "OnApplicationFocus", false);
+                Invoke(placement, "OnApplicationFocus", true);
+                Pointer(true);
+                for (int i = 0; i < 3; i++) await NextFrame();
+                Require(placement.placing && PartsManager.FindLoadedObjects().Count == count && StateSystem.curIndex == state,
+                    "A delayed focus-restoration click placed the imported build.");
+
+                Pointer(false);
+                for (int i = 0; i < 2; i++) await NextFrame();
+                Pointer(true);
+                for (int i = 0; i < 2; i++) await NextFrame();
+                Pointer(false); await NextFrame();
+                Require(!placement.placing && StateSystem.curIndex == state + 1,
+                    "A fresh click after release did not commit the imported build exactly once.");
+            }
+            finally {
+                Pointer(false); input.Update();
+                if (!defaultEnabled) input.defaultAction.Disable();
+                if (rebindEnabled) input.rebindAction.action.Enable();
+            }
+        }
+
+        private static void Pointer(bool pressed) {
+            InputSystem.QueueStateEvent(Mouse.current, new MouseState {
+                position = new Vector2(Screen.width * .6f, Screen.height * .5f),
+                buttons = (ushort)(pressed ? 1 : 0)
+            });
+            typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null, new[] { typeof(InputUpdateType) }, null)
+                .Invoke(null, new object[] { InputUpdateType.Dynamic });
         }
 
         private static void CheckCommandKeys(BuildTransferTool tool) {
