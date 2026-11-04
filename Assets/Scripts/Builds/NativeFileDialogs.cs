@@ -8,6 +8,13 @@ namespace Protobot.Builds {
     public static class NativeFileDialogs {
         public static bool IsOpen { get; private set; }
 
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static async void PrepareDialogs() {
+            if (UnityEngine.Application.isBatchMode) return;
+            await Task.Yield();
+            StandaloneFileBrowser.PrepareDialogs();
+        }
+
         public static Task<string[]> OpenFileAsync(string title, string directory, string extension) =>
             Show<string[]>(complete => StandaloneFileBrowser.OpenFilePanelAsync(title, directory, extension, false, complete));
 

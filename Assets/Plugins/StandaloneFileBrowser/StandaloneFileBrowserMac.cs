@@ -1,4 +1,4 @@
-#if UNITY_STANDALONE_OSX
+#if UNITY_EDITOR_OSX || (UNITY_STANDALONE_OSX && !UNITY_EDITOR)
 
 using System;
 using System.Runtime.InteropServices;
@@ -40,6 +40,10 @@ namespace SFB {
         }
 
         [DllImport("StandaloneFileBrowser")]
+        private static extern void DialogWarmup();
+        [DllImport("StandaloneFileBrowser")]
+        private static extern void DialogReset();
+        [DllImport("StandaloneFileBrowser")]
         private static extern IntPtr DialogOpenFilePanel(string title, string directory, string extension, bool multiselect);
         [DllImport("StandaloneFileBrowser")]
         private static extern void DialogOpenFilePanelAsync(string title, string directory, string extension, bool multiselect, AsyncCallback callback);
@@ -51,6 +55,32 @@ namespace SFB {
         private static extern IntPtr DialogSaveFilePanel(string title, string directory, string defaultName, string extension);
         [DllImport("StandaloneFileBrowser")]
         private static extern void DialogSaveFilePanelAsync(string title, string directory, string defaultName, string extension, AsyncCallback callback);
+
+        public void PrepareDialogs() => DialogWarmup();
+
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void InstallQuitCleanup() {
+            UnityEngine.Application.quitting -= ResetDialogs;
+            UnityEngine.Application.quitting += ResetDialogs;
+        }
+
+#if UNITY_EDITOR_OSX
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void InstallEditorCleanup() {
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += ResetDialogs;
+            UnityEditor.EditorApplication.playModeStateChanged += state => {
+                if (state == UnityEditor.PlayModeStateChange.ExitingPlayMode) ResetDialogs();
+            };
+        }
+#endif
+
+        private static void ResetDialogs() {
+            DialogReset();
+            // Settle pending tasks as cancelled when domain reload is disabled.
+            var open = _openFileCb; var folder = _openFolderCb; var save = _saveFileCb;
+            _openFileCb = _openFolderCb = null; _saveFileCb = null;
+            open?.Invoke(Array.Empty<string>()); folder?.Invoke(Array.Empty<string>()); save?.Invoke("");
+        }
 
         public string[] OpenFilePanel(string title, string directory, ExtensionFilter[] extensions, bool multiselect) {
             var paths = Marshal.PtrToStringAnsi(DialogOpenFilePanel(

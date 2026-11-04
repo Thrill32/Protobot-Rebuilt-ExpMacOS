@@ -19,6 +19,22 @@ namespace Protobot.Simulation {
         public float chainPitch;
         public int starts = 1;
 
+        private Mesh measuredMesh;
+        private float toothTipRadius;
+
+        // The rope graphic surrounds the tooth tips; mechanical transmission
+        // still uses Radius (the pitch circle). Measure once per generated mesh.
+        public float ToothTipRadius {
+            get {
+                var mesh = GetComponent<MeshFilter>().sharedMesh;
+                if (measuredMesh != mesh) {
+                    measuredMesh = mesh;
+                    toothTipRadius = mesh.vertices.Max(v => Vector3.ProjectOnPlane(v - localCenter, localAxis).magnitude);
+                }
+                return transform.TransformVector(localTooth * toothTipRadius).magnitude;
+            }
+        }
+
         public Vector3 Center => transform.TransformPoint(localCenter);
         public Vector3 Axis => transform.TransformDirection(localAxis).normalized;
         public Vector3 Tooth => transform.TransformDirection(localTooth).normalized;
@@ -32,6 +48,7 @@ namespace Protobot.Simulation {
 
         // Used by setup to bake metadata into every gear variant, including regenerated/loaded parts.
         public void Configure(PartData data, DriveKind driveKind = DriveKind.Spur) {
+            measuredMesh = null;
             kind = driveKind;
             var hole = data.primaryHole;
             var filter = GetComponent<MeshFilter>();

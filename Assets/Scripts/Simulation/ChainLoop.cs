@@ -9,6 +9,8 @@ using UnityEngine.Rendering;
 namespace Protobot.Simulation {
     /// <summary>Persistent logical chain connection with a simple moving rope/chain contour.</summary>
     public sealed class ChainLoop : MonoBehaviour {
+        private const float LineWidth = .045f;
+        private const float ArcStep = 8;
         [SerializeField] private string[] memberIds;
         public static Material MaterialTemplate;
         private LineRenderer line;
@@ -103,7 +105,8 @@ namespace Protobot.Simulation {
         private void EnsureRenderer() {
             if (line != null) return;
             line = gameObject.AddComponent<LineRenderer>(); line.loop = true; line.useWorldSpace = true;
-            line.widthMultiplier = .045f; line.numCornerVertices = 3; line.numCapVertices = 3;
+            line.widthMultiplier = LineWidth;
+            line.numCornerVertices = 0; line.numCapVertices = 0;
             line.shadowCastingMode = ShadowCastingMode.Off; line.receiveShadows = false;
             material = MaterialTemplate != null ? new Material(MaterialTemplate) : new Material(Shader.Find("Universal Render Pipeline/Unlit"));
             texture = new Texture2D(32, 2, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Point };
@@ -118,11 +121,16 @@ namespace Protobot.Simulation {
             if (!Compatible(parts, out _)) { if (line != null) line.enabled = false; return; }
             EnsureRenderer(); line.enabled = true;
             var ordered = Ordered(parts); var n = ordered[0].Axis;
+            // Include the ribbon's inner half and the arc chords' sagitta so
+            // neither the rounded wraps nor their tangent runs enter the teeth.
+            var radii = ordered.Select(p => (Mathf.Max(p.Radius, p.ToothTipRadius) + LineWidth / 2) /
+                Mathf.Cos(ArcStep * .5f * Mathf.Deg2Rad)).ToArray();
+            float segmentLength = radii.Min() * ArcStep * Mathf.Deg2Rad;
             var normals = new Vector3[ordered.Count];
             for (int i = 0; i < ordered.Count; i++) {
                 var a = ordered[i]; var b = ordered[(i + 1) % ordered.Count];
                 var d = b.ContactCenter - a.ContactCenter;
-                float cosine = Mathf.Clamp((a.Radius - b.Radius) / d.magnitude, -.999f, .999f);
+                float cosine = Mathf.Clamp((radii[i] - radii[(i + 1) % ordered.Count]) / d.magnitude, -.999f, .999f);
                 var u = d.normalized;
                 normals[i] = u * cosine - Vector3.Cross(n, u) * Mathf.Sqrt(1 - cosine * cosine);
             }
@@ -130,8 +138,15 @@ namespace Protobot.Simulation {
             for (int i = 0; i < ordered.Count; i++) {
                 var a = ordered[i]; var incoming = normals[(i + ordered.Count - 1) % ordered.Count]; var outgoing = normals[i];
                 float angle = Mathf.Repeat(Vector3.SignedAngle(incoming, outgoing, n), 360);
-                int samples = Mathf.Max(2, Mathf.CeilToInt(angle / 8));
-                for (int sample = 0; sample <= samples; sample++) points.Add(a.ContactCenter + Quaternion.AngleAxis(angle * sample / samples, n) * incoming * a.Radius);
+                int samples = Mathf.Max(2, Mathf.CeilToInt(angle / ArcStep));
+                for (int sample = 0; sample <= samples; sample++) points.Add(a.ContactCenter + Quaternion.AngleAxis(angle * sample / samples, n) * incoming * radii[i]);
+                // Keep the straight runs at the same resolution as the wraps;
+                // long edges can fold LineRenderer's adjacent short arc edges.
+                var next = (i + 1) % ordered.Count;
+                var tangentEnd = ordered[next].ContactCenter + outgoing * radii[next];
+                var tangentStart = points[^1]; var run = tangentEnd - tangentStart;
+                int runSamples = Mathf.Clamp(Mathf.CeilToInt(run.magnitude / segmentLength), 1, 1024);
+                for (int sample = 1; sample < runSamples; sample++) points.Add(Vector3.Lerp(tangentStart, tangentEnd, sample / (float)runSamples));
             }
             line.positionCount = points.Count; line.SetPositions(points.ToArray());
             pitch = ordered[0].chainPitch;

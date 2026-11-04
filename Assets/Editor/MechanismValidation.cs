@@ -21,6 +21,10 @@ namespace ProtobotEditorTools {
     public static class MechanismValidation {
         private static readonly List<GameObject> parts = new();
         public static void Check() {
+            // These suites run in one editor tick. Start after the preceding
+            // simulation suite's Escape rather than inheriting its frame guard.
+            var escape = Object.FindFirstObjectByType<EscapeDeselect>();
+            if (escape != null) Set(escape, "handledFrame", -1);
             typeof(Protobot.Tools.KeyboardTransformTool).GetField("finishedFrame", BindingFlags.NonPublic | BindingFlags.Static).SetValue(null, -1);
             typeof(SimulationTool).GetField("consumedFrame", BindingFlags.NonPublic | BindingFlags.Static).SetValue(null, -1);
             CheckRightAngle("MCMS-Bevel Gear-16T", "MCMS-Bevel Gear-32T", new Vector3(5000, 1000, 1000), .5);
