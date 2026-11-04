@@ -46,6 +46,11 @@ namespace Protobot {
                     duplicatedOnMove = false;
                 }
             };
+            movementManager.OnCancelMoving += () => {
+                if (!duplicatedOnMove) return;
+                duplicatedOnMove = false;
+                DiscardCopies(prevDuplicatedObjs);
+            };
         }
 
         private void DuplicateObject() {

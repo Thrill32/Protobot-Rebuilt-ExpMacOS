@@ -119,6 +119,7 @@ namespace Protobot {
         
         private void Awake() {
             instance = this;
+            if (GetComponent<EscapeDeselect>() == null) gameObject.AddComponent<EscapeDeselect>();
             placing = false;
             rotating = false;
             keyboardTool = GetComponent<KeyboardTransformTool>();
@@ -151,8 +152,7 @@ namespace Protobot {
             if (!placing || !rotating || RebindAction.Rebinding || Keyboard.current == null) return;
             var keyboard = Keyboard.current;
             if (IsTypingRotation && keyboard.escapeKey.wasPressedThisFrame) {
-                KeyboardTransformTool.CaptureCurrentFrame();
-                StopPlacing();
+                if (!EscapeDeselect.TryHandleEscape()) StopPlacing();
                 return;
             }
             if (moveRotation.HandleNumeric(keyboard, MouseInput.Position, out var confirmed)) {
@@ -300,7 +300,7 @@ namespace Protobot {
         }
 
         public void StopPlacing() {
-            if (stopping != null) return;
+            if (!placing || stopping != null) return;
             ReleaseMovePreview();
             transform.DOKill();
             
@@ -319,6 +319,17 @@ namespace Protobot {
             }
 
             stopping = StartCoroutine(WaitStopPlacing());
+        }
+
+        public void CancelPlacement() {
+            if (!placing) return;
+            StopPlacing();
+            if (stopping == null) return; // Selection templates already stop synchronously.
+            StopCoroutine(stopping);
+            stopping = null;
+            placing = false;
+            meshRenderer.enabled = false;
+            OnStopPlacing?.Invoke();
         }
 
         private void Place() {

@@ -221,7 +221,10 @@ namespace Protobot.Simulation {
         }
 
         private void ReadInput(Mouse mouse, Keyboard keyboard) {
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) { Cancel(); return; }
+            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) {
+                if (!EscapeDeselect.TryHandleEscape()) Cancel();
+                return;
+            }
             if ((!animation || IsTypingRotation) && mouse.rightButton.wasPressedThisFrame && !OverPanel) { Cancel(); return; }
             var pointer = mouse.position.ReadValue();
             if (simulation?.DriverRotates == true && MoveRotation.SlashPressed(keyboard)) {
@@ -247,10 +250,7 @@ namespace Protobot.Simulation {
                     viewport = Rect.MinMaxRect(Mathf.Max(0, viewport.xMin), Mathf.Max(0, viewport.yMin),
                         Mathf.Min(Screen.width, viewport.xMax), Mathf.Min(Screen.height, viewport.yMax));
                     // Horizontal wrapping only; vertical movement does not drive the simulation.
-                    if (TransformCursor.TryWrap(pointer, viewport, out var wrapped)) {
-                        wrapped.y = pointer.y;
-                        mouse.WarpCursorPosition(wrapped);
-                        InputState.Change(mouse.position, wrapped);
+                    if (TransformCursor.TryWrap(pointer, viewport, out var wrapped, vertical: false) && CursorWarp.Warp(mouse, wrapped)) {
                         pointer = wrapped;
                     }
                     if (mouse.leftButton.wasPressedThisFrame && !overUI) Commit();

@@ -80,5 +80,19 @@ namespace Protobot.Tools {
                 OnDeactivate?.Invoke();
             }
         }
+
+        public bool DeselectTool() {
+            if (!toggled) return false;
+            // The authored OnToggle event identifies the toolbar button even
+            // when the controller and UI Toggle are separate scene objects.
+            for (int i = 0; i < OnToggle.GetPersistentEventCount(); i++) {
+                if (OnToggle.GetPersistentTarget(i) is not UnityEngine.UI.Toggle button || !button.isOn) continue;
+                if (button.group != null) button.group.SetAllTogglesOff();
+                else button.isOn = false;
+                if (toggled) Toggle(false);
+                return true;
+            }
+            return false;
+        }
     }
 }

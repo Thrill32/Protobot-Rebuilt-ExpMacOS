@@ -28,24 +28,30 @@ namespace Protobot {
         private Text typeLabel, validationLabel;
         private bool threaded = true;
         private GameObject panelRoot, preview;
+        private CustomMountEditor mountEditor;
+        private Button movePointButton;
+        public CustomMountEditor MountEditor => mountEditor;
         private const string DirectoryKey = "customModelDirectory";
         private static readonly string[] UnitNames = { "Millimeters", "Centimeters", "Inches" };
         private static readonly float[] UnitScales = { 1f / 25.4f, 1f / 2.54f, 1f };
 
         public static bool IsCapturingInput => instance != null && instance.isActiveAndEnabled &&
             (instance.options || instance.busy || instance.placingMounts || finishedFrame == Time.frameCount);
-        public static bool BlocksCamera => IsCapturingInput && (instance.options || instance.busy || KeyboardTransformTool.IsEditingText());
+        public static bool BlocksCamera => IsCapturingInput && (instance.options || instance.busy || instance.mountEditor?.IsTyping == true || KeyboardTransformTool.IsEditingText());
         public static string ControlsText => instance != null && instance.placingMounts
-            ? $"Mounting points · click an imported model to add\n{instance.mountInput.GetCurrentKeybind()} / Esc: finish    Select a point + Delete: remove" : null;
+            ? instance.mountEditor?.ControlsText : null;
+        internal static Pose? SavedMountPose(CustomMountPoint point) => instance?.mountEditor?.SavedPose(point);
 
         public static bool AllowsInput(InputEvent input) {
             if (!IsCapturingInput) return true;
             if (instance.options || instance.busy || KeyboardTransformTool.IsEditingText() || finishedFrame == Time.frameCount) return false;
-            return input == instance.mountInput || input == instance.orbitInput || input == instance.panInput || input == instance.noclipInput;
+            if (instance.mountEditor?.IsTyping == true) return false;
+            return input == instance.mountInput || input == instance.orbitInput || input == instance.panInput || input == instance.noclipInput || instance.mountEditor?.AllowsInput(input) == true;
         }
 
         private void Awake() => instance = this;
         private void Start() {
+            mountEditor = new CustomMountEditor(refCamera);
             importInput.performed += OpenImportSettings;
             mountInput.performed += ToggleMounts;
         }
@@ -130,17 +136,20 @@ namespace Protobot {
             Simulation.SimulationTool.ExitForEdit();
             selectionManager.ClearCurrent(false, true, true);
             placingMounts = true; startFrame = Time.frameCount;
-            var panel = CreatePanel("Add Mounting Points", false, 340);
-            AddLabel(panel, "Click model surfaces repeatedly. The surface normal sets the screw axis. Dimensions are in inches.", 45, 75);
-            AddLabel(panel, "Diameter", 125, 30, 120);
+            mountEditor.Enabled = true;
+            var panel = CreatePanel("Add / Edit Mounting Points", false, 385);
+            AddLabel(panel, "Click a surface to add, or a ring to select. Move selected point works across pre-made holes. Dimensions are in inches.", 45, 75);
+            AddLabel(panel, "New diameter", 125, 30, 140);
             diameterField = AddField(panel, "0.169", 125);
-            AddLabel(panel, "Depth", 170, 30, 120);
+            AddLabel(panel, "New depth", 170, 30, 140);
             depthField = AddField(panel, "0.1", 170);
             var typeButton = AddButton(panel, "", 215, () => { threaded = !threaded; UpdateTypeLabel(); });
             typeLabel = typeButton.GetComponentInChildren<Text>();
             UpdateTypeLabel();
             validationLabel = AddLabel(panel, "", 258, 35);
-            AddButton(panel, "Done", 295, CancelMode);
+            movePointButton = AddButton(panel, "Move selected point", 295, () => mountEditor.Begin(false));
+            movePointButton.interactable = false;
+            AddButton(panel, "Done", 340, CancelMode);
             preview = new GameObject("Mounting point preview", typeof(MeshFilter), typeof(MeshRenderer));
             preview.layer = LayerMask.NameToLayer("Ignore Raycast");
             preview.GetComponent<MeshFilter>().sharedMesh = CustomMountPoint.RingMesh;
@@ -148,25 +157,36 @@ namespace Protobot {
             preview.SetActive(false);
         }
 
-        private void UpdateTypeLabel() => typeLabel.text = threaded ? "Type: Threaded (screw anchor)" : "Type: Through hole";
+        private void UpdateTypeLabel() => typeLabel.text = threaded ? "New point: Threaded (screw anchor)" : "New point: Through hole";
 
         private void LateUpdate() {
             if (!options && !placingMounts && !busy) return;
-            if (Keyboard.current?.escapeKey.wasPressedThisFrame == true && !NativeFileDialogs.IsOpen) { CancelMode(); return; }
+            if (Keyboard.current?.escapeKey.wasPressedThisFrame == true && !NativeFileDialogs.IsOpen) {
+                if (!EscapeDeselect.TryHandleEscape()) CancelMode();
+                return;
+            }
             if (!placingMounts) return;
             preview.SetActive(false);
-            if (RebindAction.Rebinding || Mouse.current == null || !Application.isFocused ||
+            bool pause = RebindAction.Rebinding || Mouse.current == null || !Application.isFocused ||
                 KeyboardTransformTool.IsEditingText() || MouseInput.overUI || InputEvent.IsNoclipMovementCaptured ||
-                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed || !MouseInput.withinScreen) return;
+                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed || !MouseInput.withinScreen;
+            movePointButton.interactable = mountEditor.Selected != null && !mountEditor.IsEditing;
+            if (mountEditor.Tick(pause) || pause) return;
             UpdateMountPlacement();
         }
 
         private void UpdateMountPlacement() {
+            var existing = CustomMountPoint.Pick(refCamera.ScreenPointToRay(MouseInput.Position));
+            if (existing != null) {
+                validationLabel.text = "Click ring to select · G: move · R: rotate";
+                if (Time.frameCount != startFrame && Mouse.current.leftButton.wasPressedThisFrame) mountEditor.Select(existing);
+                return;
+            }
             if (!ReadDimension(diameterField.text, out float diameter) || !ReadDimension(depthField.text, out float depth)) {
                 validationLabel.text = "Enter dimensions greater than 0, up to 100 in.";
                 return;
             }
-            validationLabel.text = "";
+            validationLabel.text = mountEditor.Selected != null ? "Point selected · G: move · R: rotate · Delete: remove" : "";
             // Cast against bodies so previous mounting points do not obscure the surface.
             if (!Physics.Raycast(refCamera.ScreenPointToRay(MouseInput.Position), out var hit, Mathf.Infinity, LayerMask.GetMask("Default"), QueryTriggerInteraction.Ignore) ||
                 !hit.collider.TryGetComponent<CustomModel>(out var model) || model.gameObject.IsDeleted()) return;
@@ -175,7 +195,7 @@ namespace Protobot {
             preview.SetActive(true);
             if (Time.frameCount == startFrame || !Mouse.current.leftButton.wasPressedThisFrame) return;
             var point = model.AddMount(hit.point, hit.normal, diameter, depth, threaded);
-            if (point != null) point.RecordAdded();
+            if (point != null) { point.RecordAdded(); mountEditor.Select(point); }
             else InteractionFeedback.Notify("A mounting point already exists here.");
         }
 
@@ -185,7 +205,14 @@ namespace Protobot {
         public static void CancelActive() {
             if (instance != null && (instance.options || instance.busy || instance.placingMounts)) instance.CancelMode();
         }
+        internal static bool TryCancelActive() {
+            if (instance == null || !(instance.options || instance.busy || instance.placingMounts)) return false;
+            if (instance.mountEditor?.CancelLevel() == true) return true;
+            instance.CancelMode();
+            return true;
+        }
         private void CancelMode() {
+            mountEditor?.End();
             generation++;
             options = placingMounts = false;
             finishedFrame = Time.frameCount;
@@ -249,8 +276,10 @@ namespace Protobot {
         }
 
         private void OnApplicationFocus(bool focus) { if (!focus && placingMounts) CancelMode(); }
+        private void OnGUI() => mountEditor?.Draw();
         private void OnDisable() => CancelMode();
         private void OnDestroy() {
+            mountEditor?.Dispose();
             if (importInput != null) importInput.performed -= OpenImportSettings;
             if (mountInput != null) mountInput.performed -= ToggleMounts;
             if (instance == this) instance = null;

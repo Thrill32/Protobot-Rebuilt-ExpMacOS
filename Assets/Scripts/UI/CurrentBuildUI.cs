@@ -67,5 +67,11 @@ namespace Protobot.UI {
             renameField.textComponent.text = "";
             renaming = false;
         }
+
+        public bool CancelRename() {
+            if (!renameField.isFocused) return false;
+            StopRenaming(false);
+            return true;
+        }
     }
 }

@@ -5,13 +5,61 @@ using UnityEngine;
 namespace Protobot {
     public sealed class CustomMountPoint : MonoBehaviour {
         [SerializeField] private CustomMountData data;
+        [SerializeField] private CustomModel owner;
+        public CustomModel Owner => owner != null ? owner : owner = GetComponentInParent<CustomModel>();
         public float Depth => data.depth;
         public Vector3 Surface => transform.position + transform.forward * (data.depth * .5f);
-        public void Configure(CustomMountData value) => data = value;
-        public CustomMountData Snapshot() => new() {
-            x = data.x, y = data.y, z = data.z, qx = data.qx, qy = data.qy, qz = data.qz, qw = data.qw,
-            diameter = data.diameter, depth = data.depth, threaded = data.threaded
-        };
+        public Pose LocalPose => transform.parent == Owner.transform ? new Pose(transform.localPosition, transform.localRotation)
+            : new Pose(Owner.transform.InverseTransformPoint(transform.position), Quaternion.Inverse(Owner.transform.rotation) * transform.rotation);
+        public void Configure(CustomMountData value) { data = value; owner = GetComponentInParent<CustomModel>(); }
+        public CustomMountData Snapshot() {
+            var pose = CustomModelTool.SavedMountPose(this) ?? LocalPose;
+            return new CustomMountData {
+                x = pose.position.x, y = pose.position.y, z = pose.position.z,
+                qx = pose.rotation.x, qy = pose.rotation.y, qz = pose.rotation.z, qw = pose.rotation.w,
+                diameter = data.diameter, depth = data.depth, threaded = data.threaded
+            };
+        }
+
+        public void ApplyLocalPose(Pose pose, System.Collections.Generic.HashSet<HoleDetector> affected = null) {
+            if (Owner == null) return;
+            affected ??= HoleDetector.GetAffectedDetectors(Owner.gameObject);
+            transform.SetParent(Owner.transform, false);
+            transform.localPosition = pose.position; transform.localRotation = pose.rotation;
+            gameObject.layer = HoleCollider.HOLE_COLLISIONS_LAYER;
+            HoleDetector.RefreshPart(Owner.gameObject, affected);
+        }
+
+        public void RecordPose(Pose before, Pose after) {
+            if (Vector3.Distance(before.position, after.position) < .000001f && Quaternion.Angle(before.rotation, after.rotation) < .0001f) return;
+            StateSystem.AddElement(new PoseElement(this, before));
+            StateSystem.AddState(new PoseElement(this, after));
+        }
+
+        public void SetSelected(bool selected) {
+            var block = selected ? new MaterialPropertyBlock() : null;
+            if (block != null) { block.SetColor("_BaseColor", new Color(1, .75f, .1f)); block.SetColor("_Color", new Color(1, .75f, .1f)); }
+            foreach (var renderer in GetComponentsInChildren<MeshRenderer>(true)) renderer.SetPropertyBlock(block);
+        }
+
+        // Pick either mounting face as a disk, including its empty center.
+        // No extra physics collider is added to fastener overlap detection.
+        public static CustomMountPoint Pick(Ray ray) {
+            CustomMountPoint best = null; float distance = float.PositiveInfinity;
+            foreach (var point in FindObjectsByType<CustomMountPoint>(FindObjectsSortMode.None)) {
+                if (point.Owner == null || point.gameObject.IsDeleted()) continue;
+                foreach (float side in new[] { -1f, 1f }) {
+                    var center = point.transform.position + point.transform.forward * (side * (point.Depth * .5f + .004f));
+                    var plane = new Plane(point.transform.forward, center);
+                    if (!plane.Raycast(ray, out float hit) || hit >= distance) continue;
+                    float radius = point.data.diameter * .5f;
+                    if ((ray.GetPoint(hit) - center).sqrMagnitude > radius * radius) continue;
+                    if (Physics.Raycast(ray, out var obstruction, hit, LayerMask.GetMask("Default"), QueryTriggerInteraction.Ignore) && obstruction.distance < hit - .01f) continue;
+                    best = point; distance = hit;
+                }
+            }
+            return best;
+        }
 
         private static Mesh ring;
         public static Mesh RingMesh {
@@ -64,6 +112,15 @@ namespace Protobot {
             var affected = HoleDetector.GetAffectedDetectors(owner);
             gameObject.SetActive(exists);
             HoleDetector.RefreshPart(owner, affected);
+        }
+
+        private void OnEnable() => SetSelected(false);
+
+        private sealed class PoseElement : IElement {
+            private readonly CustomMountPoint point;
+            private readonly Pose pose;
+            public PoseElement(CustomMountPoint point, Pose pose) { this.point = point; this.pose = pose; }
+            public void Load() { if (point != null) point.ApplyLocalPose(pose); }
         }
 
         private sealed class MountElement : IElement {

@@ -24,9 +24,17 @@ namespace Protobot.Tools {
             dragging = false;
         }
 
+        public bool CancelDrag() {
+            if (!dragging) return false;
+            dragging = false;
+            OnEndDrag();
+            movementManager.CancelMovement();
+            return true;
+        }
+
         public abstract void OnPointerDown();
         public void OnPointerDown(PointerEventData eventData) {
-            if (KeyboardTransformTool.IsCapturingInput || Placement.IsCopyingSelection)
+            if (Protobot.InputEvents.EscapeDeselect.CapturesFrame || KeyboardTransformTool.IsCapturingInput || Placement.IsCopyingSelection)
                 return;
             startPosition = refObj.transform.position;
             feedbackDegrees = 0f;
@@ -38,7 +46,7 @@ namespace Protobot.Tools {
 
         public abstract void OnDrag();
         public void OnDrag(PointerEventData eventData) {
-            if (!KeyboardTransformTool.IsCapturingInput && !Placement.IsCopyingSelection)
+            if (dragging && !KeyboardTransformTool.IsCapturingInput && !Placement.IsCopyingSelection)
                 OnDrag();
         }
 
@@ -47,7 +55,7 @@ namespace Protobot.Tools {
 
         public abstract void OnPointerUp();
         public void OnPointerUp(PointerEventData eventData) {
-            if (KeyboardTransformTool.IsCapturingInput || Placement.IsCopyingSelection)
+            if (!dragging || KeyboardTransformTool.IsCapturingInput || Placement.IsCopyingSelection)
                 return;
             dragging = false;
             OnPointerUp();

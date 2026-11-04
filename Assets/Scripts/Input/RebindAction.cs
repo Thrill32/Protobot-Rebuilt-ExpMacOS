@@ -24,6 +24,8 @@ namespace Protobot.InputEvents {
         public Action OnCancelRebind;
         
         public static bool Rebinding { get; private set; }
+        private static int canceledFrame = -1;
+        public static bool CanceledThisFrame => canceledFrame == Time.frameCount;
         
         private List<InputControl> IgnoredInputs {
             get {
@@ -77,6 +79,7 @@ namespace Protobot.InputEvents {
             
             InputSystem.onAnyButtonPress.CallOnce(input => {
                 if (input == CancelInput) {
+                    canceledFrame = Time.frameCount;
                     OnCancelRebind?.Invoke();
                     OnEndRebind?.Invoke();
                 }

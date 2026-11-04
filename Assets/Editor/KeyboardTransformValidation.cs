@@ -87,10 +87,9 @@ namespace ProtobotEditorTools {
             gesture.Begin(camera, origin, start);
 
             foreach (var axis in new[] { Vector3.right, Vector3.up, Vector3.forward }) {
-                // In this perspective fixture Z is almost end-on, so pointer
-                // distance uses its stable projection at the original depth.
-                var pointerAxis = !camera.orthographic && axis == Vector3.forward
-                    ? Vector3.ProjectOnPlane(axis, camera.transform.forward) : axis;
+                // Axis motion uses a stable screen projection at the original
+                // depth, including oblique perspective axes and edge wraps.
+                var pointerAxis = Vector3.ProjectOnPlane(axis, camera.transform.forward);
                 var mouse = (Vector2)camera.WorldToScreenPoint(origin + pointerAxis * 0.83f);
                 Near(gesture.Position(mouse, axis, false), origin + axis * 0.83f, "Unsnapped axis movement");
                 Near(gesture.Position(mouse, axis, true), origin + axis, "Axis snap relative to initial position");

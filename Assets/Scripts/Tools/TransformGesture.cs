@@ -62,49 +62,32 @@ namespace Protobot.Tools {
         public Vector3 Position(Vector2 mouse, Vector3 axis, bool snap) {
             var normal = camera.transform.forward;
             if (axis != Vector3.zero) {
-                normal = Vector3.ProjectOnPlane(normal, axis);
-                // Near an end-on axis, its targeting plane can cross the viewport
-                // horizon. Use a stable screen projection for the whole drag so
-                // wrapping never lands in a dead zone or sends the target to infinity.
-                if (UseLinearAxisProjection(normal)) {
-                    float depth = Mathf.Max(camera.nearClipPlane, camera.WorldToScreenPoint(origin).z);
-                    float unitsPerPixel = Vector3.Distance(
-                        camera.ScreenToWorldPoint(new Vector3(0f, 0f, depth)),
-                        camera.ScreenToWorldPoint(new Vector3(0f, 1f, depth)));
-                    var screenAxis = new Vector2(Vector3.Dot(camera.transform.right, axis), Vector3.Dot(camera.transform.up, axis));
-                    if (screenAxis.sqrMagnitude < .001f) screenAxis = Vector2.up;
-                    float distance = Vector2.Dot(mouse - startMouse, screenAxis) / screenAxis.sqrMagnitude * unitsPerPixel;
-                    var endOnPosition = origin + Vector3.Project(resumedOffset + wrappedAxisOffset, axis) + axis * distance;
-                    return snap ? TransformSnapping.SnapPosition(endOnPosition, origin) : endOnPosition;
-                }
+                // Use one pixel-to-world scale at the original grab depth.
+                // A ray/axis plane is projective: its sensitivity changes on
+                // opposite sides of the viewport, even after rebasing a wrap.
+                float depth = Mathf.Max(camera.nearClipPlane, camera.WorldToScreenPoint(origin).z);
+                float unitsPerPixel = Vector3.Distance(
+                    camera.ScreenToWorldPoint(new Vector3(0f, 0f, depth)),
+                    camera.ScreenToWorldPoint(new Vector3(0f, 1f, depth)));
+                var screenAxis = new Vector2(Vector3.Dot(camera.transform.right, axis), Vector3.Dot(camera.transform.up, axis));
+                if (screenAxis.sqrMagnitude < .001f) screenAxis = Vector2.up;
+                float distance = Vector2.Dot(mouse - startMouse, screenAxis) / screenAxis.sqrMagnitude * unitsPerPixel;
+                var axisPosition = origin + Vector3.Project(resumedOffset + wrappedAxisOffset, axis) + axis * distance;
+                return snap ? TransformSnapping.SnapPosition(axisPosition, origin) : axisPosition;
             }
 
             var plane = new Plane(normal.normalized, origin);
             var startRay = camera.ScreenPointToRay(startMouse);
             var ray = camera.ScreenPointToRay(mouse);
             if (!plane.Raycast(startRay, out float startDistance) || !plane.Raycast(ray, out float distanceAlongRay)) {
-                var fallback = origin + (axis == Vector3.zero ? resumedOffset + wrappedFreeOffset : Vector3.Project(resumedOffset + wrappedAxisOffset, axis));
+                var fallback = origin + resumedOffset + wrappedFreeOffset;
                 return snap ? TransformSnapping.SnapPosition(fallback, origin) : fallback;
             }
 
-            var delta = resumedOffset + ray.GetPoint(distanceAlongRay) - startRay.GetPoint(startDistance);
-            if (axis != Vector3.zero)
-                delta = Vector3.Project(delta + wrappedAxisOffset, axis);
-            else
-                delta += wrappedFreeOffset;
+            var delta = resumedOffset + wrappedFreeOffset + ray.GetPoint(distanceAlongRay) - startRay.GetPoint(startDistance);
 
             var position = origin + delta;
             return snap ? TransformSnapping.SnapPosition(position, origin) : position;
-        }
-
-        private bool UseLinearAxisProjection(Vector3 normal) {
-            if (normal.sqrMagnitude < .001f) return true;
-            if (camera.orthographic) return false;
-            var rect = camera.pixelRect;
-            return Vector3.Dot(camera.ScreenPointToRay(new Vector2(rect.xMin, rect.yMin)).direction, normal) <= .0001f ||
-                Vector3.Dot(camera.ScreenPointToRay(new Vector2(rect.xMin, rect.yMax)).direction, normal) <= .0001f ||
-                Vector3.Dot(camera.ScreenPointToRay(new Vector2(rect.xMax, rect.yMin)).direction, normal) <= .0001f ||
-                Vector3.Dot(camera.ScreenPointToRay(new Vector2(rect.xMax, rect.yMax)).direction, normal) <= .0001f;
         }
 
         public Quaternion Rotation(Vector2 mouse, Vector3 axis, Quaternion initialRotation, bool snap) {

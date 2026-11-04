@@ -49,12 +49,21 @@ namespace Protobot.UI {
         }
 
         void DisableBoxSelect() {
+            if (!selecting) return;
             image.enabled = false;
             if (Vector3.Distance(startPos, MouseInput.Position) > 5)
                 OnReleaseBox?.Invoke(startPos, MouseInput.Position);
 
             rect.sizeDelta = Vector2.zero;
             selecting = false;
+        }
+
+        public bool CancelSelection() {
+            if (!selecting) return false;
+            image.enabled = false;
+            rect.sizeDelta = Vector2.zero;
+            selecting = false;
+            return true;
         }
 
         void UpdateSelectionBox() {

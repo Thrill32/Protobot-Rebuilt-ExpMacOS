@@ -76,6 +76,12 @@ namespace Protobot.Tools {
 
         internal static void CaptureCurrentFrame() => finishedFrame = Time.frameCount;
 
+        internal static bool CancelActive() {
+            if (instance == null || !instance.active) return false;
+            instance.Finish(false);
+            return true;
+        }
+
         public static bool BlocksUINavigation => IsCapturingInput ||
             (instance != null && instance.isActiveAndEnabled && instance.placement != null && instance.placement.rotating);
 
@@ -153,7 +159,7 @@ namespace Protobot.Tools {
         }
 
         private void Begin(bool rotate) {
-            if (!isActiveAndEnabled || placement.placing || ConnectTool.IsCapturingPoints ||
+            if (!isActiveAndEnabled || placement.placing || ConnectTool.IsCapturingPoints || CustomModelTool.IsCapturingInput ||
                 RebindAction.Rebinding || InputEvent.IsNoclipMovementCaptured || !Application.isFocused ||
                 Mouse.current == null || MouseInput.overUI || IsEditingText())
                 return;
@@ -421,7 +427,11 @@ namespace Protobot.Tools {
 
         private void HandleInput(Keyboard keyboard, Mouse mouse) {
             HideTargetPreview();
-            if (keyboard.escapeKey.wasPressedThisFrame || (!holeSnapping && mouse.rightButton.wasPressedThisFrame)) {
+            if (keyboard.escapeKey.wasPressedThisFrame) {
+                if (!EscapeDeselect.TryHandleEscape()) Finish(false);
+                return;
+            }
+            if (!holeSnapping && mouse.rightButton.wasPressedThisFrame) {
                 Finish(false);
                 return;
             }
@@ -485,11 +495,7 @@ namespace Protobot.Tools {
                 Mathf.Min(Screen.width, viewport.xMax), Mathf.Min(Screen.height, viewport.yMax));
             var position = mouse.position.ReadValue();
             if (!TransformCursor.TryWrap(position, viewport, out var wrapped)) return;
-            gesture.RebasePointer(position, wrapped);
-            mouse.WarpCursorPosition(wrapped);
-            // Warping the OS cursor updates Input System on the next event.
-            // Update its position now so this frame's info UI stays beside it.
-            UnityEngine.InputSystem.LowLevel.InputState.Change(mouse.position, wrapped);
+            if (CursorWarp.Warp(mouse, wrapped)) gesture.RebasePointer(position, wrapped);
         }
 
         private void ChangeAxis(Vector3 pressedAxis) {

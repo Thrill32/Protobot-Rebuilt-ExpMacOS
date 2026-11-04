@@ -7,7 +7,7 @@ namespace Protobot {
     public sealed class ToolUIInputModule : InputSystemUIInputModule {
         public override void Process() {
             var focused = eventSystem.currentSelectedGameObject;
-            bool captured = KeyboardTransformTool.BlocksUINavigation || Protobot.Simulation.SimulationTool.CapturesSelection || CustomModelTool.IsCapturingInput ||
+            bool captured = Protobot.InputEvents.EscapeDeselect.BlocksUINavigation || KeyboardTransformTool.BlocksUINavigation || Protobot.Simulation.SimulationTool.CapturesSelection || CustomModelTool.IsCapturingInput ||
                 (focused != null && focused.GetComponentInParent<PartDisplayUI>() != null);
             if (!captured) {
                 base.Process();

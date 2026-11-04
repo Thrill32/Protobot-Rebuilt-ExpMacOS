@@ -20,8 +20,10 @@ namespace Protobot.InputEvents {
 
         private bool prevPressStatus = false;
         private bool suppressedUntilRelease;
+        private bool shortcutSuppressedUntilRelease;
 
         public void Awake() {
+            ShortcutPriority.Register(this);
             //performed += () => Debug.Log("Performed " + name + " input event!");
 
             rebindAction = new RebindAction(name, allowModifierOnly);
@@ -45,11 +47,14 @@ namespace Protobot.InputEvents {
         public void Update() {
             if (RebindAction.Rebinding) return;
 
-            IsPressed = IsCurrentlyPressed;
+            IsPressed = IsRawPressed;
+            bool shortcutAllowed = ShortcutPriority.Allows(this);
+            if (!shortcutAllowed) shortcutSuppressedUntilRelease = true;
+            else if (!IsPressed) shortcutSuppressedUntilRelease = false;
 
             // Capture even when a composite chord consumed the underlying action's value.
             // Otherwise releasing Command before C could fire the plain C action.
-            if (!Protobot.Builds.BuildTransferTool.AllowsInput(this))
+            if (!shortcutAllowed || !EscapeDeselect.AllowsInput(this) || !Protobot.Builds.BuildTransferTool.AllowsInput(this))
                 suppressedUntilRelease = true;
             else if (!IsPressed)
                 suppressedUntilRelease = false;
@@ -74,15 +79,17 @@ namespace Protobot.InputEvents {
             prevPressStatus = IsPressed;
         }
 
-        public bool IsCurrentlyPressed => !RebindAction.Rebinding &&
+        private bool IsRawPressed => !RebindAction.Rebinding &&
             ((defaultAction != null && defaultAction.AllControlsPressed()) ||
              (rebindAction?.action != null && rebindAction.action.AllControlsPressed()));
+
+        public bool IsCurrentlyPressed => !shortcutSuppressedUntilRelease && IsRawPressed && ShortcutPriority.Allows(this);
 
         /// <summary>
         /// Accept any alternative default binding (e.g. left/right Command),
         /// while requiring every control of a user-rebound chord.
         /// </summary>
-        public bool IsAnyBindingPressed => !RebindAction.Rebinding &&
+        public bool IsAnyBindingPressed => !shortcutSuppressedUntilRelease && !RebindAction.Rebinding && ShortcutPriority.Allows(this) &&
             ((defaultAction != null && defaultAction.IsPressed()) ||
              (rebindAction?.action != null && rebindAction.action.AllControlsPressed()));
 
@@ -121,8 +128,11 @@ namespace Protobot.InputEvents {
         }
 
         public void OnDisable() {
+            ShortcutPriority.Unregister(this);
             defaultAction.Disable();
         }
+        private void OnEnable() => ShortcutPriority.Register(this);
+        private void OnDestroy() => ShortcutPriority.Unregister(this);
         
         public string GetCurrentKeybind()
         {

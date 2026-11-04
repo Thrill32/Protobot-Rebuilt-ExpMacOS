@@ -32,6 +32,10 @@ namespace Protobot.Tools {
         private bool individualSelection;
         private Vector3 sourcePosition;
         private Tween moveTween;
+        private State movementState;
+        private List<IElement> movementBefore;
+        private List<GameObject> pendingRoots;
+        private List<Pose> pendingPoses;
         private GameObject sourceMarker;
         private GameObject statusRoot;
         private TextMeshProUGUI statusText;
@@ -70,10 +74,7 @@ namespace Protobot.Tools {
                 return;
 
             if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) {
-                if (toolbarToggle != null)
-                    toolbarToggle.isOn = false;
-                else
-                    SetActive(false);
+                if (!EscapeDeselect.TryHandleEscape()) DeactivateTool();
                 return;
             }
 
@@ -103,6 +104,33 @@ namespace Protobot.Tools {
                 if (statusRoot != null)
                     statusRoot.SetActive(false);
             }
+        }
+
+        public bool CancelPending() {
+            if (!toolActive || (!hasSource && !isMoving)) return false;
+            if (isMoving) {
+                moveTween?.Kill(); moveTween = null;
+                for (int i = 0; i < pendingRoots.Count; i++)
+                    if (pendingRoots[i] != null) pendingRoots[i].transform.SetPositionAndRotation(pendingPoses[i].position, pendingPoses[i].rotation);
+                foreach (var element in movementBefore) movementState.elements.Remove(element);
+                isMoving = false;
+            }
+            RefreshSelection();
+            return true;
+        }
+
+        public void RefreshSelection() {
+            if (!toolActive) return;
+            ResetSource();
+            CaptureCurrentSelection();
+            SetStatus(hadSelectionOnActivation ? $"Connect · {movingBodies.Count} selected · pick source" : "Connect · pick source");
+        }
+
+        public bool DeactivateTool() {
+            if (!toolActive) return false;
+            if (toolbarToggle != null) toolbarToggle.isOn = false;
+            else SetActive(false);
+            return true;
         }
 
         private void TryPickPoint() {
@@ -258,7 +286,11 @@ namespace Protobot.Tools {
 
             var translation = targetPosition - sourcePosition;
 
-            ObjectElement.AddObjectElements(stateBodies);
+            movementState = StateSystem.curState;
+            movementBefore = stateBodies.Select(body => (IElement)new ObjectElement(body)).ToList();
+            StateSystem.AddElements(movementBefore);
+            pendingRoots = roots;
+            pendingPoses = roots.Select(root => new Pose(root.transform.position, root.transform.rotation)).ToList();
 
             isMoving = true;
             var sequence = DOTween.Sequence();

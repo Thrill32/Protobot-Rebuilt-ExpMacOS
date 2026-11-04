@@ -24,8 +24,14 @@ namespace Protobot {
         public bool threaded = true;
 
         public bool Equals(CustomMountData other) => other != null && x == other.x && y == other.y && z == other.z &&
-            qx == other.qx && qy == other.qy && qz == other.qz && qw == other.qw &&
+            SameRotation(other) &&
             diameter == other.diameter && depth == other.depth && threaded == other.threaded;
+        // Unity normalizes rotations when assigning a loaded local transform.
+        // Ignore that floating-point noise (and the equivalent negated quaternion)
+        // so loading a saved point does not make an unchanged build look dirty.
+        private bool SameRotation(CustomMountData other) =>
+            Math.Abs(qx - other.qx) < .000001f && Math.Abs(qy - other.qy) < .000001f && Math.Abs(qz - other.qz) < .000001f && Math.Abs(qw - other.qw) < .000001f ||
+            Math.Abs(qx + other.qx) < .000001f && Math.Abs(qy + other.qy) < .000001f && Math.Abs(qz + other.qz) < .000001f && Math.Abs(qw + other.qw) < .000001f;
         public override bool Equals(object obj) => Equals(obj as CustomMountData);
         public override int GetHashCode() => x.GetHashCode() ^ y.GetHashCode() ^ z.GetHashCode();
     }
