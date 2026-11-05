@@ -43,6 +43,8 @@ namespace Protobot.InputEvents {
                 actionNameText.text = "Select Multiple";
             else if (inputEvent.name == "Pick Part")
                 actionNameText.text = "Copy Selected Parts";
+            else if (inputEvent.name == "Grab Hole Snap")
+                actionNameText.text = "Move Tool During Grab";
             else if (inputEvent.name == "Save Selected Parts As")
                 actionNameText.text = "Save Selection As";
 

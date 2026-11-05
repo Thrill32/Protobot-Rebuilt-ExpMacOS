@@ -30,21 +30,16 @@ namespace ProtobotEditorTools {
             var holeSnap = inputs.Single(input => input.name == "Grab Hole Snap");
             var data = new SerializedObject(controller);
             data.FindProperty("holeSnapInput").objectReferenceValue = holeSnap;
-            data.FindProperty("oppositeHoleInput").objectReferenceValue = inputs.Single(input => input.name == "Select Opposite Hole");
-            data.FindProperty("mouseCast").objectReferenceValue = Object.FindFirstObjectByType<MouseCast>();
-            data.FindProperty("holePreview").objectReferenceValue = new SerializedObject(
-                Object.FindFirstObjectByType<Protobot.SelectionSystem.HoleFaceResponseSelector>())
-                .FindProperty("hoverHoleFace").objectReferenceValue;
-            data.FindProperty("moveSourceIcon").objectReferenceValue = Object.FindObjectsByType<UnityEngine.UI.Image>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None).Single(image => image.name == "Move Button");
-            data.FindProperty("holeMoveMaterial").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Hole Move Preview.mat");
+            var click = new SerializedObject(Object.FindFirstObjectByType<Protobot.SelectionSystem.ClickSelector>());
+            data.FindProperty("moveTool").objectReferenceValue = click.FindProperty("moveTool").objectReferenceValue;
+            data.FindProperty("moveToolManager").objectReferenceValue = click.FindProperty("moveToolManager").objectReferenceValue;
             data.FindProperty("orbitInput").objectReferenceValue = inputs.Single(input => input.name == "Orbit");
             data.FindProperty("panInput").objectReferenceValue = inputs.Single(input => input.name == "Pan");
             data.FindProperty("noclipInput").objectReferenceValue = inputs.Single(input => input.name == "Noclip Camera");
             data.ApplyModifiedPropertiesWithoutUndo();
             var move = new SerializedObject(controller.GetComponent<HolePlaceDisplacement>());
             move.FindProperty("oppositeHoleInput").objectReferenceValue = inputs.Single(input => input.name == "Select Opposite Hole");
-            move.FindProperty("targetMarkerMaterial").objectReferenceValue = data.FindProperty("holeMoveMaterial").objectReferenceValue;
+            move.FindProperty("targetMarkerMaterial").objectReferenceValue = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Hole Move Preview.mat");
             move.ApplyModifiedPropertiesWithoutUndo();
 
             var rows = Object.FindObjectsByType<RebindUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
@@ -63,7 +58,7 @@ namespace ProtobotEditorTools {
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
-            Debug.Log("Grab hole snapping configured: H binding, Preferences row, target casting and opposite-face input.");
+            Debug.Log("Grab-to-Move shortcut configured: H binding, Preferences row and tool 2 handoff.");
         }
 
         private static InputEvent Input(RebindUI row) =>

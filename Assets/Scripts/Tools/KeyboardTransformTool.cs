@@ -9,7 +9,6 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
-using Protobot.Simulation;
 
 namespace Protobot.Tools {
     /// <summary>Blender-style modal grab/rotation of the current rigid selection.</summary>
@@ -19,12 +18,9 @@ namespace Protobot.Tools {
         [SerializeField] private Camera refCamera;
         [SerializeField] private InputEvent grabInput;
         [SerializeField] private InputEvent rotateInput;
-        [SerializeField] private InputEvent holeSnapInput;
-        [SerializeField] private InputEvent oppositeHoleInput;
-        [SerializeField] private MouseCast mouseCast;
-        [SerializeField] private HoleFace holePreview;
-        [SerializeField] private Image moveSourceIcon;
-        [SerializeField] private Material holeMoveMaterial;
+        [SerializeField] private InputEvent holeSnapInput; // Keep the saved Grab Hole Snap binding ID.
+        [SerializeField] private ToolToggle moveTool;
+        [SerializeField] private MoveToolManager moveToolManager;
         [SerializeField] private InputEvent orbitInput;
         [SerializeField] private InputEvent panInput;
         [SerializeField] private InputEvent noclipInput;
@@ -36,10 +32,6 @@ namespace Protobot.Tools {
         private static KeyboardTransformTool instance;
         private static int finishedFrame = -1;
         private readonly TransformGesture gesture = new();
-        private readonly MoveRotation moveRotation = new();
-        private MoveTarget currentMoveTarget;
-        private float attachmentTwist;
-        private GearSnapping.Source? sourceGear;
         private readonly TransformNumericInput numericInput = new();
         private Quaternion initialOrientation;
         private float rotationDegrees;
@@ -51,16 +43,7 @@ namespace Protobot.Tools {
         private readonly List<GameObject> duplicates = new();
         private ISelection selection;
         private Vector3 origin;
-        private Vector3 grabOrigin;
         private Vector3 axis;
-        private Quaternion grabRotation = Quaternion.identity;
-        private bool holeSnapping;
-        private bool hasSourceHole;
-        private bool hasMoveTarget;
-        private Vector3 sourceHoleOrigin;
-        private Quaternion sourceHoleOrientation;
-        private HoleMovePreview movePreview;
-        private MoveTargetPreview targetPreview;
         private bool active;
         private bool rotating;
         private bool settling;
@@ -85,15 +68,10 @@ namespace Protobot.Tools {
         public static bool BlocksUINavigation => IsCapturingInput ||
             (instance != null && instance.isActiveAndEnabled && instance.placement != null && instance.placement.rotating);
 
-        public static bool AllowsCameraNavigation => instance != null && instance.isActiveAndEnabled &&
-            instance.active && instance.holeSnapping && !instance.settling && !instance.numericInput.IsOpen && !instance.moveRotation.NumericInput.IsOpen;
-
-        public static bool BlocksCameraNavigation => IsCapturingInput && !AllowsCameraNavigation;
+        public static bool BlocksCameraNavigation => IsCapturingInput;
 
         public bool IsCameraNavigationHeld => InputEvent.IsNoclipMovementCaptured ||
             CameraInputHeld(orbitInput) || CameraInputHeld(panInput) || CameraInputHeld(noclipInput);
-
-        private bool IsNavigatingCamera => AllowsCameraNavigation && IsCameraNavigationHeld;
 
         private static bool CameraInputHeld(InputEvent input) => input != null && input.IsCurrentlyPressed && AllowsInput(input);
 
@@ -102,7 +80,7 @@ namespace Protobot.Tools {
         public static bool AllowsInput(InputEvent input) {
             if (!IsCapturingInput || instance == null)
                 return true;
-            if (instance.numericInput.IsOpen || instance.moveRotation.NumericInput.IsOpen || instance.placement?.IsTypingRotation == true)
+            if (instance.numericInput.IsOpen || instance.placement?.IsTypingRotation == true)
                 return false;
             // Raw modal axis keys win even over allowed actions rebound to X/Y/Z.
             var keys = Keyboard.current;
@@ -115,10 +93,6 @@ namespace Protobot.Tools {
             if (!instance.rotating && instance.holeSnapInput != null && instance.holeSnapInput.IsCurrentlyPressed &&
                 SharesPressedButton(input, instance.holeSnapInput))
                 return false;
-            if (input == instance.oppositeHoleInput && instance.holeSnapping)
-                return true;
-            if (AllowsCameraNavigation && (input == instance.orbitInput || input == instance.panInput || input == instance.noclipInput))
-                return true;
             if (input == instance.grabInput || input == instance.rotateInput ||
                 input.name == "Snap Bypass" || input.name == "Grouping Bypass" || input.name == "Toggle Grid" || input.name == "Duplicate")
                 return true;
@@ -149,14 +123,11 @@ namespace Protobot.Tools {
             instance = this;
             grabInput.performed += Grab;
             rotateInput.performed += Rotate;
-            if (holeSnapInput != null) holeSnapInput.performed += ToggleHoleSnap;
+            if (holeSnapInput != null) holeSnapInput.performed += MoveFromGrab;
         }
 
         private void Grab() => Begin(false);
-        private void Rotate() {
-            if (active && !rotating && holeSnapping) ToggleMoveRotation();
-            else Begin(true);
-        }
+        private void Rotate() => Begin(true);
 
         private void Begin(bool rotate) {
             if (!isActiveAndEnabled || placement.placing || ConnectTool.IsCapturingPoints || CustomModelTool.IsCapturingInput ||
@@ -185,7 +156,6 @@ namespace Protobot.Tools {
             rotations.Clear();
             bodies = new List<GameObject>();
             origin = selection.gameObject.transform.position;
-            grabOrigin = origin;
             initialOrientation = selection.gameObject.transform.rotation;
 
             if (selection is MultiSelection multi && multi.pivot != null) {
@@ -223,10 +193,6 @@ namespace Protobot.Tools {
             }
             foreach (var body in bodies)
                 body.transform.DOKill();
-            var selectedBody = selection is HoleSelection selectedGearHole ? selectedGearHole.holeData?.part : selection.gameObject;
-            var gear = selectedBody != null ? selectedBody.GetComponent<SimulationPart>() : null;
-            if (gear == null && bodies.Count == 1) gear = bodies[0].GetComponent<SimulationPart>();
-            sourceGear = gear != null && gear.CanMesh ? new GearSnapping.Source(gear) : null;
             duplicates.Clear();
             before = CaptureState();
             BeginDuplication();
@@ -235,151 +201,29 @@ namespace Protobot.Tools {
             rotationDegrees = 0f;
             active = true;
             settling = false;
-            holeSnapping = hasSourceHole = hasMoveTarget = false;
-            moveRotation.End();
-            attachmentTwist = 0;
-            HideTargetPreview();
-            grabRotation = Quaternion.identity;
             displayedOffset = targetOffset = Vector3.zero;
             displayedRotation = targetRotation = Quaternion.identity;
             gesture.Begin(refCamera, origin, MouseInput.Position);
             axis = rotate ? gesture.DefaultRotationAxis : Vector3.zero;
-            if (selection is HoleSelection selectedHole && selectedHole.holeFace != null) {
-                selectedHole.holeFace.Refresh();
-                sourceHoleOrigin = selectedHole.holeFace.position;
-                sourceHoleOrientation = selectedHole.holeFace.LookRotation;
-                hasSourceHole = true;
+        }
+
+        private void MoveFromGrab() {
+            if (!active || rotating || settling || numericInput.IsOpen ||
+                moveTool == null || moveToolManager == null) return;
+
+            // Discard the uncommitted grab (including Alt copies) before using
+            // the same selection, toolbar and placement path as tool 2.
+            Finish(false);
+            finishedFrame = -1;
+            try {
+                moveTool.Toggle(true);
+                moveToolManager.StartMoving();
             }
-        }
-
-        private void ToggleHoleSnap() {
-            if (!active || rotating || settling || numericInput.IsOpen || moveRotation.NumericInput.IsOpen) return;
-            if (holeSnapping) {
-                LeaveHoleSnap();
-                return;
+            finally {
+                // The shortcut still owns this frame: H must not toggle the grid,
+                // and an input sharing its binding must not confirm placement.
+                CaptureCurrentFrame();
             }
-            FreezeDisplayedPose();
-            holeSnapping = true;
-            hasMoveTarget = false;
-            axis = Vector3.zero;
-            if (!hasSourceHole && sourceGear.HasValue) {
-                sourceHoleOrigin = sourceGear.Value.center;
-                sourceHoleOrientation = Quaternion.LookRotation(sourceGear.Value.axis, sourceGear.Value.tooth);
-                hasSourceHole = true;
-            }
-            if (hasSourceHole) {
-                RebaseOrigin(sourceHoleOrigin);
-                ShowMovePreview();
-            }
-        }
-
-        private void FreezeDisplayedPose() {
-            smoothingTween?.Kill();
-            smoothingTween = null;
-            targetOffset = displayedOffset;
-            targetRotation = displayedRotation;
-        }
-
-        private void LeaveHoleSnap() {
-            StopMoveRotation();
-            FreezeDisplayedPose();
-            HideMovePreview();
-            holeSnapping = hasMoveTarget = false;
-            HideTargetPreview();
-            axis = Vector3.zero;
-            grabRotation = targetRotation;
-            RebaseOrigin(grabOrigin);
-            gesture.Begin(refCamera, origin + targetOffset, MouseInput.Position);
-        }
-
-        private void RebaseOrigin(Vector3 newOrigin) {
-            displayedOffset = origin + displayedOffset + displayedRotation * (newOrigin - origin) - newOrigin;
-            targetOffset = origin + targetOffset + targetRotation * (newOrigin - origin) - newOrigin;
-            origin = newOrigin;
-        }
-
-        private bool IsMoving(Transform candidate) => roots.Any(root => root != null &&
-            (candidate == root || candidate.IsChildOf(root)));
-
-        private bool TryGetMoveTarget(bool source, out MoveTarget target) {
-            target = default;
-            if (MouseInput.overUI) return false;
-            var ray = mouseCast != null ? mouseCast.ray : refCamera.ScreenPointToRay(MouseInput.Position);
-            int mask = mouseCast != null ? mouseCast.layerMask : LayerMask.GetMask("Default", "HoleCollisions");
-            bool opposite = oppositeHoleInput != null && oppositeHoleInput.IsCurrentlyPressed;
-            return MoveTargeting.TryRaycast(ray, mask, opposite, !source, source ? null : IsMoving, out target,
-                source ? IsMoving : null) &&
-                (!source || IsMoving(target.Body.transform));
-        }
-
-        private bool PickSourceHole() {
-            if (!TryGetMoveTarget(true, out var target)) return false;
-            sourceHoleOrigin = origin + Quaternion.Inverse(displayedRotation) * (target.face.position - origin - displayedOffset);
-            sourceHoleOrientation = Quaternion.Inverse(displayedRotation) * target.face.rotation;
-            hasSourceHole = true;
-            HideTargetPreview();
-            RebaseOrigin(sourceHoleOrigin);
-            ShowMovePreview();
-            return true;
-        }
-
-        private void ShowMovePreview() {
-            HideMovePreview();
-            movePreview = new HoleMovePreview(bodies, placement, holeMoveMaterial, moveSourceIcon, refCamera,
-                origin + displayedOffset, displayedRotation);
-        }
-
-        private void HideMovePreview() {
-            movePreview?.Dispose();
-            movePreview = null;
-        }
-
-        private void UpdateMovePreview() => movePreview?.UpdatePose(refCamera, origin + displayedOffset, displayedRotation);
-
-        private void PreviewSourceHole() {
-            if (TryGetMoveTarget(true, out var target)) ShowTargetPreview(target);
-            else HideTargetPreview();
-        }
-
-        private void ShowTargetPreview(MoveTarget target) {
-            targetPreview ??= new MoveTargetPreview(holePreview, holeMoveMaterial);
-            targetPreview.Show(target);
-        }
-
-        private void ApplyTarget(MoveTarget target) {
-            ShowTargetPreview(target);
-            var aligned = MoveTargeting.Align(new Pose(sourceHoleOrigin, sourceHoleOrientation), target.face,
-                new Pose(origin, Quaternion.identity));
-            aligned = MoveRotation.Twist(aligned, target.face, attachmentTwist);
-            SetTarget(aligned.position - origin, aligned.rotation);
-            currentMoveTarget = target;
-        }
-
-        private void ToggleMoveRotation() {
-            if (!active || settling || numericInput.IsOpen || !hasSourceHole || IsNavigatingCamera) return;
-            if (moveRotation.Active) {
-                StopMoveRotation();
-                return;
-            }
-            Apply(MouseInput.Position);
-            moveRotation.Begin(refCamera, new Pose(origin + targetOffset, targetRotation),
-                hasMoveTarget ? currentMoveTarget.face : null, MouseInput.Position, attachmentTwist,
-                targetRotation * initialOrientation);
-        }
-
-        private void StopMoveRotation() {
-            if (!moveRotation.Active) return;
-            Apply(MouseInput.Position);
-            if (moveRotation.Attachment.HasValue)
-                attachmentTwist = TransformSnapping.WrapAngle(attachmentTwist + moveRotation.Degrees);
-            grabRotation = targetRotation;
-            smoothingTween?.Complete();
-            moveRotation.End();
-        }
-
-        private void HideTargetPreview() {
-            targetPreview?.Hide();
-            if (holePreview != null) holePreview.gameObject.SetActive(false);
         }
 
         private void BeginDuplication() {
@@ -413,7 +257,6 @@ namespace Protobot.Tools {
             if (!active)
                 return;
 
-            HideTargetPreview();
             var keyboard = Keyboard.current;
             var mouse = Mouse.current;
             if (RebindAction.Rebinding || !Application.isFocused || keyboard == null || mouse == null ||
@@ -423,16 +266,14 @@ namespace Protobot.Tools {
             }
 
             HandleInput(keyboard, mouse);
-            UpdateMovePreview();
         }
 
         private void HandleInput(Keyboard keyboard, Mouse mouse) {
-            HideTargetPreview();
             if (keyboard.escapeKey.wasPressedThisFrame) {
                 if (!EscapeDeselect.TryHandleEscape()) Finish(false);
                 return;
             }
-            if (!holeSnapping && mouse.rightButton.wasPressedThisFrame) {
+            if (mouse.rightButton.wasPressedThisFrame) {
                 Finish(false);
                 return;
             }
@@ -440,17 +281,7 @@ namespace Protobot.Tools {
             if (settling)
                 return;
 
-            if (moveRotation.Active && moveRotation.HandleNumeric(keyboard, MouseInput.Position, out var confirmed)) {
-                if (confirmed.HasValue) {
-                    rotationDegrees = moveRotation.Degrees;
-                    SetTarget(confirmed.Value.position - origin, confirmed.Value.rotation);
-                    Finish(true);
-                }
-                return;
-            }
-
-            if (!moveRotation.Active && (keyboard.slashKey.wasPressedThisFrame || keyboard.numpadDivideKey.wasPressedThisFrame)) {
-                if (holeSnapping) LeaveHoleSnap();
+            if (keyboard.slashKey.wasPressedThisFrame || keyboard.numpadDivideKey.wasPressedThisFrame) {
                 numericInput.Cycle(!rotating && axis == Vector3.zero);
                 if (!numericInput.IsOpen) ResumeMouse();
                 return;
@@ -462,34 +293,20 @@ namespace Protobot.Tools {
                 return;
             }
 
-            if (!moveRotation.Active && TransformGesture.TryReadAxis(out var pressedAxis)) {
+            if (TransformGesture.TryReadAxis(out var pressedAxis)) {
                 ChangeAxis(pressedAxis);
-            }
-
-            // Camera gestures must not pick/confirm a hole or move the rigid set.
-            if (IsNavigatingCamera) {
-                if (moveRotation.Active) moveRotation.Pause(MouseInput.Position);
-                else hasMoveTarget = false;
-                FreezeDisplayedPose();
-                return;
-            }
-
-            if (holeSnapping && !hasSourceHole) {
-                PreviewSourceHole();
-                if (mouse.leftButton.wasPressedThisFrame && !MouseInput.overUI) PickSourceHole();
-                return;
             }
 
             Apply(MouseInput.Position);
             if ((mouse.leftButton.wasPressedThisFrame && !MouseInput.overUI) ||
                 keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame) {
-                if (!holeSnapping || hasMoveTarget || moveRotation.Active) Finish(true);
+                Finish(true);
             }
             else WrapAxisCursor(mouse);
         }
 
         private void WrapAxisCursor(Mouse mouse) {
-            if (!active || rotating || settling || holeSnapping || numericInput.IsOpen || axis == Vector3.zero ||
+            if (!active || rotating || settling || numericInput.IsOpen || axis == Vector3.zero ||
                 Cursor.lockState == CursorLockMode.Locked) return;
             var viewport = refCamera.pixelRect;
             viewport = Rect.MinMaxRect(Mathf.Max(0f, viewport.xMin), Mathf.Max(0f, viewport.yMin),
@@ -500,44 +317,13 @@ namespace Protobot.Tools {
         }
 
         private void ChangeAxis(Vector3 pressedAxis) {
-            if (holeSnapping) LeaveHoleSnap();
-            if (!rotating && gesture.Origin != grabOrigin) {
-                gesture.Begin(refCamera, grabOrigin, MouseInput.Position);
-                gesture.Resume(MouseInput.Position, targetOffset, 0, Vector3.zero);
-            }
             axis = axis == pressedAxis ? (rotating ? gesture.DefaultRotationAxis : Vector3.zero) : pressedAxis;
         }
 
         private void Apply(Vector2 mouse) {
-            if (moveRotation.Active) {
-                if (MouseInput.overUI) {
-                    moveRotation.Pause(mouse);
-                    return;
-                }
-                if (moveRotation.Attachment.HasValue) ShowTargetPreview(currentMoveTarget);
-                var pose = moveRotation.Evaluate(mouse, TransformSnapping.Active);
-                rotationDegrees = moveRotation.Degrees;
-                SetTarget(pose.position - origin, pose.rotation);
-                return;
-            }
-            if (holeSnapping) {
-                hasMoveTarget = TryGetMoveTarget(false, out var target);
-                if (hasMoveTarget) ApplyTarget(target);
-                else if (sourceGear.HasValue && !MouseInput.overUI && GearSnapping.TrySnap(
-                    mouseCast != null ? mouseCast.ray : refCamera.ScreenPointToRay(mouse), sourceGear.Value,
-                    new Pose(origin, Quaternion.identity), IsMoving, out var gearPose, out var gearAnchor, SnapBypassInput.IsHeld)) {
-                    hasMoveTarget = true;
-                    currentMoveTarget = new MoveTarget(gearAnchor);
-                    gearPose = MoveRotation.Twist(gearPose, gearAnchor, attachmentTwist);
-                    SetTarget(gearPose.position - origin, gearPose.rotation);
-                    HideTargetPreview();
-                }
-                else HideTargetPreview();
-                return;
-            }
             var rotation = rotating
                 ? gesture.Rotation(mouse, axis, Quaternion.identity, TransformSnapping.Active)
-                : grabRotation;
+                : Quaternion.identity;
             var offset = rotating ? Vector3.zero : gesture.Position(mouse, axis, TransformSnapping.Active) - origin;
             rotationDegrees = rotating ? gesture.RotationDegrees : 0f;
             SetTarget(offset, rotation);
@@ -559,7 +345,7 @@ namespace Protobot.Tools {
             rotationDegrees = degrees;
             if (!rotating) {
                 offset += entryOrigin - origin;
-                rotation = grabRotation;
+                rotation = Quaternion.identity;
             }
             SetTarget(offset, rotation);
             Finish(true);
@@ -589,15 +375,12 @@ namespace Protobot.Tools {
                 if (roots[i] != null)
                     roots[i].SetPositionAndRotation(origin + displayedOffset + displayedRotation * (positions[i] - origin), displayedRotation * rotations[i]);
             }
-            UpdateMovePreview();
         }
 
         private void Finish(bool confirm) {
             numericInput.Close();
             if (!active)
                 return;
-            HideTargetPreview();
-            moveRotation.End();
             if (confirm) {
                 // Let the same easing finish after confirmation, then snapshot
                 // the exact snapped target rather than an in-between frame.
@@ -610,7 +393,6 @@ namespace Protobot.Tools {
                 return;
             }
             else {
-                HideMovePreview();
                 smoothingTween?.Kill();
                 smoothingTween = null;
                 for (int i = 0; i < roots.Count; i++) {
@@ -621,7 +403,6 @@ namespace Protobot.Tools {
             }
             active = false;
             settling = false;
-            holeSnapping = false;
             finishedFrame = Time.frameCount;
         }
 
@@ -629,7 +410,6 @@ namespace Protobot.Tools {
             displayedOffset = targetOffset;
             displayedRotation = targetRotation;
             ApplyDisplayedTransform();
-            HideMovePreview();
             bool changed = roots.Where((root, i) => root != null &&
                 (Vector3.Distance(root.position, positions[i]) > 0.00001f ||
                  Quaternion.Angle(root.rotation, rotations[i]) > 0.0001f)).Any();
@@ -645,7 +425,6 @@ namespace Protobot.Tools {
             smoothingTween = null;
             active = false;
             settling = false;
-            holeSnapping = false;
             finishedFrame = Time.frameCount;
         }
 
@@ -684,37 +463,24 @@ namespace Protobot.Tools {
 
         private void OnDisable() => Finish(false);
 
-        private string ConstraintLabel => holeSnapping ? "Hole" : axis == Vector3.right ? "X" :
+        private string ConstraintLabel => axis == Vector3.right ? "X" :
             axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
 
         public static string ControlsText => instance != null && instance.isActiveAndEnabled && instance.active
             ? instance.GetControlsText() : null;
 
         private string GetControlsText() {
-            if (moveRotation.Active && moveRotation.NumericInput.IsOpen)
-                return "Rotate · Exact entry\nEnter: confirm    /: value mode    Esc: cancel";
-            if (moveRotation.Active)
-                return $"Rotate · {(moveRotation.Attachment.HasValue ? "Attachment axis" : "Camera axis")}\n" +
-                    $"/: type angle    {rotateInput.GetCurrentKeybind()}: resume positioning    Click / Enter: confirm    Esc: cancel\nCamera controls available";
-            string snap = numericInput.IsOpen ? "Exact entry" : holeSnapping ? "Exact alignment" : TransformSnapping.Active ? "Snap on" : "Snap off";
+            string snap = numericInput.IsOpen ? "Exact entry" : TransformSnapping.Active ? "Snap on" : "Snap off";
             string holeKey = holeSnapInput != null ? holeSnapInput.GetCurrentKeybind() : "H";
             string help = "X/Y/Z: axis    /: type value";
-            if (!rotating) help += $"    {holeKey}: {(holeSnapping ? "free move" : "hole snap")}";
-            string oppositeKey = oppositeHoleInput != null ? oppositeHoleInput.GetCurrentKeybind() : "Space";
-            if (holeSnapping) help += (hasSourceHole ? "\nHover an outside hole or screw" : "\nClick a source hole on the selected parts") +
-                $" · Hold {oppositeKey}: opposite hole face\nCamera controls available";
-            if (holeSnapping && hasSourceHole) help += $"    {rotateInput.GetCurrentKeybind()}: rotate";
+            if (!rotating) help += $"    {holeKey}: Move tool";
             return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
-                help + (holeSnapping ? "\nClick / Enter: confirm    Esc: cancel" : "\nClick / Enter: confirm    Esc / Right click: cancel");
+                help + "\nClick / Enter: confirm    Esc / Right click: cancel";
         }
 
         private void OnGUI() {
             if (!active)
                 return;
-            if (moveRotation.Active) {
-                moveRotation.DrawFeedback();
-                return;
-            }
             if (showConstraintAxis && !rotating && axis != Vector3.zero)
                 TransformFeedback.DrawAxis(refCamera, gesture.Origin, axis);
             string constraint = ConstraintLabel;
@@ -725,15 +491,13 @@ namespace Protobot.Tools {
                 string next = global ? "/: mouse control" : "/: global value";
                 TransformFeedback.DrawNumeric(label, numericInput.DisplayText, $"Enter: apply exact value\n{next}    Invalid input: mouse control");
             }
-            else TransformFeedback.Draw(rotating || moveRotation.Active ? TransformFeedback.Angle(rotationDegrees) : TransformFeedback.Distance(targetOffset, axis));
+            else TransformFeedback.Draw(rotating ? TransformFeedback.Angle(rotationDegrees) : TransformFeedback.Distance(targetOffset, axis));
         }
 
         private void OnDestroy() {
-            HideMovePreview();
-            targetPreview?.Dispose();
             grabInput.performed -= Grab;
             rotateInput.performed -= Rotate;
-            if (holeSnapInput != null) holeSnapInput.performed -= ToggleHoleSnap;
+            if (holeSnapInput != null) holeSnapInput.performed -= MoveFromGrab;
             if (instance == this)
                 instance = null;
         }

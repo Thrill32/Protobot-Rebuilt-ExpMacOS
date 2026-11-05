@@ -17,6 +17,9 @@ namespace Protobot {
             initialRotation = partGenerator.FlipPlacement ? Quaternion.Euler(180, 0, 0) : Quaternion.identity;
             // Reverse both the face normal and its up direction, retaining the hole center.
             pose.rotation *= initialRotation;
+            // Nuts seat on their +Z bearing face. Correct only the hole anchor;
+            // their free pose and the dedicated screw-placement rule stay the same.
+            if (partType.id == "NUT") pose.rotation *= Quaternion.Euler(180, 0, 0);
             attachmentPose = pose;
             attachmentDepth = depth;
         }

@@ -73,12 +73,12 @@ namespace Protobot.Tools {
             degrees = 0f;
             if (!rotating && axis == Vector3.zero) {
                 var components = text.Split(',');
-                if (!global || components.Length != 3 || !Number(components[0], out float x) ||
-                    !Number(components[1], out float y) || !Number(components[2], out float z)) return false;
+                if (!global || components.Length != 3 || !TryReadNumber(components[0], out float x) ||
+                    !TryReadNumber(components[1], out float y) || !TryReadNumber(components[2], out float z)) return false;
                 offset = new Vector3(x, y, z) - origin;
                 return Finite(offset);
             }
-            if (axis == Vector3.zero || !Number(text, out float value)) return false;
+            if (axis == Vector3.zero || !TryReadNumber(text, out float value)) return false;
             if (!rotating) {
                 offset = axis * (global ? value - Vector3.Dot(origin, axis) : value);
                 return Finite(offset);
@@ -96,7 +96,7 @@ namespace Protobot.Tools {
             return true;
         }
 
-        private static bool Number(string text, out float value) =>
+        public static bool TryReadNumber(string text, out float value) =>
             float.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
             !float.IsNaN(value) && !float.IsInfinity(value);
         private static bool Finite(Vector3 value) =>

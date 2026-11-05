@@ -15,6 +15,7 @@ namespace ProtobotEditorTools {
         internal static readonly (string name, string path, string field)[] Bindings = {
             ("Import Custom Model", "<Keyboard>/i", "importInput"),
             ("Add Custom Mounting Points", "<Keyboard>/m", "mountInput"),
+            ("Change Mounting Depth", "<Keyboard>/b", "depthInput"),
             ("Recalibrate Mounting Grid", "<Keyboard>/n", "recalibrateInput")
         };
 

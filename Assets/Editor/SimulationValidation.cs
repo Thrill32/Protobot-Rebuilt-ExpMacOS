@@ -449,28 +449,40 @@ namespace ProtobotEditorTools {
 
         private static void CheckKeyboardGear(SimulationPart source, SimulationPart target, SelectionManager manager) {
             var tool = Object.FindFirstObjectByType<Protobot.Tools.KeyboardTransformTool>();
-            var oldCamera = Get<Camera>(tool, "refCamera"); var oldCast = Get<MouseCast>(tool, "mouseCast");
+            var placement = Get<Placement>(tool, "placement");
+            var rule = placement.GetComponent<GearPlaceDisplacement>();
+            var cast = Get<MouseCast>(rule, "mouseCast");
+            var oldCamera = Get<Camera>(tool, "refCamera"); var oldCastCamera = Get<Camera>(cast, "camera");
+            var oldPlacementCamera = Get<Camera>(placement, "refCamera");
             var start = new Pose(source.transform.position, source.transform.rotation);
             source.transform.position -= target.Tooth * 5;
             var movedStart = new Pose(source.transform.position, source.transform.rotation);
             var point = target.Center + target.Tooth * target.Radius;
-            var obj = new GameObject("G/H gear camera"); temporary.Add(obj);
+            var obj = new GameObject("G/H Move gear camera"); temporary.Add(obj);
             var camera = obj.AddComponent<Camera>(); camera.orthographic = true; camera.orthographicSize = 5;
             camera.transform.SetPositionAndRotation(point - target.Axis * 10, Quaternion.LookRotation(target.Axis, target.Tooth));
-            var cast = obj.AddComponent<MouseCast>(); Set(cast, "camera", camera);
-            Set(tool, "refCamera", camera); Set(tool, "mouseCast", cast);
-            manager.SetCurrent(new ObjectSelection { gameObject = source.gameObject, individual = true }, true);
-            Physics.SyncTransforms(); Point(camera.WorldToScreenPoint(point));
-            Invoke(tool, "BeginSelection", false); Invoke(tool, "ToggleHoleSnap");
-            Require(Get<bool>(tool, "hasSourceHole"), "G/H did not automatically choose the gear center");
-            Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-            Get<Tween>(tool, "smoothingTween")?.Complete();
-            Require(Get<bool>(tool, "hasMoveTarget") && GearSnapping.AreMeshed(source, target), "G/H did not mesh the gear near a circumference");
-            Invoke(tool, "Finish", false);
-            Near(source.transform.position, movedStart.position, "G/H gear cancellation lost the starting position");
-            Near(source.transform.rotation, movedStart.rotation, "G/H gear cancellation lost the starting rotation");
-            source.transform.SetPositionAndRotation(start.position, start.rotation);
-            Set(tool, "refCamera", oldCamera); Set(tool, "mouseCast", oldCast); obj.SetActive(false);
+            try {
+                Set(tool, "refCamera", camera); Set(cast, "camera", camera); Set(placement, "refCamera", camera);
+                manager.SetCurrent(new ObjectSelection { gameObject = source.gameObject, individual = true }, true, true);
+                Physics.SyncTransforms(); Point(camera.WorldToScreenPoint(point));
+                Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
+                var data = Get<PlacementData>(placement, "currentPlacementData");
+                Require(placement.placing && rule.TryGetDisplacement(data, out var pose), "G/H did not use Move's gear snapping near a circumference");
+                Near(source.transform.position, movedStart.position, "The Move preview changed the actual gear before confirmation");
+                rule.TryGetDisplacement(data, out var preview);
+                source.transform.SetPositionAndRotation(preview.translation.Position, preview.rotation.Orientation);
+                Require(GearSnapping.AreMeshed(source, target), "The G/H Move preview did not mesh the gear");
+                source.transform.SetPositionAndRotation(movedStart.position, movedStart.rotation);
+                placement.CancelPlacement();
+                Near(source.transform.position, movedStart.position, "G/H gear cancellation lost the starting position");
+                Near(source.transform.rotation, movedStart.rotation, "G/H gear cancellation lost the starting rotation");
+            }
+            finally {
+                placement.CancelPlacement();
+                source.transform.SetPositionAndRotation(start.position, start.rotation);
+                Set(tool, "refCamera", oldCamera); Set(cast, "camera", oldCastCamera); Set(placement, "refCamera", oldPlacementCamera);
+                obj.SetActive(false);
+            }
         }
 
         private static void Complete() { foreach (var obj in temporary.Where(o => o != null)) obj.transform.DOComplete(); }

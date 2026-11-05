@@ -25,6 +25,9 @@ namespace Protobot {
         public void StartMoving() {
             if (placement.placing || !objectLink.active || Tools.KeyboardTransformTool.IsCapturingInput)
                 return;
+            // A grab can restore the body before the face's next Update.
+            // Build the preview from the live source frame in either entry path.
+            if (objectLink.obj.TryGetComponent<HoleFace>(out var face)) face.Refresh();
             placement.StartPlacing(new GameObjectPlacementData(objectLink.obj, placement.transform, objectLink.individual));
         }
     }

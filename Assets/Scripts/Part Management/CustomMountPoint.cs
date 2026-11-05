@@ -20,8 +20,23 @@ namespace Protobot {
             return new CustomMountData {
                 x = pose.position.x, y = pose.position.y, z = pose.position.z,
                 qx = pose.rotation.x, qy = pose.rotation.y, qz = pose.rotation.z, qw = pose.rotation.w,
-                diameter = data.diameter, depth = data.depth, threaded = data.threaded
+                diameter = data.diameter, depth = CustomModelTool.SavedMountDepth(this) ?? data.depth, threaded = data.threaded
             };
+        }
+
+        // Keep the front mounting face fixed while the bore extends into the model.
+        internal void SetDepth(float depth, Vector3? surface = null) {
+            if (data.depth == depth) return;
+            var face = surface ?? Surface;
+            data.depth = depth;
+            transform.localScale = new Vector3(data.diameter, data.diameter, depth + .004f);
+            transform.position = face - transform.forward * (depth * .5f);
+            GetComponent<HoleCollider>().holeData.depth = depth;
+            foreach (var filter in GetComponentsInChildren<MeshFilter>(true)) {
+                if (filter.sharedMesh != RingMesh) continue;
+                float side = Mathf.Sign(filter.transform.localPosition.z);
+                filter.transform.localPosition = Vector3.forward * (side * (depth * .5f + .003f) / transform.localScale.z);
+            }
         }
 
         public void ApplyLocalPose(Pose pose, System.Collections.Generic.HashSet<HoleDetector> affected = null) {
@@ -127,6 +142,7 @@ namespace Protobot {
         }
 
         internal IElement PoseState(Pose pose) => new PoseElement(this, pose);
+        internal IElement DepthState(Pose pose, float depth) => new DepthElement(this, pose, depth);
         internal IElement ExistenceState(bool exists) => new MountElement(this, exists);
 
         internal void SetExists(bool exists) {
@@ -144,6 +160,19 @@ namespace Protobot {
             private readonly Pose pose;
             public PoseElement(CustomMountPoint point, Pose pose) { this.point = point; this.pose = pose; }
             public void Load() { if (point != null) point.ApplyLocalPose(pose); }
+        }
+
+        private sealed class DepthElement : IElement {
+            private readonly CustomMountPoint point;
+            private readonly Pose pose;
+            private readonly float depth;
+            public DepthElement(CustomMountPoint point, Pose pose, float depth) { this.point = point; this.pose = pose; this.depth = depth; }
+            public void Load() {
+                if (point == null || point.Owner == null) return;
+                var affected = HoleDetector.GetAffectedDetectors(point.Owner.gameObject);
+                point.SetDepth(depth);
+                point.ApplyLocalPose(pose, affected);
+            }
         }
 
         private sealed class MountElement : IElement {

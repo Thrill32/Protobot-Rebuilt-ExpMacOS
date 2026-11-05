@@ -47,10 +47,12 @@ namespace Protobot.Tools {
             RotationDegrees = TransformSnapping.WrapAngle(degrees);
         }
 
-        public void RebasePointer(Vector2 before, Vector2 after) {
+        public void RebasePointer(Vector2 before, Vector2 after, Vector3 constrainedAxis = default) {
             // Carry each world-axis projection independently, so switching axes
             // still measures from the original grab anchor after any wraps.
-            var correction = new Vector3(
+            var correction = constrainedAxis != Vector3.zero
+                ? Position(before, constrainedAxis, false) - Position(after, constrainedAxis, false)
+                : new Vector3(
                 Position(before, Vector3.right, false).x - Position(after, Vector3.right, false).x,
                 Position(before, Vector3.up, false).y - Position(after, Vector3.up, false).y,
                 Position(before, Vector3.forward, false).z - Position(after, Vector3.forward, false).z);

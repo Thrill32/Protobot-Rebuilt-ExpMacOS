@@ -13,7 +13,7 @@ namespace Protobot {
     /// <summary>Point-only edits inside M mode; the owning model stays stationary.</summary>
     public sealed class CustomMountEditor : IDisposable {
         private readonly Camera camera;
-        private readonly InputEvent grab, rotate, delete, multiple, duplicate, bypass, recalibrate, undo, redo;
+        private readonly InputEvent grab, rotate, depth, delete, multiple, duplicate, bypass, recalibrate, undo, redo;
         private readonly ObjectDuplicator duplicator;
         private readonly TransformGesture gesture = new();
         private readonly TransformNumericInput numeric = new();
@@ -26,16 +26,19 @@ namespace Protobot {
             public Pose before;
             public Vector3 surface;
             public Quaternion rotation;
+            public float depth;
         }
         private Vector3 surface, planeStart, axis;
         private Quaternion orientation;
         private float degrees;
-        private bool rotating, paused;
-        private int startFrame;
+        private bool rotating, changingDepth, paused;
+        private int startFrame, finishedFrame = -1;
+        private const float DepthIncrement = .01f;
         private HashSet<HoleDetector> affected;
         public bool Enabled { get; set; }
         public bool IsEditing { get; private set; }
         public bool IsTyping => numeric.IsOpen;
+        public event Action<CustomMountPoint> DepthCalibrated;
         public CustomMountPoint Selected => selection.LastOrDefault();
         public IReadOnlyList<CustomMountPoint> SelectedPoints => selection;
         public bool MultiSelectHeld => multiple?.IsCurrentlyPressed == true;
@@ -47,6 +50,7 @@ namespace Protobot {
             var inputs = UnityEngine.Object.FindObjectsByType<InputEvent>(FindObjectsSortMode.None);
             grab = inputs.FirstOrDefault(input => input.name == "Grab Selection");
             rotate = inputs.FirstOrDefault(input => input.name == "Rotate Placement");
+            depth = inputs.FirstOrDefault(input => input.name == "Change Mounting Depth");
             delete = inputs.FirstOrDefault(input => input.name == "Delete Selection");
             multiple = inputs.FirstOrDefault(input => input.name == "Multi-Select Button");
             duplicate = inputs.FirstOrDefault(input => input.name == "Duplicate");
@@ -57,6 +61,7 @@ namespace Protobot {
             duplicator = UnityEngine.Object.FindFirstObjectByType<ObjectDuplicator>();
             if (grab != null) grab.performed += Grab;
             if (rotate != null) rotate.performed += Rotate;
+            if (depth != null) depth.performed += BeginDepth;
             if (delete != null) delete.performed += Delete;
             if (recalibrate != null) recalibrate.performed += RecalibrateGrid;
         }
@@ -64,15 +69,23 @@ namespace Protobot {
         public bool AllowsInput(InputEvent input) => !IsTyping &&
             (input == bypass || input == multiple || input == duplicate ||
                 !IsEditing && (input == undo || input == redo) ||
-                !IsEditing && Selected != null && (input == grab || input == rotate || input == delete || input == recalibrate));
+                !IsEditing && Selected != null && (input == grab || input == rotate || input == depth || input == delete || input == recalibrate) ||
+                IsEditing && changingDepth && input == recalibrate);
         public Pose? SavedPose(CustomMountPoint point) {
             if (IsEditing)
                 foreach (var edit in edits) if (edit.point == point) return edit.before;
             return null;
         }
+        public float? SavedDepth(CustomMountPoint point) {
+            if (IsEditing && changingDepth)
+                foreach (var edit in edits) if (edit.point == point) return edit.depth;
+            return null;
+        }
         public string ControlsText => IsEditing
-            ? $"{SelectionName} · {(duplicating ? "Copy / " : "")}{(rotating ? "Rotate" : "Move")} · {(axis == Vector3.zero ? "surface plane" : axis == Vector3.right ? "X" : axis == Vector3.up ? "Y" : "Z")}\nX/Y/Z: axis    /: exact value    Click / Enter: set    Esc: cancel"
-            : Selected != null ? $"{SelectionName} selected · {grab?.GetCurrentKeybind() ?? "G"}: move · {rotate?.GetCurrentKeybind() ?? "R"}: rotate · Delete: remove\n{recalibrate?.GetCurrentKeybind() ?? "N"}: grid from last selected · {multiple?.GetCurrentKeybind() ?? "Ctrl"}+click: select multiple · Hold {duplicate?.GetCurrentKeybind() ?? "Alt"} with G/R: copy · Esc: deselect"
+            ? changingDepth
+                ? $"{SelectionName} · Depth · mouse: relative change · {DepthIncrement:0.##} in steps · {SnapBypassBinding}: bypass\n/: relative / absolute / mouse · {recalibrate?.GetCurrentKeybind() ?? "N"}: copy depth + diameter for new holes and set · Click / Enter: set · Esc: cancel"
+                : $"{SelectionName} · {(duplicating ? "Copy / " : "")}{(rotating ? "Rotate" : "Move")} · {(axis == Vector3.zero ? "surface plane" : axis == Vector3.right ? "X" : axis == Vector3.up ? "Y" : "Z")}\nX/Y/Z: axis    /: exact value    Click / Enter: set    Esc: cancel"
+            : Selected != null ? $"{SelectionName} selected · {grab?.GetCurrentKeybind() ?? "G"}: move · {rotate?.GetCurrentKeybind() ?? "R"}: rotate · {depth?.GetCurrentKeybind() ?? "B"}: depth · Delete: remove\n{recalibrate?.GetCurrentKeybind() ?? "N"}: grid from last selected · {multiple?.GetCurrentKeybind() ?? "Ctrl"}+click: select multiple · Hold {duplicate?.GetCurrentKeybind() ?? "Alt"} with G/R: copy · Esc: deselect"
             : $"Mounting points · click a surface to add or a ring to select\n{CustomMountGrid.Spacing:0.##} in layout on each plane · {SnapBypassBinding}: bypass · M / Esc: finish";
 
         public void Select(CustomMountPoint point, bool additive = false) {
@@ -92,30 +105,36 @@ namespace Protobot {
         private void Grab() => Begin(false);
         private void Rotate() => Begin(true);
         private void RecalibrateGrid() {
-            if (!Enabled || IsEditing || Selected == null || Selected.IsPreview || !Selected.gameObject.activeInHierarchy ||
+            if (!Enabled || Selected == null || Selected.IsPreview || !Selected.gameObject.activeInHierarchy ||
                 Selected.gameObject.IsDeleted() || KeyboardTransformTool.IsEditingText()) return;
+            if (IsEditing) {
+                if (changingDepth && !IsTyping) { Finish(true); DepthCalibrated?.Invoke(Selected); }
+                return;
+            }
             bool changed = CustomMountGrid.Recalibrate(Selected);
             InteractionFeedback.Notify(changed ? "Grid recalibrated from the last-selected hole; existing holes stay in place."
                 : "This hole already anchors its plane's grid.");
         }
-        public void Begin(bool rotatePoint) {
+        public void Begin(bool rotatePoint) => Begin(rotatePoint, false);
+        public void BeginDepth() => Begin(false, true);
+        private void Begin(bool rotatePoint, bool editDepth) {
             if (!Enabled || Selected == null || IsEditing || KeyboardTransformTool.IsEditingText()) return;
             EventSystem.current?.SetSelectedGameObject(null);
             originals = selection.ToArray();
             affected = HoleDetector.GetAffectedDetectors(originals.Select(p => p.Owner.gameObject).Distinct().ToArray());
-            duplicating = duplicator != null && duplicator.IsDuplicateHeld;
+            duplicating = !editDepth && duplicator != null && duplicator.IsDuplicateHeld;
             if (duplicating) SetSelection(originals.Select(p => p.Owner.CopyMount(p)).ToArray());
             edits.Clear();
             edits.AddRange(selection.Select(point => new EditPoint {
-                point = point, before = point.LocalPose, surface = point.Surface, rotation = point.transform.rotation
+                point = point, before = point.LocalPose, surface = point.Surface, rotation = point.transform.rotation, depth = point.Depth
             }));
-            rotating = rotatePoint; degrees = 0;
+            rotating = rotatePoint; changingDepth = editDepth; degrees = 0;
             surface = rotating && edits.Count > 1
                 ? new Vector3(edits.Average(e => e.surface.x), edits.Average(e => e.surface.y), edits.Average(e => e.surface.z))
                 : Selected.Surface;
             orientation = Selected.transform.rotation;
             gesture.Begin(camera, surface, MouseInput.Position);
-            axis = rotating ? gesture.DefaultRotationAxis : Vector3.zero;
+            axis = changingDepth ? -(orientation * Vector3.forward) : rotating ? gesture.DefaultRotationAxis : Vector3.zero;
             planeStart = PlanePoint(MouseInput.Position);
             paused = false; startFrame = Time.frameCount;
             IsEditing = true;
@@ -130,7 +149,7 @@ namespace Protobot {
                 SetSelection(selection.ToArray());
                 return editing;
             }
-            if (!IsEditing) return false;
+            if (!IsEditing) return finishedFrame == Time.frameCount;
             var keys = Keyboard.current;
             if (keys == null) return true;
             if (MoveRotation.SlashPressed(keys)) {
@@ -145,8 +164,16 @@ namespace Protobot {
             }
             if (pause) { paused = true; return true; }
             if (paused) { ResumeMouse(); paused = false; }
-            if (TransformGesture.TryReadAxis(out var chosen)) axis = axis == chosen ? (rotating ? gesture.DefaultRotationAxis : Vector3.zero) : chosen;
-            if (rotating) {
+            if (!changingDepth && TransformGesture.TryReadAxis(out var chosen)) axis = axis == chosen ? (rotating ? gesture.DefaultRotationAxis : Vector3.zero) : chosen;
+            if (changingDepth) {
+                float offset = Vector3.Dot(gesture.Position(MouseInput.Position, axis, false) - surface, axis);
+                if (TransformSnapping.Active) offset = Mathf.Round(offset / DepthIncrement) * DepthIncrement;
+                // Clamp the shared delta, keeping differences between selected depths intact.
+                float minimum = Mathf.Min(.001f, edits.Min(e => e.depth));
+                offset = Mathf.Clamp(offset, edits.Max(e => minimum - e.depth), edits.Min(e => 100f - e.depth));
+                ApplyDepth(offset);
+            }
+            else if (rotating) {
                 var rotation = gesture.Rotation(MouseInput.Position, axis, orientation, TransformSnapping.Active);
                 degrees = gesture.RotationDegrees;
                 Apply(surface, rotation);
@@ -169,13 +196,13 @@ namespace Protobot {
                 }
                 Apply(target, orientation);
             }
-            if (Time.frameCount != startFrame && (Mouse.current.leftButton.wasPressedThisFrame || keys.enterKey.wasPressedThisFrame || keys.numpadEnterKey.wasPressedThisFrame)) Finish(true);
+            if (Time.frameCount != startFrame && ((Mouse.current.leftButton.wasPressedThisFrame && !MouseInput.overUI) || keys.enterKey.wasPressedThisFrame || keys.numpadEnterKey.wasPressedThisFrame)) Finish(true);
             else if (!rotating && axis != Vector3.zero) {
                 var viewport = camera.pixelRect;
                 viewport = Rect.MinMaxRect(Mathf.Max(0, viewport.xMin), Mathf.Max(0, viewport.yMin), Mathf.Min(Screen.width, viewport.xMax), Mathf.Min(Screen.height, viewport.yMax));
                 var pointer = (Vector2)MouseInput.Position;
                 if (TransformCursor.TryWrap(pointer, viewport, out var wrapped) && CursorWarp.Warp(Mouse.current, wrapped)) {
-                    gesture.RebasePointer(pointer, wrapped);
+                    gesture.RebasePointer(pointer, wrapped, changingDepth ? axis : Vector3.zero);
                     // Returning to the mounting plane must retain movement
                     // measured before the native cursor crossed the screen.
                     planeStart += PlanePoint(wrapped) - PlanePoint(pointer);
@@ -190,8 +217,16 @@ namespace Protobot {
             return plane.Raycast(ray, out float distance) ? ray.GetPoint(distance) : surface;
         }
         private void ResumeMouse() {
-            gesture.Resume(MouseInput.Position, Selected.Surface - surface, rotating ? degrees : 0, axis);
+            var offset = changingDepth ? axis * (Selected.Depth - edits.Last().depth) : Selected.Surface - surface;
+            gesture.Resume(MouseInput.Position, offset, rotating ? degrees : 0, axis);
             planeStart = PlanePoint(MouseInput.Position) - (Selected.Surface - surface);
+        }
+        public bool ApplyDepth(float value, bool absolute = false) {
+            if (!IsEditing || !changingDepth || float.IsNaN(value) || float.IsInfinity(value)) return false;
+            var targets = edits.Select(e => absolute ? value : e.depth + value).ToArray();
+            if (targets.Any(target => target <= 0 || target > 100 || float.IsNaN(target) || float.IsInfinity(target))) return false;
+            for (int i = 0; i < edits.Count; i++) edits[i].point.SetDepth(targets[i], edits[i].surface);
+            return true;
         }
         public void Apply(Vector3 targetSurface, Quaternion rotation) {
             var delta = rotation * Quaternion.Inverse(orientation);
@@ -203,6 +238,14 @@ namespace Protobot {
             }
         }
         private void SubmitNumeric() {
+            if (changingDepth) {
+                bool applied = TransformNumericInput.TryReadNumber(numeric.Text, out float value) &&
+                    ApplyDepth(value, numeric.Mode == TransformNumericInput.InputMode.Global);
+                numeric.Close();
+                if (applied) Finish(true);
+                else { InteractionFeedback.Notify("Depth must be greater than 0 and at most 100 in for every selected hole."); ResumeMouse(); }
+                return;
+            }
             bool valid = TransformNumericInput.TryEvaluate(numeric.Text, numeric.Mode == TransformNumericInput.InputMode.Global,
                 rotating, axis, surface, orientation, out var offset, out var delta, out var numericDegrees);
             numeric.Close();
@@ -214,6 +257,22 @@ namespace Protobot {
         public void Finish(bool confirm) {
             if (!IsEditing) return;
             var valid = edits.Where(e => e.point != null && e.point.Owner != null).ToArray();
+            if (changingDepth) {
+                IsEditing = false; numeric.Close(); finishedFrame = Time.frameCount;
+                var after = new List<IElement>();
+                bool changed = confirm && valid.Any(e => e.depth != e.point.Depth);
+                foreach (var edit in valid) {
+                    if (changed) {
+                        StateSystem.AddElement(edit.point.DepthState(edit.before, edit.depth));
+                        after.Add(edit.point.DepthState(edit.point.LocalPose, edit.point.Depth));
+                    }
+                    if (!confirm) edit.point.SetDepth(edit.depth);
+                    edit.point.ApplyLocalPose(confirm && edit.point.Depth != edit.depth ? edit.point.LocalPose : edit.before, affected);
+                }
+                if (changed) StateSystem.AddState(new State(after));
+                changingDepth = false; edits.Clear(); originals = null;
+                return;
+            }
             var existingCopies = new List<CustomMountPoint>();
             if (confirm && duplicating) {
                 foreach (var edit in valid) {
@@ -288,13 +347,17 @@ namespace Protobot {
         public void End() { Finish(false); Select(null); Enabled = false; }
         public void Draw() {
             if (!IsEditing) return;
-            if (IsTyping) TransformFeedback.DrawNumeric($"{SelectionName} · {numeric.Mode} {(rotating ? "angle (degrees)" : "position / movement (in)")}", numeric.DisplayText, "Enter: set · /: value mode · Esc: cancel");
+            if (IsTyping) TransformFeedback.DrawNumeric(changingDepth
+                ? $"{SelectionName} · {(numeric.Mode == TransformNumericInput.InputMode.Relative ? "Relative depth change" : "Absolute depth")} (in)"
+                : $"{SelectionName} · {numeric.Mode} {(rotating ? "angle (degrees)" : "position / movement (in)")}", numeric.DisplayText, "Enter: set · /: value mode · Esc: cancel");
+            else if (changingDepth) TransformFeedback.Draw($"Depth {Selected.Depth:0.###} in · change {Selected.Depth - edits.Last().depth:+0.###;-0.###;0} in");
             else TransformFeedback.Draw(rotating ? TransformFeedback.Angle(degrees) : TransformFeedback.Distance(Selected.Surface - surface, axis));
         }
         public void Dispose() {
             End();
             if (grab != null) grab.performed -= Grab;
             if (rotate != null) rotate.performed -= Rotate;
+            if (depth != null) depth.performed -= BeginDepth;
             if (delete != null) delete.performed -= Delete;
             if (recalibrate != null) recalibrate.performed -= RecalibrateGrid;
         }

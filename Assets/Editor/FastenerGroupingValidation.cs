@@ -373,13 +373,16 @@ namespace ProtobotEditorTools {
             input.defaultAction.Enable(); input.rebindAction = new RebindAction("Group test " + Guid.NewGuid());
             var clickObject = new GameObject("Individual click probe"); clickObject.SetActive(false);
             var click = clickObject.AddComponent<ClickSelector>();
-            Set(click, "mouseCast", Get<MouseCast>(tool, "mouseCast")); Set(click, "input", input);
+            var cast = Get<MouseCast>(manager.GetComponent<ClickSelector>(), "mouseCast");
+            var oldCastCamera = Get<Camera>(cast, "camera");
+            Set(click, "mouseCast", cast); Set(click, "input", input);
             ISelection picked = null;
             click.setEvent += selection => picked = selection;
             var camera = Get<Camera>(tool, "refCamera");
             var oldPosition = camera.transform.position;
             var oldRotation = camera.transform.rotation;
             try {
+                Set(cast, "camera", camera);
                 field.SetValue(null, input); frame.SetValue(null, -1);
                 camera.transform.SetPositionAndRotation(plate.transform.position + Vector3.left * 10, Quaternion.LookRotation(Vector3.right));
                 InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(plate.transform.position), InputUpdateType.Dynamic);
@@ -406,6 +409,7 @@ namespace ProtobotEditorTools {
                 Invoke(tool, "Finish", false);
             }
             finally {
+                Set(cast, "camera", oldCastCamera);
                 camera.transform.position = oldPosition;
                 camera.transform.rotation = oldRotation;
                 field.SetValue(null, oldInput);

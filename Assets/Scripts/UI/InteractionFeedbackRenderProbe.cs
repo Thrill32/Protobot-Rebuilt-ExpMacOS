@@ -110,9 +110,8 @@ namespace ProtobotEditorTools {
             try {
                 tool.enabled = true;
                 bool numericMode = mode >= 5;
-                bool placementMode = mode == 5;
-                Set("active", mode == 3 || mode == 4 || mode == 6); Set("rotating", mode == 4);
-                Set("holeSnapping", mode == 6);
+                bool placementMode = mode >= 5;
+                Set("active", mode == 3 || mode == 4); Set("rotating", mode == 4);
                 placement.placing = placement.rotating = placementMode;
                 Set("axis", Vector3.zero); Set("targetOffset", Vector3.right * 1.5f); Set("rotationDegrees", 37.5f);
                 if (numericMode) {

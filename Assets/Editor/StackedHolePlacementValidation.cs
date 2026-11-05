@@ -127,7 +127,6 @@ namespace ProtobotEditorTools {
             bool moveToggled = move.toggled;
             var tool = placement.GetComponent<KeyboardTransformTool>();
             var toolCamera = Get<Camera>(tool, "refCamera");
-            var toolCast = Get<MouseCast>(tool, "mouseCast");
             var source = Hole("Moving source", first.transform.position + first.transform.right * 6, first.transform.rotation, .2f);
             var marker = new GameObject("Stack test source face", typeof(MeshFilter)).AddComponent<HoleFace>();
             MultiSelection multi = null;
@@ -183,26 +182,29 @@ namespace ProtobotEditorTools {
                 placement.CancelPlacement(); move.toggled = false;
                 manager.ClearCurrent(false, true, true);
 
-                // G/H may choose only source holes on the selected moving bodies.
-                Set(tool, "refCamera", camera); Set(tool, "mouseCast", cast);
+                // G/H is the same Move entry point for the existing selection.
+                Set(tool, "refCamera", camera);
+                manager.SetCurrent(sourceSelection, true, true);
+                Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
+                var shortcutData = Get<PlacementData>(placement, "currentPlacementData") as GameObjectPlacementData;
+                Require(placement.placing && shortcutData != null && shortcutData.GetGameObject() == marker.gameObject,
+                    "G/H did not reuse the selected source face for Move.");
+                Require(rule.TryGetDisplacement(shortcutData, out var shortcutPose), "G/H lost the Move stack target.");
+                Near(shortcutPose.translation.Position, expected.position, "G/H used a different stack target than Move.");
+                placement.CancelPlacement(); manager.ClearCurrent(false, true, true);
                 multi = new MultiSelection(null, new List<GameObject> { first.holeData.part, middle.holeData.part }) { individual = true };
                 manager.SetCurrent(multi, true, true);
-                Invoke(tool, "BeginSelection", false); Invoke(tool, "ToggleHoleSnap");
-                Invoke(tool, "PreviewSourceHole");
-                Require(Get<HoleFace>(tool, "holePreview").hole == middle.holeData, "G/H source preview crossed into a stationary stack member.");
-                Require((bool)Invoke(tool, "PickSourceHole"), "G/H could not pick the selected stack's source.");
-                Near(Get<Vector3>(tool, "sourceHoleOrigin"), MoveTargeting.HoleFace(middle.holeData, first.transform.forward).position,
-                    "G/H used an external hole as its source anchor.");
-                Invoke(tool, "Finish", false); manager.ClearCurrent(false, true, true);
-                manager.SetCurrent(new ObjectSelection { gameObject = last.holeData.part, individual = true }, true, true);
-                Invoke(tool, "BeginSelection", false); Invoke(tool, "ToggleHoleSnap");
-                Require(!(bool)Invoke(tool, "PickSourceHole"), "G/H picked through stationary foreground holes.");
+                Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
+                shortcutData = Get<PlacementData>(placement, "currentPlacementData") as GameObjectPlacementData;
+                Require(placement.placing && shortcutData?.GetGameObject() == multi.gameObject && shortcutData.individual,
+                    "G/H did not retain the original multi-selection and grouping scope.");
+
             }
             finally {
                 Invoke(tool, "Finish", false);
                 placement.CancelPlacement(); manager.ClearCurrent(false, true, true);
                 move.toggled = moveToggled;
-                Set(tool, "refCamera", toolCamera); Set(tool, "mouseCast", toolCast);
+                Set(tool, "refCamera", toolCamera);
                 camera.transform.SetPositionAndRotation(cameraPose.position, cameraPose.rotation);
                 InputState.Change(Keyboard.current, new KeyboardState(), InputUpdateType.Dynamic); flip.Update();
                 if (!defaultEnabled) flip.defaultAction.Disable();

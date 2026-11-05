@@ -15,7 +15,7 @@ using UnityEngine.UI;
 
 namespace Protobot {
     public sealed class CustomModelTool : MonoBehaviour {
-        [SerializeField] private InputEvent importInput, mountInput, recalibrateInput, orbitInput, panInput, noclipInput;
+        [SerializeField] private InputEvent importInput, mountInput, depthInput, recalibrateInput, orbitInput, panInput, noclipInput;
         [SerializeField] private SelectionManager selectionManager;
         [SerializeField] private Placement placement;
         [SerializeField] private Camera refCamera;
@@ -42,6 +42,7 @@ namespace Protobot {
         public static string ControlsText => instance != null && instance.placingMounts
             ? instance.mountEditor?.ControlsText : null;
         internal static Pose? SavedMountPose(CustomMountPoint point) => instance?.mountEditor?.SavedPose(point);
+        internal static float? SavedMountDepth(CustomMountPoint point) => instance?.mountEditor?.SavedDepth(point);
 
         public static bool AllowsInput(InputEvent input) {
             if (!IsCapturingInput) return true;
@@ -53,6 +54,7 @@ namespace Protobot {
         private void Awake() => instance = this;
         private void Start() {
             mountEditor = new CustomMountEditor(refCamera);
+            mountEditor.DepthCalibrated += CopyMountDimensions;
             importInput.performed += OpenImportSettings;
             mountInput.performed += ToggleMounts;
         }
@@ -161,17 +163,29 @@ namespace Protobot {
 
         private void UpdateTypeLabel() => typeLabel.text = threaded ? "New point: Threaded (screw anchor)" : "New point: Through hole";
 
+        private void CopyMountDimensions(CustomMountPoint point) {
+            diameterField.text = point.Diameter.ToString("G9", CultureInfo.InvariantCulture);
+            depthField.text = point.Depth.ToString("G9", CultureInfo.InvariantCulture);
+            InteractionFeedback.Notify("New-hole depth and diameter copied from the last-selected hole.");
+        }
+
         private void LateUpdate() {
             if (!options && !placingMounts && !busy) return;
             if (Keyboard.current?.escapeKey.wasPressedThisFrame == true && !NativeFileDialogs.IsOpen) {
                 if (!EscapeDeselect.TryHandleEscape()) CancelMode();
                 return;
             }
-            if (!placingMounts) return;
+            if (placingMounts) UpdateMountEditing(Application.isFocused);
+        }
+
+        private void UpdateMountEditing(bool focused) {
             preview.SetActive(false);
-            bool pause = RebindAction.Rebinding || Mouse.current == null || !Application.isFocused ||
-                KeyboardTransformTool.IsEditingText() || MouseInput.overUI || InputEvent.IsNoclipMovementCaptured ||
-                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed || !MouseInput.withinScreen;
+            // A modal edit owns pointer motion across UI and screen edges,
+            // just like G/axis movement; otherwise the top toolbar stops wrapping.
+            bool pointerPaused = !mountEditor.IsEditing && Mouse.current != null && (MouseInput.overUI || !MouseInput.withinScreen);
+            bool pause = RebindAction.Rebinding || Mouse.current == null || !focused ||
+                KeyboardTransformTool.IsEditingText() || pointerPaused || InputEvent.IsNoclipMovementCaptured ||
+                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed;
             movePointButton.interactable = mountEditor.Selected != null && !mountEditor.IsEditing;
             movePointButton.GetComponentInChildren<Text>().text = mountEditor.SelectedPoints.Count > 1 ? "Move selected points" : "Move selected point";
             if (mountEditor.Tick(pause) || pause) return;
@@ -181,7 +195,7 @@ namespace Protobot {
         private void UpdateMountPlacement() {
             var existing = CustomMountPoint.Pick(refCamera.ScreenPointToRay(MouseInput.Position));
             if (existing != null) {
-                validationLabel.text = "Click ring to select · G: move · R: rotate";
+                validationLabel.text = $"Click ring to select · G: move · R: rotate · {depthInput.GetCurrentKeybind()}: depth";
                 if (Time.frameCount != startFrame && Mouse.current.leftButton.wasPressedThisFrame) mountEditor.Select(existing, mountEditor.MultiSelectHeld);
                 return;
             }
@@ -189,7 +203,7 @@ namespace Protobot {
                 validationLabel.text = "Enter dimensions greater than 0, up to 100 in.";
                 return;
             }
-            validationLabel.text = mountEditor.Selected != null ? $"{mountEditor.SelectedPoints.Count} selected · G: move · R: rotate · Delete: remove" : "";
+            validationLabel.text = mountEditor.Selected != null ? $"{mountEditor.SelectedPoints.Count} selected · G: move · R: rotate · {depthInput.GetCurrentKeybind()}: depth" : "";
             // Cast against bodies so previous mounting points do not obscure the surface.
             if (!Physics.Raycast(refCamera.ScreenPointToRay(MouseInput.Position), out var hit, Mathf.Infinity, LayerMask.GetMask("Default"), QueryTriggerInteraction.Ignore) ||
                 !hit.collider.TryGetComponent<CustomModel>(out var model) || model.gameObject.IsDeleted()) return;

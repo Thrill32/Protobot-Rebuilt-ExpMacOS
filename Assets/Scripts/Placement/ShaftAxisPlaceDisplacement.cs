@@ -65,6 +65,19 @@ namespace Protobot {
                     Vector3 offset = shaftTransform.forward * (GetOffset(placementData) + GetInsertsOffset(placementData, HoverObj));
 
                     var rotation = shaftTransform.GetAlignmentRotation(flipInput.IsPressed);
+                    var nut = placementData is PartPlacementData part && part.partType.id == "NUT" ? part : null;
+                    if (nut != null) {
+                        RaycastHit? mountingHit = forwardDistance < backwardDistance && forwardDistance < 0.325f ? forwardHit :
+                            backwardDistance < forwardDistance && backwardDistance < 0.325f ? backwardHit : null;
+                        if (mountingHit.HasValue) {
+                            var hit = mountingHit.Value;
+                            var hole = hit.collider.GetComponent<HoleCollider>();
+                            var face = MoveTargeting.ForHole(hole.holeData, hit.normal, flipInput.IsPressed).face;
+                            displacement = PartHolePlaceDisplacement.Align(nut, face.position, face.rotation);
+                        }
+                        else displacement = new Displacement(shaftMousePos, shaftTransform.GetAlignmentRotation(!flipInput.IsPressed));
+                        return true;
+                    }
 
                     if (forwardDistance < backwardDistance && forwardDistance < 0.325f) {
                         if (placementData.objectId.Contains("Hole")) {

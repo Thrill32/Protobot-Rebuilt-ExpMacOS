@@ -20,6 +20,11 @@ namespace ProtobotEditorTools {
         private static EditorWindow gameView;
         private static bool capturing;
         private static KeyboardTransformTool tool;
+        private static Placement placement;
+        private static HolePlaceDisplacement holeRule;
+        private static Camera camera;
+        private static HoleFace sourceFace;
+        private static object targetPreview;
         private static Screw screw;
 
         [InitializeOnLoadMethod]
@@ -52,10 +57,15 @@ namespace ProtobotEditorTools {
                 }
                 else if (!capturing) {
                     Physics.SyncTransforms();
-                    // Pointer behavior has its own Play Mode suite. Render a known target independently of editor cursor scaling.
-                    Invoke(tool, "ApplyTarget", MoveTargeting.ForScrew(screw));
-                    Get<Tween>(tool, "smoothingTween")?.Complete();
-                    var tracker = Get<GameObject>(Get<object>(tool, "targetPreview"), "screwTracker");
+                    // Pointer behavior has its own Play Mode suite. Keep a fixed
+                    // target while rendering the real tool 2 mesh and marker.
+                    var target = MoveTargeting.ForScrew(screw);
+                    var aligned = MoveTargeting.Align(new Pose(sourceFace.position, sourceFace.LookRotation), target.face,
+                        new Pose(sourceFace.position, sourceFace.Rotation));
+                    Invoke(placement, "ApplyPose", aligned);
+                    placement.transform.DOComplete();
+                    Invoke(targetPreview, "Show", target);
+                    var tracker = Get<GameObject>(targetPreview, "screwTracker");
                     if (!tracker.activeSelf) throw new InvalidOperationException("Screw endpoint tracker did not render.");
                     ScreenCapture.CaptureScreenshot(Output);
                     capturing = true;
@@ -82,7 +92,11 @@ namespace ProtobotEditorTools {
             tool = Object.FindFirstObjectByType<KeyboardTransformTool>();
             GameObject.Find("Splash Screen")?.SetActive(false);
             GameObject.Find("Add Parts Menu")?.SetActive(false);
-            var camera = Get<Camera>(tool, "refCamera");
+            camera = Get<Camera>(tool, "refCamera");
+            placement = Get<Placement>(tool, "placement");
+            holeRule = placement.GetComponent<HolePlaceDisplacement>();
+            placement.enabled = false;
+            holeRule.enabled = false;
             var source = PartsManager.GeneratePart("CCHL-1x2-5", new Vector3(-1, 2, 0), Quaternion.Euler(15, 25, 20));
             PartsManager.GeneratePart("CCHL-1x3-5", new Vector3(1, 1.5f, 1), Quaternion.Euler(0, 15, 0));
             var hole = source.GetComponentInChildren<HoleCollider>();
@@ -94,19 +108,23 @@ namespace ProtobotEditorTools {
             screw = screwObject.GetComponent<Screw>();
             var marker = new GameObject("Render source face", typeof(MeshFilter), typeof(HoleFace));
             var face = marker.GetComponent<HoleFace>();
+            sourceFace = face;
             var normal = Vector3.Dot(hole.transform.forward, camera.transform.forward) > 0 ? -hole.transform.forward : hole.transform.forward;
             face.Set(hole.holeData, normal);
             var manager = Get<SelectionManager>(tool, "selectionManager");
             manager.current = new HoleSelection { gameObject = marker, holeData = hole.holeData, holeFace = face, faceDirection = normal };
             Invoke(tool, "BeginSelection", false);
-            Invoke(tool, "ToggleHoleSnap");
-            if (Get<object>(tool, "movePreview") == null) throw new InvalidOperationException("Generated part did not get a Move preview.");
-            // Keep the actual presentation on screen while batch mode has no OS focus.
-            typeof(KeyboardTransformTool).GetField("active", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(tool, false);
+            Invoke(tool, "MoveFromGrab");
+            if (!placement.placing || Get<object>(placement, "previewVisibility") == null)
+                throw new InvalidOperationException("Generated part did not get the tool 2 Move preview.");
+            Invoke(placement, "Update");
+            targetPreview = Activator.CreateInstance(typeof(HolePlaceDisplacement).Assembly.GetType("Protobot.MoveTargetPreview"),
+                Get<HoleFace>(holeRule, "hoverHoleFace"), Get<Material>(holeRule, "targetMarkerMaterial"));
+            typeof(HolePlaceDisplacement).GetField("targetPreview", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(holeRule, targetPreview);
         }
 
         private static T Get<T>(object obj, string field) => (T)obj.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(obj);
         private static void Invoke(object obj, string method, params object[] args) => obj.GetType()
-            .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(obj, args);
+            .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).Invoke(obj, args);
     }
 }

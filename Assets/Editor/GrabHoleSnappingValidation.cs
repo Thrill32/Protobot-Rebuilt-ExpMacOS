@@ -51,7 +51,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 Check();
-                Debug.Log("Grab hole snapping smoke passed: shared hierarchy-safe preview geometry, Move/GH screw parity and endpoint tracking without drift, preview cleanup, source/target faces, camera navigation, input priority, rigid alignment, original anchors, undo/redo and fastener grouping.");
+                Debug.Log("Grab-to-Move smoke passed: direct tool 2 handoff, rollback before preview, body/multi/hole selection scope, rebound input priority, duplicate cleanup, shared preview geometry, single-click Move rotation/commit and fastener grouping.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) {
@@ -61,218 +61,105 @@ namespace ProtobotEditorTools {
         }
 
         private static void Check() {
+            GameObject.Find("Splash Screen")?.SetActive(false);
+            GameObject.Find("Add Parts Menu")?.SetActive(false);
+            foreach (var raycaster in Object.FindObjectsByType<UnityEngine.EventSystems.BaseRaycaster>(FindObjectsSortMode.None)) raycaster.enabled = false;
             var tool = Object.FindFirstObjectByType<KeyboardTransformTool>();
             var manager = Get<SelectionManager>(tool, "selectionManager");
-            foreach (var field in new[] { "holeSnapInput", "oppositeHoleInput", "mouseCast", "holePreview", "moveSourceIcon", "holeMoveMaterial", "orbitInput", "panInput", "noclipInput" })
+            var placement = Get<Placement>(tool, "placement");
+            foreach (var field in new[] { "holeSnapInput", "moveTool", "moveToolManager", "orbitInput", "panInput", "noclipInput" })
                 Require(new SerializedObject(tool).FindProperty(field).objectReferenceValue != null, "Missing reference: " + field);
             var binding = Get<InputEvent>(tool, "holeSnapInput");
-            Require(binding.defaultAction.bindings[0].path == "<Keyboard>/h", "Hole mode must default to H.");
+            Require(binding.defaultAction.bindings[0].path == "<Keyboard>/h", "Move during grab must default to H.");
             Require(Object.FindObjectsByType<RebindUI>(FindObjectsInactive.Include, FindObjectsSortMode.None).Any(row =>
                 new SerializedObject(row).FindProperty("inputEvent").objectReferenceValue == binding), "Missing H Preferences row.");
-
             var previousStates = StateSystem.states;
             int previousIndex = StateSystem.curIndex;
-            var previousSelection = manager.current;
             var previousCamera = Get<Camera>(tool, "refCamera");
-            var previousCast = Get<MouseCast>(tool, "mouseCast");
-            var previousOpposite = Get<InputEvent>(tool, "oppositeHoleInput");
-            var camera = New("Grab validation camera").AddComponent<Camera>();
-            camera.orthographic = true;
-            camera.orthographicSize = 10;
-            camera.pixelRect = new Rect(0, 0, 800, 600);
+            var camera = New("Move shortcut camera").AddComponent<Camera>();
+            camera.orthographic = true; camera.orthographicSize = 10; camera.pixelRect = new Rect(0, 0, 800, 600);
             var center = new Vector3(1000, -1000, 1000);
             camera.transform.position = center + Vector3.back * 20;
             Set(tool, "refCamera", camera);
-            var cast = camera.gameObject.AddComponent<MouseCast>();
-            // Scene component caching runs at startup; this probe is created afterwards.
-            Set(cast, "camera", camera);
-            Set(tool, "mouseCast", cast);
-            Set(tool, "oppositeHoleInput", Input("Opposite test", "<Keyboard>/space"));
-            var first = Body("First grabbed body", center + new Vector3(-3, 0, 0));
-            var second = Body("Second grabbed body", center + new Vector3(-1, 2, 0));
+            var first = Body("First moving body", center + new Vector3(-3, 0, 0));
+            var second = Body("Second moving body", center + new Vector3(-1, 2, 0));
             var source = Hole(first, new Vector3(.2f, 0, 0));
-            var targetBody = Body("Target body", center + new Vector3(4, 1, 0));
-            var target = Hole(targetBody, Vector3.zero);
-            CheckSingleClickMove(manager, camera, source, target);
-            var firstOutline = first.AddComponent<EPOOutline.Outlinable>();
-            var secondOutline = second.AddComponent<EPOOutline.Outlinable>();
-            secondOutline.enabled = false;
-            var multi = new MultiSelection(null, new List<GameObject> { first, second });
-            temporary.Add(multi.gameObject);
-            multi.Select();
-            manager.current = multi;
-            var startFirst = first.transform.position;
-            var startSecond = second.transform.position;
-            var relative = second.transform.position - first.transform.position;
+            var target = Hole(Body("Target body", center + new Vector3(4, 1, 0)), Vector3.zero);
+            var marker = New("Move shortcut source face"); marker.AddComponent<MeshFilter>();
+            var face = marker.AddComponent<HoleFace>(); face.Set(source.holeData, Vector3.back);
+            var move = Get<MoveToolManager>(tool, "moveToolManager");
+            var toggle = Get<ToolToggle>(tool, "moveTool");
             try {
-                Keys();
-                Invoke(tool, "BeginSelection", false);
-                var originalAnchor = Get<Vector3>(tool, "grabOrigin");
-                CheckPriority(tool);
-                Keys();
-                Invoke(tool, "Finish", false);
-                Invoke(tool, "BeginSelection", false);
-                Invoke(tool, "ToggleHoleSnap");
-                Require(Get<bool>(tool, "holeSnapping") && !Get<bool>(tool, "hasSourceHole"), "Multi-selection must allow source picking.");
-                CheckCameraNavigation(tool, camera, source);
-                CheckSourcePreview(tool, camera, source, target);
-                Invoke(tool, "ChangeAxis", Vector3.right);
-                Require(!Get<HoleFace>(tool, "holePreview").gameObject.activeSelf, "Axis exit left a hole preview visible.");
-                Require(!Get<bool>(tool, "holeSnapping") && Get<Vector3>(tool, "axis") == Vector3.right, "X must leave source picking.");
-                Near(first.transform.position, startFirst, "Exiting source picking moved a part.");
-                Invoke(tool, "ToggleHoleSnap");
-                Point(camera, target.transform.position);
-                Require(!(bool)Invoke(tool, "PickSourceHole"), "Picked a source outside the selection.");
-                Point(camera, source.transform.position);
-                Require((bool)Invoke(tool, "PickSourceHole"), "Could not pick the source hole.");
-                Near(first.transform.position, startFirst, "Rebasing the source pivot moved a part.");
-                CheckMovePresentation(tool, first, second, targetBody);
-                Snap(tool, camera, target, false);
-                Near(source.transform.position - source.transform.forward * .1f,
-                    target.transform.position - target.transform.forward * .1f, "Source face missed the target face.");
-                Require(Vector3.Dot(-source.transform.forward, -target.transform.forward) < -.999f, "Source face did not face the target.");
-                Near(Quaternion.Inverse(first.transform.rotation) * (second.transform.position - first.transform.position), relative, "Rigid spacing changed.");
-                Require(first.transform.parent == multi.pivot.transform && second.transform.parent == multi.pivot.transform,
-                    "Hole snapping changed MultiPivot parenting.");
-                Snap(tool, camera, target, false); // Moving geometry now covers the target in the ray.
-                Require(Get<bool>(tool, "hasMoveTarget"), "Moving colliders blocked the target hole.");
-                Snap(tool, camera, target, true);
-                Near(source.transform.position - source.transform.forward * .1f,
-                    target.transform.position + target.transform.forward * .1f, "Opposite target face failed.");
-                CheckGrabRotation(tool, camera, target.transform.position);
-
-                Keys();
-                var snappedPosition = first.transform.position;
-                var snappedRotation = first.transform.rotation;
-                Invoke(tool, "ToggleHoleSnap");
-                Require(Get<object>(tool, "movePreview") == null && first.GetComponent<Renderer>().enabled &&
-                    second.GetComponent<Renderer>().enabled, "H-to-free did not restore the real renderers.");
-                Require(firstOutline.enabled && !secondOutline.enabled, "H-to-free changed the original outline states.");
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                Complete(tool);
-                Near(first.transform.position, snappedPosition, "H-to-free jumped.");
-                Near(first.transform.rotation, snappedRotation, "H-to-free lost orientation.");
-                Invoke(tool, "ToggleHoleSnap");
-                Invoke(tool, "ChangeAxis", Vector3.up);
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                Complete(tool);
-                Require(Mathf.Abs(multi.pivot.transform.position.x - originalAnchor.x) < .003f &&
-                    Mathf.Abs(multi.pivot.transform.position.z - originalAnchor.z) < .003f,
-                    "H-to-Y must use the original grab anchor for the other coordinates.");
-                snappedPosition = first.transform.position;
-                var mouse = (Vector2)MouseInput.Position + Vector2.up * 30;
-                InputState.Change(Mouse.current.position, mouse, InputUpdateType.Dynamic);
-                Invoke(tool, "Apply", mouse);
-                Complete(tool);
-                var delta = first.transform.position - snappedPosition;
-                Require(delta.y > .1f && Mathf.Abs(delta.x) < .002f && Mathf.Abs(delta.z) < .002f, "Y did not constrain movement after H.");
-                Near(first.transform.rotation, snappedRotation, "Axis movement discarded hole alignment.");
-                Invoke(tool, "Finish", false);
-                Near(first.transform.position, startFirst, "Cancel failed to restore first part.");
-                Near(second.transform.position, startSecond, "Cancel failed to restore second part.");
-
-                // A selected hole should immediately become the anchor for its whole group.
-                multi.gameObject.tag = "Group";
-                var marker = New("Selected source face");
-                marker.AddComponent<MeshFilter>();
-                var face = marker.AddComponent<HoleFace>();
-                face.Set(source.holeData, -Vector3.forward);
-                manager.current = new HoleSelection { gameObject = marker, holeData = source.holeData, holeFace = face, faceDirection = -Vector3.forward };
-                Invoke(tool, "BeginSelection", false);
-                Require(Get<bool>(tool, "hasSourceHole") && Get<List<GameObject>>(tool, "bodies").Count == 2,
-                    "Selected hole did not capture its whole group.");
-                Invoke(tool, "ToggleHoleSnap");
-                Require(Get<object>(tool, "movePreview") != null, "A preselected hole did not get a Move preview.");
-                Keys();
-                Point(camera, target.transform.position);
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                StateSystem.states = new List<State> { new(new List<IElement>()) };
-                StateSystem.curIndex = 0;
-                Invoke(tool, "Finish", true);
-                Require(Get<bool>(tool, "settling") && Get<object>(tool, "movePreview") != null &&
-                    !first.GetComponent<Renderer>().enabled, "Confirmation removed the preview before its easing finished.");
-                Complete(tool);
-                Require(StateSystem.states.Count == 2 && !Get<bool>(tool, "active"), "Hole snap must commit as one undo step.");
-                Require(Get<object>(tool, "movePreview") == null && first.GetComponent<Renderer>().enabled &&
-                    second.GetComponent<Renderer>().enabled, "Confirmation did not restore the real renderers.");
-                var finalPosition = first.transform.position;
-                var finalRotation = first.transform.rotation;
-                StateSystem.instance.Undo();
-                first.transform.DOComplete(); second.transform.DOComplete();
-                Near(first.transform.position, startFirst, "Undo did not restore first part.");
-                Near(second.transform.position, startSecond, "Undo did not restore second part.");
-                StateSystem.instance.Redo();
-                first.transform.DOComplete(); second.transform.DOComplete();
-                Near(first.transform.position, finalPosition, "Redo lost snapped position.");
-                Near(first.transform.rotation, finalRotation, "Redo lost snapped orientation.");
-
-                Invoke(tool, "BeginSelection", false);
-                Invoke(tool, "ToggleHoleSnap");
-                Snap(tool, camera, target, false);
-                Invoke(tool, "ChangeAxis", Vector3.up);
-                var numericAnchor = Get<Vector3>(tool, "grabOrigin");
-                var numericRotation = first.transform.rotation;
-                var numeric = Get<TransformNumericInput>(tool, "numericInput");
-                numeric.Cycle(false);
-                typeof(TransformNumericInput).GetProperty("Text").SetValue(numeric, ".25");
-                Require((bool)Invoke(tool, "SubmitNumeric"), "Numeric entry after H was rejected.");
-                Complete(tool);
-                face.Refresh();
-                Near(face.position, numericAnchor + Vector3.up * .25f, "Numeric entry after H lost the original grab origin.");
-                Near(first.transform.rotation, numericRotation, "Numeric entry after H lost alignment.");
+                CheckSingleClickMove(manager, camera, source, target);
                 CheckSharedGeometry(tool);
-                CheckScrewTargets(tool, manager, camera);
+                var multi = new MultiSelection(null, new List<GameObject> { first, second }) { individual = true };
+                temporary.Add(multi.gameObject);
+                var selections = new ISelection[] {
+                    new ObjectSelection { gameObject = first, individual = true },
+                    multi,
+                    new HoleSelection { gameObject = marker, holeData = source.holeData, holeFace = face, faceDirection = Vector3.back, individual = true }
+                };
+                foreach (var selected in selections) {
+                    manager.SetCurrent(selected, true, true);
+                    ResetCapture();
+                    move.StartMoving();
+                    Require(placement.placing, "Tool 2 did not start a reference preview.");
+                    var expectedMesh = Get<MeshFilter>(placement, "meshFilter").sharedMesh;
+                    var expectedBounds = expectedMesh.bounds;
+                    int expectedVertices = expectedMesh.vertexCount;
+                    placement.CancelPlacement();
+                    var start = new Pose(first.transform.position, first.transform.rotation);
+                    var secondStart = second.transform.position;
+                    int stateIndex = StateSystem.curIndex;
+                    Invoke(tool, "BeginSelection", false);
+                    Invoke(tool, "SetTarget", new Vector3(2, 3, 4), Quaternion.Euler(0, 0, 30)); Complete(tool);
+                    if (selected is HoleSelection movingHole) movingHole.holeFace.Refresh();
+                    Require(Vector3.Distance(first.transform.position, start.position) > .1f, "The grab did not move before handoff.");
+                    Invoke(tool, "MoveFromGrab");
+                    Require(!Get<bool>(tool, "active") && placement.placing && toggle.toggled, "G/H did not activate the existing Move implementation.");
+                    Require(manager.current == selected, "G/H changed the current selection.");
+                    Near(first.transform.position, start.position, "The handoff kept an uncommitted grab offset.");
+                    Near(first.transform.rotation, start.rotation, "The handoff kept an uncommitted grab rotation.");
+                    Near(second.transform.position, secondStart, "The handoff moved another selection member.");
+                    var data = Get<PlacementData>(placement, "currentPlacementData") as GameObjectPlacementData;
+                    Require(data != null && data.GetGameObject() == selected.gameObject && data.individual == selected.individual,
+                        "G/H did not pass the original selection and grouping scope to Move.");
+                    var preview = Get<MeshFilter>(placement, "meshFilter").sharedMesh;
+                    Require(preview.vertexCount == expectedVertices, "G/H generated different geometry from tool 2.");
+                    Near(preview.bounds.center, expectedBounds.center, "G/H preview center differs from tool 2.");
+                    Near(preview.bounds.size, expectedBounds.size, "G/H preview bounds differ from tool 2.");
+                    Get<InputEvent>(placement, "placeInput").performed?.Invoke();
+                    Require(placement.placing, "The shortcut also committed Move on its starting frame.");
+                    Require(StateSystem.curIndex == stateIndex, "Handing off added an undo operation.");
+                    placement.CancelPlacement();
+                    Require(StateSystem.curIndex == stateIndex && first.GetComponent<Renderer>().enabled,
+                        "Move cancellation left an undo operation or a hidden source renderer.");
+                }
+                manager.SetCurrent(new ObjectSelection { gameObject = first, individual = true }, true, true);
+                Invoke(tool, "BeginSelection", false);
+                CheckPriority(tool);
+                // Duplicate's ordinary rollback must also run during the handoff.
+                Invoke(tool, "BeginSelection", false);
+                var copies = Object.FindFirstObjectByType<ObjectDuplicator>().CreateCopies(new[] { first });
+                Get<List<GameObject>>(tool, "duplicates").AddRange(copies);
+                Invoke(tool, "MoveFromGrab");
+                Require(copies.All(copy => copy == null || !copy.activeInHierarchy), "G/H kept temporary grab duplicates.");
+                placement.CancelPlacement();
                 FastenerGroupingValidation.Check(tool, manager);
             }
             finally {
-                Invoke(tool, "Finish", false);
+                Invoke(tool, "Finish", false); placement.CancelPlacement();
+                manager.ClearCurrent(false, true, true);
                 Set(tool, "refCamera", previousCamera);
-                Set(tool, "mouseCast", previousCast);
-                Set(tool, "oppositeHoleInput", previousOpposite);
-                manager.current = previousSelection;
-                StateSystem.states = previousStates;
-                StateSystem.curIndex = previousIndex;
+                StateSystem.states = previousStates; StateSystem.curIndex = previousIndex;
                 foreach (var input in inputs) { input.defaultAction.Dispose(); input.rebindAction.action.Dispose(); }
                 foreach (var obj in temporary.Where(obj => obj != null)) Object.DestroyImmediate(obj);
                 inputs.Clear(); temporary.Clear();
             }
         }
 
-        // Batch Mode has no focused application window; exercise the same modal
-        // input path after LateUpdate's focus/lifecycle guard.
-        private static void HandleInput(KeyboardTransformTool tool) => Invoke(tool, "HandleInput", Keyboard.current, Mouse.current);
-
-        private static void CheckGrabRotation(KeyboardTransformTool tool, Camera camera, Vector3 targetPoint) {
-            var before = new Pose(Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "targetOffset"), Get<Quaternion>(tool, "targetRotation"));
-            var target = Get<MoveTarget>(tool, "currentMoveTarget");
-            Invoke(tool, "Rotate");
-            var adjustment = Get<MoveRotation>(tool, "moveRotation");
-            Require(adjustment.Active && adjustment.Attachment.HasValue, "R did not rotate G/H around its target.");
-            Near(adjustment.Axis, target.face.rotation * Vector3.forward, "G/H used the wrong target axis.");
-            MoveRotationValidation.TurnPointer(camera, adjustment, () => Invoke(tool, "Apply", (Vector2)MouseInput.Position));
-            Complete(tool);
-            var delta = Quaternion.AngleAxis(adjustment.Degrees, adjustment.Axis);
-            var expected = MoveRotation.Around(before, target.face.position, delta);
-            Near(Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "targetOffset"), expected.position, "G/H rotated around the wrong pivot.");
-            Near(Get<Quaternion>(tool, "targetRotation"), expected.rotation, "G/H rotation did not use the shared placement gesture.");
-            Require(Mathf.Abs(adjustment.Degrees) > 80 && Get<bool>(tool, "holeSnapping"), "G/H rotation discarded hole mode.");
-            Invoke(tool, "Rotate");
-            Require(!adjustment.Active, "R did not resume G/H positioning.");
-            Point(camera, targetPoint);
-            Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-            Complete(tool);
-            Near(Get<Quaternion>(tool, "targetRotation"), expected.rotation, "G/H retargeting discarded its twist.");
-
-            // A second rotation can finish with no target under the pointer,
-            // rotating about the camera's nearest world axis at the current pose.
-            InputState.Change(Mouse.current.position, new Vector2(750, 550), InputUpdateType.Dynamic);
-            Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-            Require(!Get<bool>(tool, "hasMoveTarget"), "Free-rotation probe still targets geometry.");
-            Invoke(tool, "Rotate");
-            Require(adjustment.Active && !adjustment.Attachment.HasValue, "G/H without a target did not start free rotation.");
-            Near(adjustment.Axis, TransformGesture.PrimaryAxis(camera.transform.forward), "Free G/H rotation used the wrong camera axis.");
-            Invoke(tool, "Rotate");
-        }
+        private static void ResetCapture() => typeof(KeyboardTransformTool)
+            .GetField("finishedFrame", BindingFlags.NonPublic | BindingFlags.Static).SetValue(null, -1);
 
         private static void CheckSingleClickMove(SelectionManager manager, Camera camera, HoleCollider source, HoleCollider target) {
             var click = manager.GetComponent<ClickSelector>();
@@ -437,279 +324,6 @@ namespace ProtobotEditorTools {
             }
         }
 
-        private static void CheckScrewTargets(KeyboardTransformTool tool, SelectionManager manager, Camera camera) {
-            var previous = manager.current;
-            var cameraPosition = camera.transform.position;
-            var cameraRotation = camera.transform.rotation;
-            var center = new Vector3(1300, -1000, 1000);
-            camera.transform.SetPositionAndRotation(center + Vector3.back * 20, Quaternion.identity);
-            var body = Body("Screw snapped body", center + new Vector3(-3, 2, 0));
-            var source = Hole(body, Vector3.zero);
-            var marker = New("Screw snap source");
-            marker.tag = "Hole";
-            marker.AddComponent<MeshFilter>();
-            var face = marker.AddComponent<HoleFace>();
-            face.Set(source.holeData, Vector3.back);
-            var screwObject = PartsManager.GeneratePart("SCRW-1.00in", center, Quaternion.Euler(20, 35, 12));
-            temporary.Add(screwObject);
-            var screw = screwObject.GetComponent<Screw>();
-            camera.transform.position = center + screw.transform.forward * 20;
-            camera.transform.LookAt(center);
-            var support = Body("Stationary screw stack", center - screw.transform.forward * .45f);
-            support.transform.rotation = screw.transform.rotation;
-            var bore = Hole(support, Vector3.zero);
-            var legacy = Get<Placement>(tool, "placement").GetComponent<HolePlaceDisplacement>();
-            var previousOpposite = Get<InputEvent>(legacy, "oppositeHoleInput");
-            var previousCast = Get<MouseCast>(legacy, "mouseCast");
-            Set(legacy, "oppositeHoleInput", Get<InputEvent>(tool, "oppositeHoleInput"));
-            Set(legacy, "mouseCast", Get<MouseCast>(tool, "mouseCast"));
-            manager.current = new HoleSelection { gameObject = marker, holeData = source.holeData, holeFace = face, faceDirection = Vector3.back };
-            var start = body.transform.position;
-            try {
-                Keys();
-                Invoke(tool, "BeginSelection", false);
-                Invoke(tool, "ToggleHoleSnap");
-                Point(camera, screw.transform.position);
-                support.SetActive(false);
-                Physics.SyncTransforms();
-                Require(MoveTargeting.TryRaycast(Get<MouseCast>(tool, "mouseCast").ray,
-                    Get<MouseCast>(tool, "mouseCast").layerMask, false, true, null, out var bare), "Bare screw is not targetable.");
-                Near(bare.face.position, screw.transform.position, "Bare screw did not use its original head anchor.");
-                support.SetActive(true);
-                var blocker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                temporary.Add(blocker);
-                blocker.transform.position = center + screw.transform.forward;
-                Point(camera, screw.transform.position);
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                Require(!Get<bool>(tool, "hasMoveTarget"), "A screw behind an ordinary body remained targetable.");
-                blocker.SetActive(false);
-                Physics.SyncTransforms();
-                Require(MoveTargeting.TryRaycast(Get<MouseCast>(tool, "mouseCast").ray,
-                    Get<MouseCast>(tool, "mouseCast").layerMask, false, true, null, out var screwTarget) && screwTarget.screw == screw,
-                    "Screw fixture does not expose the screw head to the pointer.");
-                var probeRay = new Ray(screw.transform.position + screw.transform.forward * .1f, -screw.transform.forward);
-                var probeHits = Physics.RaycastAll(probeRay, screw.ScrewLength);
-                Near(screwTarget.face.position, bore.transform.position - bore.transform.forward * .1f,
-                    $"Screw did not find the stationary endpoint (length {screw.ScrewLength}, hits {string.Join(", ", probeHits.Select(hit => hit.collider.name))}).");
-                Require(legacy.TryGetDisplacement(new GameObjectPlacementData(marker, legacy.transform), out var move),
-                    "Legacy Move did not resolve the screw through the shared target resolver.");
-                var rotation = move.rotation.Orientation * Quaternion.Inverse(face.Rotation);
-                var expectedPosition = move.translation.Position + rotation * (body.transform.position - face.position);
-                var expectedRotation = rotation * body.transform.rotation;
-                for (int i = 0; i < 4; i++) {
-                    Point(camera, screw.transform.position);
-                    Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                    Require(Get<bool>(tool, "hasMoveTarget"), "G/H failed to acquire a screw target.");
-                    Complete(tool);
-                    Physics.SyncTransforms();
-                    Near(body.transform.position, expectedPosition, "Screw endpoint drifted as moving holes entered its stack.");
-                    Near(body.transform.rotation, expectedRotation, "G/H screw alignment differs from Move.");
-                    Near(source.transform.position - source.transform.forward * .1f,
-                        bore.transform.position - bore.transform.forward * .1f, "Screw snap missed the last stationary hole's outer face.");
-                }
-                var tracker = Get<GameObject>(Get<object>(tool, "targetPreview"), "screwTracker");
-                Require(tracker.activeSelf && tracker.GetComponentsInChildren<Collider>().Length == 0,
-                    "Screw tracker is missing or intercepts input.");
-                Near(tracker.transform.position, move.translation.Position, "Screw tracker is not at the actual endpoint.");
-                CheckGrabRotation(tool, camera, screw.transform.position);
-                Invoke(tool, "ToggleHoleSnap");
-                Require(!tracker.activeSelf, "Leaving H mode left a screw tracker visible.");
-                Invoke(tool, "ToggleHoleSnap");
-                support.transform.position -= screw.transform.forward * .15f;
-                Physics.SyncTransforms();
-                Point(camera, screw.transform.position);
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                Complete(tool);
-                Near(tracker.transform.position, bore.transform.position - bore.transform.forward * .1f,
-                    "Screw tracker did not refresh after the stationary stack changed.");
-                Keys(Key.Space);
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                Complete(tool);
-                Near(tracker.transform.position, bore.transform.position - bore.transform.forward * .1f,
-                    "Opposite-hole input changed the screw endpoint.");
-                Keys();
-                Invoke(tool, "Finish", false);
-                Near(body.transform.position, start, "Cancel did not restore a screw-snapped body.");
-                Require(!tracker.activeSelf && body.GetComponent<Renderer>().enabled, "Cancel left screw presentation active.");
-
-                Invoke(tool, "BeginSelection", false);
-                Invoke(tool, "ToggleHoleSnap");
-                Point(camera, screw.transform.position);
-                Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-                Complete(tool);
-                StateSystem.states = new List<State> { new(new List<IElement>()) };
-                StateSystem.curIndex = 0;
-                Invoke(tool, "Rotate");
-                var rotationEntry = Get<MoveRotation>(tool, "moveRotation");
-                var beforeNumeric = new Pose(Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "targetOffset"), Get<Quaternion>(tool, "targetRotation"));
-                Keys(Key.Slash); HandleInput(tool); Keys();
-                Require(rotationEntry.NumericInput.IsOpen && !KeyboardTransformTool.AllowsInput(Get<InputEvent>(tool, "rotateInput")) &&
-                    KeyboardTransformTool.BlocksCameraNavigation, "G/H slash entry did not capture input.");
-                MoveRotationValidation.TypeText("-22.5");
-                Require(rotationEntry.NumericInput.Text == "-22.5", "G/H rotation did not receive numeric text.");
-                var expectedNumeric = MoveRotation.Twist(beforeNumeric, rotationEntry.Attachment.Value, -22.5f);
-                Keys(Key.Enter); HandleInput(tool); Complete(tool); Keys();
-                Near(Get<Quaternion>(tool, "targetRotation"), expectedNumeric.rotation, "G/H did not apply the exact entered rotation.");
-                var finalPosition = body.transform.position;
-                var finalRotation = body.transform.rotation;
-                Require(StateSystem.states.Count == 2 && !tracker.activeSelf, "Screw snap did not commit as one operation and clear its tracker.");
-                StateSystem.instance.Undo(); body.transform.DOComplete();
-                Near(body.transform.position, start, "Undo did not restore the screw-snapped source.");
-                StateSystem.instance.Redo(); body.transform.DOComplete();
-                Near(body.transform.position, finalPosition, "Redo lost the screw endpoint.");
-                Near(body.transform.rotation, finalRotation, "Redo lost the screw alignment.");
-                Near(screw.transform.position, center, "Screw snap or undo/redo moved the stationary screw.");
-
-                manager.current = new ObjectSelection { gameObject = body };
-                Invoke(tool, "BeginSelection", false);
-                Invoke(tool, "ToggleHoleSnap");
-                Point(camera, screw.transform.position);
-                Require(!(bool)Invoke(tool, "PickSourceHole"), "Source picking accepted an outside screw as a source hole.");
-                Invoke(tool, "Finish", false);
-            }
-            finally {
-                Invoke(tool, "Finish", false);
-                Set(legacy, "oppositeHoleInput", previousOpposite);
-                Set(legacy, "mouseCast", previousCast);
-                Invoke(legacy, "LateUpdate");
-                manager.current = previous;
-                camera.transform.SetPositionAndRotation(cameraPosition, cameraRotation);
-                Keys();
-            }
-        }
-
-        private static void CheckMovePresentation(KeyboardTransformTool tool, GameObject first, GameObject second, GameObject target) {
-            var presentation = Get<object>(tool, "movePreview");
-            Require(presentation != null, "Source selection did not show the Move preview.");
-            var preview = Get<GameObject>(presentation, "preview");
-            var renderer = preview.GetComponent<MeshRenderer>();
-            var icon = Get<UnityEngine.UI.Image>(presentation, "sourceIcon");
-            Require(!first.GetComponent<Renderer>().enabled && !second.GetComponent<Renderer>().enabled &&
-                target.GetComponent<Renderer>().enabled, "Move preview must replace only the moving bodies.");
-            Require(!first.GetComponent<EPOOutline.Outlinable>().enabled && !second.GetComponent<EPOOutline.Outlinable>().enabled,
-                "The solid bodies' outlines must not overlay the Move preview.");
-            Require(preview.GetComponentsInChildren<Collider>().Length == 0 && !icon.raycastTarget &&
-                icon.GetComponentInParent<UnityEngine.UI.GraphicRaycaster>() == null, "Preview visuals must not intercept source/target input.");
-            Require(icon.sprite == Get<UnityEngine.UI.Image>(tool, "moveSourceIcon").sprite, "Source marker does not use Move's icon.");
-            Near(preview.transform.position, Get<Vector3>(tool, "origin") + Get<Vector3>(tool, "displayedOffset"),
-                "Move preview is not anchored to the source face.");
-            var expected = first.GetComponent<Renderer>().bounds;
-            expected.Encapsulate(second.GetComponent<Renderer>().bounds);
-            Near(renderer.bounds.center, expected.center, "Combined preview changed the rigid set's center.");
-            Near(renderer.bounds.size, expected.size, "Combined preview lost part geometry.");
-            Require(renderer.sharedMaterial.GetColor("_BaseColor").a < .5f && renderer.sharedMaterial.GetFloat("_ZWrite") == 0,
-                "Move preview is not translucent.");
-            var placement = Get<Placement>(tool, "placement");
-            Require(placement.GetComponent<Renderer>().sharedMaterial.GetFloat("_Surface") == 0,
-                "Grab changed the shared placement material.");
-            var style = preview.GetComponent<EPOOutline.Outlinable>();
-            var template = placement.GetComponent<EPOOutline.Outlinable>();
-            Require(style.OutlineParameters.FillPass.Shader == template.OutlineParameters.FillPass.Shader &&
-                style.OutlineParameters.FillPass.Material != null, "Move's animated fill was not carried across.");
-        }
-
-        private static void CheckSourcePreview(KeyboardTransformTool tool, Camera camera, HoleCollider source, HoleCollider target) {
-            var preview = Get<HoleFace>(tool, "holePreview");
-            Point(camera, target.transform.position);
-            HandleInput(tool);
-            Require(!preview.gameObject.activeSelf, "Source preview highlighted a hole outside the selection.");
-            Point(camera, source.transform.position);
-            Keys();
-            HandleInput(tool);
-            Require(preview.gameObject.activeSelf && preview.hole == source.holeData, "Source hover did not highlight the picked hole.");
-            Near(preview.position, source.transform.position - Vector3.forward * .1f, "Source hover highlighted the wrong face.");
-            Keys(Key.Space);
-            HandleInput(tool);
-            Near(preview.position, source.transform.position + Vector3.forward * .1f, "Space did not highlight the opposite source face.");
-            Require(Vector3.Dot(preview.direction, Vector3.forward) > .999f, "Opposite source preview has the wrong direction.");
-            Keys();
-            HandleInput(tool);
-            Near(preview.position, source.transform.position - Vector3.forward * .1f, "Releasing Space did not restore the hovered source face.");
-            Keys(Key.Space);
-            Button(MouseButton.Left, true);
-            HandleInput(tool);
-            Button(MouseButton.Left, false);
-            Require(Get<bool>(tool, "hasSourceHole") && !preview.gameObject.activeSelf, "Source click did not commit and clear its hover preview.");
-            Near(Get<Vector3>(tool, "sourceHoleOrigin"), source.transform.position + Vector3.forward * .1f, "Source click ignored the held opposite-face modifier.");
-            Snap(tool, camera, target, false);
-            Near(source.transform.position + source.transform.forward * .1f,
-                target.transform.position - target.transform.forward * .1f, "Opposite source face did not meet the target face.");
-            Invoke(tool, "Finish", false);
-            Require(!preview.gameObject.activeSelf, "Cancel left the hole preview visible.");
-            Require(Get<object>(tool, "movePreview") == null && source.holeData.part.GetComponent<Renderer>().enabled,
-                "Cancel did not restore the source renderer.");
-            Keys();
-            Invoke(tool, "BeginSelection", false);
-            Invoke(tool, "ToggleHoleSnap");
-            Point(camera, source.transform.position);
-            HandleInput(tool);
-            Require(preview.gameObject.activeSelf, "Source preview did not return after cancellation.");
-        }
-
-        private static void CheckCameraNavigation(KeyboardTransformTool tool, Camera camera, HoleCollider source) {
-            var obj = New("Grab camera input probe");
-            obj.SetActive(false);
-            var cameraInput = obj.AddComponent<MousePivotCameraInput>();
-            Set(cameraInput, "orbitInput", Get<InputEvent>(tool, "orbitInput"));
-            Set(cameraInput, "panInput", Get<InputEvent>(tool, "panInput"));
-            int orbits = 0, pans = 0, zooms = 0;
-            cameraInput.updateOrbit += _ => orbits++;
-            cameraInput.updatePan += _ => pans++;
-            cameraInput.updateZoom += _ => zooms++;
-            var noclip = Object.FindFirstObjectByType<NoclipCameraInput>();
-            var start = source.transform.position;
-            Require(KeyboardTransformTool.AllowsCameraNavigation && KeyboardTransformTool.AllowsInput(Get<InputEvent>(tool, "noclipInput")),
-                "H mode blocked camera/noclip navigation.");
-            if (Application.isFocused)
-                Require((bool)Invoke(noclip, "CanCaptureInput"), "H mode blocked noclip activation.");
-            try {
-                Point(camera, source.transform.position);
-                InputState.Change(Mouse.current.delta, new Vector2(10, 5), InputUpdateType.Dynamic);
-                Button(MouseButton.Right, true);
-                Get<InputEvent>(tool, "orbitInput").Update();
-                Invoke(cameraInput, "Update");
-                HandleInput(tool);
-                Require(orbits == 1 && Get<bool>(tool, "active"), "Right-click did not orbit or canceled H mode.");
-                Require(!Get<bool>(tool, "hasSourceHole"), "Orbit selected a source hole.");
-                Button(MouseButton.Right, false);
-                Get<InputEvent>(tool, "orbitInput").Update();
-                Button(MouseButton.Middle, true);
-                Get<InputEvent>(tool, "panInput").Update();
-                Invoke(cameraInput, "Update");
-                HandleInput(tool);
-                Require(pans == 1 && Get<bool>(tool, "active"), "H mode blocked camera pan.");
-                Button(MouseButton.Middle, false);
-                Get<InputEvent>(tool, "panInput").Update();
-                InputState.Change(Mouse.current.position, new Vector2(Screen.width / 2f, Screen.height / 2f), InputUpdateType.Dynamic);
-                InputState.Change(Mouse.current.scroll, Vector2.up, InputUpdateType.Dynamic);
-                Invoke(cameraInput, "Update");
-                Require(zooms == 1, "H mode blocked scroll zoom.");
-                InputEvent.SetNoclipMovementCapture(true);
-                Button(MouseButton.Left, true);
-                HandleInput(tool);
-                Require(!Get<bool>(tool, "hasSourceHole"), "Noclip click selected a source hole.");
-                Near(source.transform.position, start, "Camera navigation moved the selection.");
-                InputEvent.SetNoclipMovementCapture(false);
-                Button(MouseButton.Left, false);
-                Invoke(tool, "LeaveHoleSnap");
-                Require(KeyboardTransformTool.BlocksCameraNavigation && !(bool)Invoke(noclip, "CanCaptureInput"),
-                    "Free grab unexpectedly allowed camera input.");
-                Invoke(tool, "ToggleHoleSnap");
-                var numeric = Get<TransformNumericInput>(tool, "numericInput");
-                numeric.Cycle(true);
-                Require(KeyboardTransformTool.BlocksCameraNavigation, "Numeric entry allowed camera input.");
-                numeric.Close();
-            }
-            finally {
-                Button(MouseButton.Right, false);
-                Button(MouseButton.Middle, false);
-                Button(MouseButton.Left, false);
-                InputState.Change(Mouse.current.scroll, Vector2.zero, InputUpdateType.Dynamic);
-                InputState.Change(Mouse.current.delta, Vector2.zero, InputUpdateType.Dynamic);
-                InputEvent.SetNoclipMovementCapture(false);
-            }
-        }
-
         private static void CheckPriority(KeyboardTransformTool tool) {
             var grab = Get<InputEvent>(tool, "grabInput");
             var rotate = Get<InputEvent>(tool, "rotateInput");
@@ -736,26 +350,34 @@ namespace ProtobotEditorTools {
                     }
                 }
                 Set(tool, "rotating", false);
+                var placement = Get<Placement>(tool, "placement");
                 var grid = Input("Toggle Grid", "<Keyboard>/h");
                 var h = Input("Grab Hole Snap", "<Keyboard>/h");
                 Set(tool, "holeSnapInput", h);
-                h.performed += () => Invoke(tool, "ToggleHoleSnap");
+                h.performed += () => Invoke(tool, "MoveFromGrab");
                 int gridChanges = 0;
                 grid.performed += () => gridChanges++;
                 Keys(Key.H); grid.Update(); h.Update();
-                Require(gridChanges == 0 && Get<bool>(tool, "holeSnapping"), "H did not override grid before its handler ran.");
-                Keys(); grid.Update(); h.Update();
+                Require(gridChanges == 0 && placement.placing && !Get<bool>(tool, "active"), "H did not hand off to Move before the grid handler.");
+                Keys(); grid.Update(); h.Update(); placement.CancelPlacement();
+                Invoke(tool, "BeginSelection", false);
                 Keys(Key.H); h.Update(); grid.Update();
-                Require(gridChanges == 0 && !Get<bool>(tool, "holeSnapping"), "Second H did not restore free movement.");
-                Keys(); grid.Update(); h.Update();
-                h.defaultAction.Disable(); h.rebindAction.action.AddBinding("<Keyboard>/k");
+                Require(gridChanges == 0 && placement.placing, "H leaked to the grid when the shortcut handler ran first.");
+                Keys(); grid.Update(); h.Update(); placement.CancelPlacement();
+                Invoke(tool, "BeginSelection", false);
+                h.defaultAction.Disable(); h.rebindAction.action.AddBinding("<Keyboard>/k"); h.rebindAction.action.Enable();
                 Keys(Key.K); h.Update();
-                Require(Get<bool>(tool, "holeSnapping"), "Rebound H mode was ignored.");
-                Invoke(tool, "LeaveHoleSnap");
+                Require(placement.placing && !Get<bool>(tool, "active"), "The rebound shortcut did not start Move.");
+                Keys(); h.Update(); placement.CancelPlacement();
+                Invoke(tool, "BeginSelection", true);
+                Keys(Key.K); h.Update();
+                Require(!placement.placing && Get<bool>(tool, "active"), "The Move shortcut interrupted rotation.");
                 Keys(); h.Update();
-                Set(tool, "rotating", true);
-                Keys(Key.H); grid.Update();
-                Require(gridChanges == 1, "Grid H should remain available in rotation mode.");
+                var numeric = Get<TransformNumericInput>(tool, "numericInput");
+                numeric.Cycle(false);
+                Require(!KeyboardTransformTool.AllowsInput(h), "Numeric entry allowed the Move shortcut.");
+                numeric.Close();
+                Invoke(tool, "Finish", false);
             }
             finally {
                 Keys(); Set(tool, "rotating", false);
@@ -763,33 +385,10 @@ namespace ProtobotEditorTools {
             }
         }
 
-        private static void Snap(KeyboardTransformTool tool, Camera camera, HoleCollider target, bool opposite) {
-            if (opposite) Keys(Key.Space); else Keys();
-            Point(camera, target.transform.position);
-            Invoke(tool, "Apply", (Vector2)MouseInput.Position);
-            Require(Get<bool>(tool, "hasMoveTarget"), "Target hole was not resolved.");
-            var preview = Get<HoleFace>(tool, "holePreview");
-            Require(preview.gameObject.activeSelf && preview.hole == target.holeData, "Target preview did not highlight the target hole.");
-            Near(preview.position, target.transform.position + (opposite ? 1 : -1) * target.transform.forward * .1f,
-                "Target preview highlighted the wrong face.");
-            Complete(tool);
-            Physics.SyncTransforms();
-        }
-
         private static void Complete(KeyboardTransformTool tool) => Get<Tween>(tool, "smoothingTween")?.Complete();
         private static void Point(Camera camera, Vector3 point) {
             InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(point), InputUpdateType.Dynamic);
             Physics.SyncTransforms();
-        }
-        private static void Button(MouseButton button, bool pressed) {
-            var mouse = Mouse.current;
-            var state = new MouseState {
-                position = mouse.position.ReadValue(), delta = mouse.delta.ReadValue(), scroll = mouse.scroll.ReadValue()
-            }.WithButton(MouseButton.Left, mouse.leftButton.isPressed)
-                .WithButton(MouseButton.Right, mouse.rightButton.isPressed)
-                .WithButton(MouseButton.Middle, mouse.middleButton.isPressed)
-                .WithButton(button, pressed);
-            InputState.Change(mouse, state, InputUpdateType.Dynamic);
         }
         private static void Keys(params Key[] keys) {
             typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,

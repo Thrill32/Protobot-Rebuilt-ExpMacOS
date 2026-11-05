@@ -87,6 +87,7 @@ namespace ProtobotEditorTools {
                 MoveRotationValidation.CheckPlacement(placement, camera, cast, data, hole);
                 ValidateFreePlacement(placement, camera, cast);
                 ValidateMotorShaftInsertion();
+                NutPlacementValidation.Check(placement, cast, flip);
                 Debug.Log("Initial hole placement runtime smoke passed: pointer raycast, opposite face, preview rule chain, committed pose, repeated placement, property refresh, existing-object exclusion, corrected free-placement previews/commits for both rail types and sensor/motor variants, and normal/high-strength shaft insertion into both motor sockets.");
                 EditorApplication.Exit(0);
             }
@@ -248,7 +249,7 @@ namespace ProtobotEditorTools {
                 try {
                     var normal = rotation * Vector3.forward;
                     bool matched = part.GetComponentsInChildren<HoleCollider>(true).Any(hole => {
-                        float faceSign = generator.FlipPlacement ? -1 : 1;
+                        float faceSign = generator.FlipPlacement || type.id == "NUT" ? -1 : 1;
                         var face = hole.transform.position - hole.transform.forward * faceSign *
                             (hole.transform.TransformVector(Vector3.forward).magnitude / 2f);
                         return Vector3.Distance(face, target) < .001f && Vector3.Dot(hole.transform.forward, normal) * faceSign > .999f;

@@ -34,7 +34,7 @@ namespace ProtobotEditorTools {
             var tool = Object.FindFirstObjectByType<CustomModelTool>();
             Require(tool != null, "Main scene is missing the custom model controller.");
             var data = new SerializedObject(tool);
-            foreach (var field in new[] { "importInput", "mountInput", "recalibrateInput", "orbitInput", "panInput", "noclipInput", "selectionManager", "placement", "refCamera" })
+            foreach (var field in new[] { "importInput", "mountInput", "depthInput", "recalibrateInput", "orbitInput", "panInput", "noclipInput", "selectionManager", "placement", "refCamera" })
                 Require(data.FindProperty(field).objectReferenceValue != null, "Missing custom-model reference: " + field);
             var inputs = Object.FindObjectsByType<InputEvent>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             var rows = Object.FindObjectsByType<RebindUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
