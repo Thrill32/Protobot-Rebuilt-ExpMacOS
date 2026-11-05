@@ -7,7 +7,10 @@ namespace Protobot {
         [SerializeField] private CustomMountData data;
         [SerializeField] private CustomModel owner;
         public CustomModel Owner => owner != null ? owner : owner = GetComponentInParent<CustomModel>();
+        public bool IsPreview { get; private set; }
+        public float Diameter => data.diameter;
         public float Depth => data.depth;
+        public bool Threaded => data.threaded;
         public Vector3 Surface => transform.position + transform.forward * (data.depth * .5f);
         public Pose LocalPose => transform.parent == Owner.transform ? new Pose(transform.localPosition, transform.localRotation)
             : new Pose(Owner.transform.InverseTransformPoint(transform.position), Quaternion.Inverse(Owner.transform.rotation) * transform.rotation);
@@ -42,12 +45,18 @@ namespace Protobot {
             foreach (var renderer in GetComponentsInChildren<MeshRenderer>(true)) renderer.SetPropertyBlock(block);
         }
 
+        internal void SetPreview(bool preview) {
+            IsPreview = preview;
+            GetComponent<Collider>().enabled = !preview;
+            GetComponent<HoleCollider>().enabled = !preview;
+        }
+
         // Pick either mounting face as a disk, including its empty center.
         // No extra physics collider is added to fastener overlap detection.
         public static CustomMountPoint Pick(Ray ray) {
             CustomMountPoint best = null; float distance = float.PositiveInfinity;
             foreach (var point in FindObjectsByType<CustomMountPoint>(FindObjectsSortMode.None)) {
-                if (point.Owner == null || point.gameObject.IsDeleted()) continue;
+                if (point.Owner == null || point.IsPreview || point.gameObject.IsDeleted()) continue;
                 foreach (float side in new[] { -1f, 1f }) {
                     var center = point.transform.position + point.transform.forward * (side * (point.Depth * .5f + .004f));
                     var plane = new Plane(point.transform.forward, center);
@@ -106,7 +115,10 @@ namespace Protobot {
             StateSystem.AddState(new MountElement(this, false));
         }
 
-        private void SetExists(bool exists) {
+        internal IElement PoseState(Pose pose) => new PoseElement(this, pose);
+        internal IElement ExistenceState(bool exists) => new MountElement(this, exists);
+
+        internal void SetExists(bool exists) {
             if (this == null) return;
             var owner = transform.parent.gameObject;
             var affected = HoleDetector.GetAffectedDetectors(owner);

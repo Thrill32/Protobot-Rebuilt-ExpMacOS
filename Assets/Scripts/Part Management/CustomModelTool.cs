@@ -138,7 +138,7 @@ namespace Protobot {
             placingMounts = true; startFrame = Time.frameCount;
             mountEditor.Enabled = true;
             var panel = CreatePanel("Add / Edit Mounting Points", false, 385);
-            AddLabel(panel, "Click a surface to add, or a ring to select. Move selected point works across pre-made holes. Dimensions are in inches.", 45, 75);
+            AddLabel(panel, $"Click a surface to add on its {CustomMountGrid.Spacing:0.##} in layout. Select rings to move/copy points, including over pre-made holes. Dimensions are in inches.", 45, 75);
             AddLabel(panel, "New diameter", 125, 30, 140);
             diameterField = AddField(panel, "0.169", 125);
             AddLabel(panel, "New depth", 170, 30, 140);
@@ -171,6 +171,7 @@ namespace Protobot {
                 KeyboardTransformTool.IsEditingText() || MouseInput.overUI || InputEvent.IsNoclipMovementCaptured ||
                 orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed || !MouseInput.withinScreen;
             movePointButton.interactable = mountEditor.Selected != null && !mountEditor.IsEditing;
+            movePointButton.GetComponentInChildren<Text>().text = mountEditor.SelectedPoints.Count > 1 ? "Move selected points" : "Move selected point";
             if (mountEditor.Tick(pause) || pause) return;
             UpdateMountPlacement();
         }
@@ -179,22 +180,31 @@ namespace Protobot {
             var existing = CustomMountPoint.Pick(refCamera.ScreenPointToRay(MouseInput.Position));
             if (existing != null) {
                 validationLabel.text = "Click ring to select · G: move · R: rotate";
-                if (Time.frameCount != startFrame && Mouse.current.leftButton.wasPressedThisFrame) mountEditor.Select(existing);
+                if (Time.frameCount != startFrame && Mouse.current.leftButton.wasPressedThisFrame) mountEditor.Select(existing, mountEditor.MultiSelectHeld);
                 return;
             }
             if (!ReadDimension(diameterField.text, out float diameter) || !ReadDimension(depthField.text, out float depth)) {
                 validationLabel.text = "Enter dimensions greater than 0, up to 100 in.";
                 return;
             }
-            validationLabel.text = mountEditor.Selected != null ? "Point selected · G: move · R: rotate · Delete: remove" : "";
+            validationLabel.text = mountEditor.Selected != null ? $"{mountEditor.SelectedPoints.Count} selected · G: move · R: rotate · Delete: remove" : "";
             // Cast against bodies so previous mounting points do not obscure the surface.
             if (!Physics.Raycast(refCamera.ScreenPointToRay(MouseInput.Position), out var hit, Mathf.Infinity, LayerMask.GetMask("Default"), QueryTriggerInteraction.Ignore) ||
                 !hit.collider.TryGetComponent<CustomModel>(out var model) || model.gameObject.IsDeleted()) return;
-            preview.transform.SetPositionAndRotation(hit.point + hit.normal * .004f, Quaternion.LookRotation(hit.normal));
+            var face = CustomMountGrid.PlacementPose(model, hit.point, hit.normal, TransformSnapping.Active, out bool onGrid);
+            validationLabel.text = onGrid ? $"{CustomMountGrid.Spacing:0.##} in layout · {mountEditor.SnapBypassBinding}: bypass" :
+                TransformSnapping.Active ? "First point anchors this plane's layout" : "Snap bypass · free placement";
+            preview.transform.SetPositionAndRotation(face.position + hit.normal * .004f, face.rotation);
             preview.transform.localScale = Vector3.one * diameter;
             preview.SetActive(true);
+            var bounds = model.GetComponent<MeshFilter>().sharedMesh.bounds;
+            bounds.Expand(.002f);
+            if (onGrid && !bounds.Contains(model.transform.InverseTransformPoint(face.position))) {
+                validationLabel.text = $"Grid point is outside model · {mountEditor.SnapBypassBinding}: bypass";
+                return;
+            }
             if (Time.frameCount == startFrame || !Mouse.current.leftButton.wasPressedThisFrame) return;
-            var point = model.AddMount(hit.point, hit.normal, diameter, depth, threaded);
+            var point = model.AddMount(face, diameter, depth, threaded);
             if (point != null) { point.RecordAdded(); mountEditor.Select(point); }
             else InteractionFeedback.Notify("A mounting point already exists here.");
         }

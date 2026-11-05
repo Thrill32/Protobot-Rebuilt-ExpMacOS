@@ -42,22 +42,33 @@ namespace Protobot {
             // Geometry is immutable after import. Each snapshot gets an independent mount list.
             vertices = geometry.vertices,
             triangles = geometry.triangles,
-            mounts = GetComponentsInChildren<CustomMountPoint>().Where(p => p.gameObject.activeSelf).Select(p => p.Snapshot()).ToArray()
+            mounts = GetComponentsInChildren<CustomMountPoint>().Where(p => p.Owner == this && p.gameObject.activeSelf && !p.IsPreview).Select(p => p.Snapshot()).ToArray()
         };
 
-        public CustomMountPoint AddMount(Vector3 surface, Vector3 outwardNormal, float diameter, float depth, bool threaded) {
+        public CustomMountPoint AddMount(Vector3 surface, Vector3 outwardNormal, float diameter, float depth, bool threaded) =>
+            AddMount(new Pose(surface, Quaternion.LookRotation(outwardNormal)), diameter, depth, threaded);
+
+        public CustomMountPoint AddMount(Pose face, float diameter, float depth, bool threaded) {
             if (diameter <= 0 || depth <= 0 || diameter > 100 || depth > 100 ||
                 float.IsNaN(diameter) || float.IsNaN(depth)) throw new ArgumentOutOfRangeException(nameof(diameter));
-            var center = transform.InverseTransformPoint(surface - outwardNormal.normalized * (depth * .5f));
-            var rotation = Quaternion.Inverse(transform.rotation) * Quaternion.LookRotation(outwardNormal.normalized);
+            var outwardNormal = face.rotation * Vector3.forward;
+            var center = transform.InverseTransformPoint(face.position - outwardNormal * (depth * .5f));
+            var rotation = Quaternion.Inverse(transform.rotation) * face.rotation;
             var data = new CustomMountData { x = center.x, y = center.y, z = center.z,
                 qx = rotation.x, qy = rotation.y, qz = rotation.z, qw = rotation.w,
                 diameter = diameter, depth = depth, threaded = threaded };
             // A repeated click at the same mounting face should not create overlapping detectors.
             foreach (var existing in GetComponentsInChildren<CustomMountPoint>())
-                if ((existing.Surface - surface).sqrMagnitude < .0001f && Vector3.Dot(existing.transform.forward, outwardNormal) > .99f)
+                if (existing.Owner == this && !existing.IsPreview && !existing.gameObject.IsDeleted() &&
+                    (existing.Surface - face.position).sqrMagnitude < .0001f && Vector3.Dot(existing.transform.forward, outwardNormal) > .99f)
                     return null;
             return CreateMount(data);
+        }
+
+        internal CustomMountPoint CopyMount(CustomMountPoint source) {
+            var copy = CreateMount(source.Snapshot());
+            copy.SetPreview(true);
+            return copy;
         }
 
         private CustomMountPoint CreateMount(CustomMountData data) {
