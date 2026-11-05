@@ -47,7 +47,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 await Check();
-                Debug.Log("Color painting validation passed: catalog families, nested renderers/material slots, hole and box selection, exact undo/redo without repainting restored selections, no-op paint, material isolation, dirty detection, regeneration, clipboard and binary save/load.");
+                Debug.Log("Color painting validation passed: catalog families, per-slot defaults, default brush UI, default restoration after copy/regeneration/load, nested renderers/material slots, hole and box selection, exact undo/redo without repainting restored selections, no-op paint, material isolation, dirty detection, regeneration, clipboard and binary save/load.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -61,6 +61,7 @@ namespace ProtobotEditorTools {
             var response = manager.GetComponent<ColorSelectionResponse>();
             var selector = manager.GetComponent<ClickSelector>();
             var duplicator = Object.FindFirstObjectByType<ObjectDuplicator>();
+            await CheckDefaults(response, duplicator);
             var color = new Color(.21f, .73f, .48f, 1);
             ColorToolActiveCheck.colorToolActive = true;
             ColorTool.ColorToSet = color;
@@ -225,6 +226,104 @@ namespace ProtobotEditorTools {
             Require(!legacy.CompareData(SceneBuild.ToBuildData()), "Painting a legacy build did not mark it dirty.");
             StateSystem.instance.Undo();
             Require(legacy.CompareData(SceneBuild.ToBuildData()), "Undo did not restore the legacy build's clean state.");
+        }
+
+        private static async Task CheckDefaults(ColorSelectionResponse response, ObjectDuplicator duplicator) {
+            var tool = Object.FindFirstObjectByType<ColorTool>(FindObjectsInactive.Include);
+            var dropdown = Object.FindObjectsByType<UnityEngine.UI.Dropdown>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .Single(d => d.options.Count > 0 && d.options[0].text == "Default");
+            var panel = dropdown.transform.parent.gameObject;
+            bool wasActive = panel.activeSelf;
+            dropdown.SetValueWithoutNotify(0);
+            tool.EnableUI(panel);
+            Require(ColorTool.UseDefaultColor && !ColorTool.CustomColor, "Opening Default brush let slider callbacks replace it with a white tint.");
+            panel.SetActive(wasActive);
+            ColorToolActiveCheck.colorToolActive = true;
+
+            var parts = new List<GameObject>();
+            var defaults = new Dictionary<string, Color[]>();
+            var tint = new Color(.31f, .67f, .19f, 1);
+            foreach (var type in PartsManager.partTypes.Where(t => t.id != "Error"))
+                parts.Add(type.GetComponent<PartGenerator>().Generate(new Vector3(parts.Count * 12, 200, 200), Quaternion.identity));
+            var custom = CustomModel.Create(CustomModelImporter.Parse(Encoding.UTF8.GetBytes("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3"), ".obj", "Default model", 1), new Vector3(-12, 200, 200), Quaternion.identity);
+            var mount = custom.GetComponent<CustomModel>().AddMount(custom.transform.position, Vector3.forward, .169f, .1f, true);
+            var markers = mount.GetComponentsInChildren<MeshRenderer>().Select(r => (material: r.sharedMaterial, color: r.sharedMaterial.color)).ToArray();
+            parts.Add(custom);
+            foreach (var part in parts) {
+                var original = Materials(part).Select(m => m.color).ToArray();
+                defaults.Add(part.GetComponent<SavedObject>().ConnectionId, original);
+                var clean = SceneBuild.ToBuildData(new[] { part });
+                ColorTool.ColorToSet = tint; response.ChangeColor(part);
+                tool.HandleInput(0); response.ChangeColor(part);
+                Require(Materials(part).Select(m => m.color).SequenceEqual(original) && !part.GetComponent<SavedObject>().hasPaint,
+                    "Default painted white or flattened the original material colors on " + part.name);
+                Require(clean.CompareData(SceneBuild.ToBuildData(new[] { part })), "Default did not restore the original saved appearance.");
+                int state = StateSystem.curIndex;
+                response.ChangeColor(part);
+                Require(state == StateSystem.curIndex, "Default on an unchanged part created an empty undo operation.");
+                StateSystem.instance.Undo();
+                Require(Materials(part).All(m => SameRGB(m.color, tint)) && part.GetComponent<SavedObject>().hasPaint,
+                    "Undo Default did not restore the paint and its metadata on " + part.name);
+                StateSystem.instance.Redo();
+                Require(Materials(part).Select(m => m.color).SequenceEqual(original), "Redo Default lost material colors on " + part.name);
+
+                ColorTool.ColorToSet = tint; response.ChangeColor(part);
+                var copies = duplicator.CreateCopies(new[] { part });
+                tool.HandleInput(0); response.ChangeColor(copies[0]);
+                Require(Materials(copies[0]).Select(m => m.color).SequenceEqual(original), "A painted copy forgot the catalog defaults on " + part.name);
+                Require(Materials(part).All(m => SameRGB(m.color, tint)), "Resetting a copy changed its source.");
+                ObjectDuplicator.DiscardCopies(copies);
+            }
+            Require(markers.All(m => m.material.color == m.color), "Default restoration changed custom mounting markers.");
+            await NextFrame();
+
+            // Loading paints freshly generated defaults. Reset must retain that
+            // palette through JSON/binary transfers, rather than save a flat tint.
+            var painted = BuildTransfer.FromClipboard(BuildTransfer.ToClipboard(SceneBuild.ToBuildData(parts)));
+            using var memory = new MemoryStream();
+            var formatter = new BinaryFormatter(); formatter.Serialize(memory, painted); memory.Position = 0;
+            SceneBuild.GenerateBuild((BuildData)formatter.Deserialize(memory));
+            foreach (var part in PartsManager.FindLoadedObjects()) {
+                tool.HandleInput(0); response.ChangeColor(part);
+                Require(Materials(part).Select(m => m.color).SequenceEqual(defaults[part.GetComponent<SavedObject>().ConnectionId]),
+                    "A loaded painted part forgot its original defaults on " + part.name);
+            }
+            var reset = SceneBuild.ToBuildData();
+            SceneBuild.GenerateBuild(BuildTransfer.FromClipboard(BuildTransfer.ToClipboard(reset)));
+            foreach (var part in PartsManager.FindLoadedObjects())
+                Require(Materials(part).Select(m => m.color).SequenceEqual(defaults[part.GetComponent<SavedObject>().ConnectionId]),
+                    "Saving a reset part flattened its default material colors on " + part.name + ": actual=" +
+                    string.Join(";", Materials(part).Select(m => m.color.ToString("F6"))) + " expected=" +
+                    string.Join(";", defaults[part.GetComponent<SavedObject>().ConnectionId].Select(c => c.ToString("F6"))));
+
+            var variant = PartsManager.partTypes.First(t => t.GetComponent<ChildPartGenerator>() != null &&
+                t.GetComponent<PartGenerator>().UsesParams && t.GetComponent<PartGenerator>().GetParam1Options().Count > 1);
+            var generator = variant.GetComponent<PartGenerator>();
+            var originalPart = PartsManager.FindLoadedObjects().First(p => PartsManager.GetPartType(p.GetComponent<SavedObject>().id) == variant);
+            PartParameterEditing.Load(generator, originalPart.GetComponent<SavedObject>().id);
+            Require(PartParameterEditing.Step(generator, 0, 1), "Could not step the default-color variant fixture.");
+            var expected = generator.Generate(new Vector3(0, 300, 200), Quaternion.identity);
+            var replacement = PartParameterEditing.Replace(originalPart, generator);
+            Require(Materials(replacement).Select(m => m.color).SequenceEqual(Materials(expected).Select(m => m.color)),
+                "Changing parameters after Default retained the old variant's tint.");
+            Object.Destroy(expected); Object.Destroy(replacement);
+
+            // Older color-capable builds have RGB but no whole-body paint flag.
+            var legacy = SceneBuild.DefaultBuild;
+            legacy.parts = new[] { new ObjectData { partId = "SPKT-Normal-10T", rColor = tint.r, gColor = tint.g, bColor = tint.b } };
+            SceneBuild.GenerateBuild(legacy);
+            await NextFrame();
+            var legacyPart = PartsManager.FindLoadedObjects().Single();
+            Require(legacy.CompareData(SceneBuild.ToBuildData()), "Loading an older tinted build marked it dirty immediately.");
+            tool.HandleInput(0); response.ChangeColor(legacyPart);
+            Require(!legacy.CompareData(SceneBuild.ToBuildData()), "Default restoration on an older tinted part did not mark the build dirty.");
+            StateSystem.instance.Undo();
+            Require(legacy.CompareData(SceneBuild.ToBuildData()), "Undo Default did not restore an older build's clean state.");
+            StateSystem.instance.Redo();
+            Require(!legacy.CompareData(SceneBuild.ToBuildData()), "Redo Default did not restore an older build's dirty state.");
+            SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
+            await NextFrame();
+            ColorToolActiveCheck.colorToolActive = true;
         }
 
         private static Material[] Materials(GameObject part) => MeshCombiner.GetRenderers(new[] { part })

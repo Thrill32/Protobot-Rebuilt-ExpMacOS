@@ -19,13 +19,20 @@ namespace Protobot.Builds {
 
         public string version = AppData.Version;
 
+        private static readonly HashSet<string> VersionsWithoutColor = new() {
+            "1.0", "1.1", "1.1.1", "Beta 1.2", "Beta 1.3", "Beta 1.3.1", "1.3.2", "1.3.3", "1.3.4"
+        };
+        public bool HasColors => version != null && !VersionsWithoutColor.Contains(version);
+
         public bool CompareData(BuildData data) {
             if (data.parts.Length != parts.Length) {
                 return false;
             }
 
+            bool compareColors = HasColors && data.HasColors;
             foreach (ObjectData part in parts) {
-                if (!data.parts.Contains(part))
+                if (!data.parts.Any(candidate => candidate.Equals(part) &&
+                    (!compareColors || candidate.GetColor() == part.GetColor())))
                     return false;
             }
 

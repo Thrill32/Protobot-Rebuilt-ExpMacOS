@@ -13,22 +13,30 @@ public class ColorTool : MonoBehaviour
     [SerializeField] GameObject custom;
     [SerializeField] Slider red,green,blue;
     [SerializeField] Image preview;
-    [SerializeField] public static Color ColorToSet;
+    private static Color colorToSet;
+    public static bool UseDefaultColor { get; private set; }
+    public static Color ColorToSet {
+        get => colorToSet;
+        set { colorToSet = value; UseDefaultColor = false; }
+    }
     public static bool CustomColor;
     public void EnableUI(GameObject ui)
     {
         ui.SetActive(!ui.gameObject.activeSelf);
-        ColorToSet = color[0]; //If this is not set when started it will be 0,0,0 which we dont want unless custom is selected
-        UpdatePreview();
         red.value = 242;
         green.value = 242;
         blue.value = 242;
+        // Slider callbacks refresh their labels and temporary custom color.
+        // Apply the selected palette mode after those callbacks finish.
+        HandleInput(ui.GetComponentInChildren<Dropdown>(true)?.value ?? 0);
+        UpdatePreview();
     }
     public void HandleInput(int index)
     {
         if (index < color.Count)
         {
             ColorToSet = color[index];
+            UseDefaultColor = index == 0;
             custom.SetActive(false);
             CustomColor = false;
         }

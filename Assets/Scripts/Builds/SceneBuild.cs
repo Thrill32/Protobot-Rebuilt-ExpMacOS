@@ -99,15 +99,17 @@ namespace Protobot.Builds {
                 : PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
             generatedObject.GetComponent<SavedObject>().ConnectionId = objectData.connectionId;
             generatedObject.GetComponent<SavedObject>().state = objectData.states;
-            //there are only 2 versions of Protobot legacy publicly released that I could find most before Beta 1.3.1 are just guesses
-            string[] versionsNoColor = new string[] {"1.0", "1.1", "1.1.1", "Beta 1.2", "Beta 1.3", "Beta 1.3.1", "1.3.2", "1.3.3", "1.3.4" };
-            //Debug.Log(buildData.version);    
-            if(!versionsNoColor.Contains(buildData.version) && buildData.version != null)
+            if (buildData.HasColors)
             { 
                 if (objectData.hasPaint) PartColors.ApplyPaint(generatedObject, objectData.GetColor());
                 else if (PartColors.SampleMaterial(generatedObject) != null) {
                     OwnedPartMaterials.CaptureGenerated(generatedObject);
-                    PartColors.SampleMaterial(generatedObject).color = objectData.GetColor();
+                    var material = PartColors.SampleMaterial(generatedObject);
+                    var color = objectData.GetColor();
+                    // Build files store RGB; retain the generated material's
+                    // transparency when restoring an unpainted/legacy color.
+                    color.a = material.color.a;
+                    material.color = color;
                 }
             }
             return generatedObject;

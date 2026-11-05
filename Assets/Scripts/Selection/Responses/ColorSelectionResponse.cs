@@ -22,13 +22,16 @@ namespace Protobot.SelectionSystem {
             var parts = bodies.Where(p => p != null).Distinct().ToArray();
             ColorTool.Material = parts.Select(PartColors.SampleMaterial).FirstOrDefault(m => m != null);
             if (!ColorToolActiveCheck.colorToolActive) return;
-            var changed = parts.Where(p => PartColors.Materials(p).Any(m => !PartColors.SameRGB(m.color, ColorTool.ColorToSet))).ToArray();
+            var changed = parts.Where(p => ColorTool.UseDefaultColor
+                ? p.GetComponent<SavedObject>().hasPaint || !PartColors.IsDefault(p)
+                : PartColors.Materials(p).Any(m => !PartColors.SameRGB(m.color, ColorTool.ColorToSet))).ToArray();
             if (changed.Length == 0) return;
             var after = new List<IElement>();
             foreach (var part in changed) {
                 OwnedPartMaterials.CaptureGenerated(part);
                 StateSystem.AddElement(new ColorElement(part));
-                PartColors.ApplyPaint(part, ColorTool.ColorToSet);
+                if (ColorTool.UseDefaultColor) PartColors.RestoreDefaults(part);
+                else PartColors.ApplyPaint(part, ColorTool.ColorToSet);
                 after.Add(new ColorElement(part));
             }
             StateSystem.AddState(new State(after));

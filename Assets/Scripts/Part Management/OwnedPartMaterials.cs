@@ -9,6 +9,32 @@ namespace Protobot {
         // Never copy ownership references when Unity clones a part's components.
         [NonSerialized] private readonly HashSet<Material> materials = new();
 
+        [Serializable] private struct RendererColors {
+            public MeshRenderer renderer;
+            public Color[] colors;
+        }
+        // Renderer references remap to the new children when Unity clones a
+        // painted part. Material references would still point at the source.
+        [SerializeField] private RendererColors[] defaults;
+
+        public static OwnedPartMaterials CaptureDefaults(GameObject part) {
+            var owner = part.GetComponent<OwnedPartMaterials>() ?? part.AddComponent<OwnedPartMaterials>();
+            owner.defaults ??= PartColors.Renderers(part).Select(renderer => new RendererColors {
+                renderer = renderer,
+                colors = renderer.sharedMaterials.Select(m => PartColors.CanColor(m) ? m.color : default).ToArray()
+            }).ToArray();
+            return owner;
+        }
+
+        public IEnumerable<(Material material, Color color)> DefaultColors() {
+            foreach (var entry in defaults ?? Array.Empty<RendererColors>()) {
+                if (entry.renderer == null) continue;
+                var slots = entry.renderer.sharedMaterials;
+                for (int i = 0; i < Mathf.Min(slots.Length, entry.colors.Length); i++)
+                    if (PartColors.CanColor(slots[i])) yield return (slots[i], entry.colors[i]);
+            }
+        }
+
         public static void CloneForCopy(GameObject part) {
             if (part.GetComponent<CustomModel>() != null) return;
             var owner = part.GetComponent<OwnedPartMaterials>() ?? part.AddComponent<OwnedPartMaterials>();
@@ -28,8 +54,8 @@ namespace Protobot {
         // especially wheel tires/rollers in child renderers. Unity's materials
         // getter instances every slot; existing root color instances are retained.
         public static void CaptureGenerated(GameObject part) {
+            var owner = CaptureDefaults(part);
             if (part.GetComponent<CustomModel>() != null) return;
-            var owner = part.GetComponent<OwnedPartMaterials>() ?? part.AddComponent<OwnedPartMaterials>();
             foreach (var renderer in part.GetComponentsInChildren<Renderer>(true))
                 foreach (var material in renderer.materials)
                     if (material != null) owner.materials.Add(material);

@@ -33,6 +33,7 @@ namespace Protobot {
             model.geometry = new CustomModelData { name = data.name, vertices = data.vertices, triangles = data.triangles };
             model.BuildGeometry();
             foreach (var mount in data.mounts ?? Array.Empty<CustomMountData>()) model.CreateMount(mount);
+            OwnedPartMaterials.CaptureDefaults(obj);
             return obj;
         }
 

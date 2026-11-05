@@ -57,6 +57,7 @@ namespace Protobot {
                 savedObj = obj.AddComponent<SavedObject>();
             
             savedObj.id = GetId();
+            OwnedPartMaterials.CaptureDefaults(obj);
         }
         public abstract Mesh GetMesh();
         public abstract GameObject Generate(Vector3 position, Quaternion rotation);
