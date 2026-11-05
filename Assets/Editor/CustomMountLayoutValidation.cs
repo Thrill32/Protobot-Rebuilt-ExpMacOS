@@ -15,6 +15,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
@@ -40,7 +41,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(KeyName, false);
             try {
                 await Check();
-                Debug.Log("Custom mounting layouts passed: quarter-inch plane grids and axis/plane movement, free first point, snap bypass, face/model isolation, rotated models, modifier multi-selection, rigid group editing, rebound duplicate G/R binding, exact rotation, preview-safe saves/colliders, overlap reuse/conflict rejection, cancellation, grouped undo/redo/delete and binary persistence.");
+                Debug.Log("Custom mounting layouts passed: 0.046-inch default depth, quarter-inch plane grids, N/rebound grid recalibration with undo and persistence, axis/plane movement, free first point, snap bypass, face/model isolation, rotated models, modifier multi-selection, rigid group editing, rebound duplicate G/R binding, exact rotation, preview-safe saves/colliders, overlap reuse/conflict rejection, cancellation, grouped undo/redo/delete and binary persistence.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -62,6 +63,8 @@ namespace ProtobotEditorTools {
             Click(World(.13f, -.18f));
             var first = editor.Selected;
             Near(first.Surface, World(.13f, -.18f), "The first hole was forced onto an arbitrary origin grid.");
+            Require(Mathf.Abs(first.Depth - .046f) < .000001f && Mathf.Abs(first.GetComponent<HoleCollider>().holeData.depth - .046f) < .000001f,
+                "New holes did not use the 0.046-inch default physical depth.");
             Click(World(.42f, .24f));
             var second = editor.Selected;
             Require(second != first, "Snapped placement did not add a new point.");
@@ -213,20 +216,97 @@ namespace ProtobotEditorTools {
                 "Deleting selected holes changed the model or unselected holes.");
             StateSystem.instance.Undo(); Require(copies.All(p => p.gameObject.activeSelf) && SceneBuild.ToBuildData().CompareData(beforeDelete), "Group Delete required more than one undo.");
             Near(body.transform.position, bodyPose.position, "Point edits moved the imported model."); Near(body.transform.rotation, bodyPose.rotation, "Point edits rotated the imported model.");
-            tool.ToggleMounts();
 
+            // A bypassed hole with a rotated frame should become the new reference
+            // without moving holes or changing grids on other planes/models.
+            var tilted = free.LocalPose;
+            free.ApplyLocalPose(new Pose(tilted.position, tilted.rotation * Quaternion.Euler(0, 0, 23)));
+            var separate = model.AddMount(new Pose(World(0, 0) + body.transform.forward * .5f, first.transform.rotation), .169f, .046f, false);
+            separate.RecordAdded();
+            var anotherBody = CustomModel.Create(PlaneMesh(), body.transform.position + body.transform.right * 10, body.transform.rotation);
+            var another = anotherBody.GetComponent<CustomModel>();
+            var anotherPoint = another.AddMount(new Pose(anotherBody.transform.position, first.transform.rotation), .169f, .046f, false);
+            anotherPoint.RecordAdded();
+            var recalibrate = inputs.Single(i => i.name == "Recalibrate Mounting Grid");
+            var beforeGrid = SceneBuild.ToBuildData(); state = StateSystem.curIndex;
+            var positions = model.GetComponentsInChildren<CustomMountPoint>().ToDictionary(p => p, p => p.LocalPose);
+            var sample = free.Surface + free.transform.right * .31f + free.transform.up * .2f;
+            var oldGrid = CustomMountGrid.PlacementPose(model, sample, free.transform.forward, true, out _);
+            editor.Select(first); editor.Select(free, true);
+            Recalibrate(Key.N);
+            Require(StateSystem.curIndex == state + 1 && !SceneBuild.ToBuildData().CompareData(beforeGrid), "N did not record a dirty, undoable grid change.");
+            CheckGrid();
+            foreach (var entry in positions) {
+                Near(entry.Key.LocalPose.position, entry.Value.position, "Recalibration moved an existing hole.");
+                Near(entry.Key.LocalPose.rotation, entry.Value.rotation, "Recalibration rotated an existing hole.");
+            }
+            StateSystem.instance.Undo();
+            Require(SceneBuild.ToBuildData().CompareData(beforeGrid), "Undo did not restore the old grid/build state.");
+            pose = CustomMountGrid.PlacementPose(model, sample, free.transform.forward, true, out _);
+            Near(pose.position, oldGrid.position, "Undo did not restore the previous grid origin.");
+            StateSystem.instance.Redo(); CheckGrid();
+            Recalibrate(Key.N); Require(StateSystem.curIndex == state + 1, "Recalibrating the current reference added empty undo history.");
+            var cloneBody = Object.FindFirstObjectByType<ObjectDuplicator>().CreateCopies(new[] { body }).Single();
+            var cloneModel = cloneBody.GetComponent<CustomModel>();
+            Require(cloneModel.Snapshot().SameAs(model.Snapshot()), "Whole-model copying lost grid reference order.");
+            var cloneReference = cloneBody.GetComponentsInChildren<CustomMountPoint>().First();
+            pose = CustomMountGrid.PlacementPose(cloneModel, cloneReference.Surface + cloneReference.transform.right * .31f,
+                cloneReference.transform.forward, true, out _);
+            Near(pose.position, cloneReference.Surface + cloneReference.transform.right * .25f, "Copying lost the recalibrated frame.");
+            ObjectDuplicator.DiscardCopies(new[] { cloneBody }.ToList());
+
+            // Block N while editing, typing, with no selection, and outside M.
+            editor.Select(first); Pointer(first.Surface); editor.Begin(false);
+            Recalibrate(Key.N); Require(StateSystem.curIndex == state + 1, "N changed the grid during a point edit."); editor.Finish(false);
+            EventSystem.current.SetSelectedGameObject(Get<InputField>(tool, "depthField").gameObject);
+            Recalibrate(Key.N); Require(StateSystem.curIndex == state + 1, "N changed the grid while typing a dimension.");
+            EventSystem.current.SetSelectedGameObject(null);
+            editor.Select(null); Recalibrate(Key.N); Require(StateSystem.curIndex == state + 1, "N changed the grid with no selection.");
+
+            // Preferences rebinding must be used rather than reading physical N.
+            var gridAction = recalibrate.defaultAction; bool gridEnabled = gridAction.enabled; gridAction.Disable();
+            var gridRebound = new InputAction("Grid test", InputActionType.Button, "<Keyboard>/b");
+            recalibrate.defaultAction = gridRebound; gridRebound.Enable();
+            try {
+                editor.Select(first); Recalibrate(Key.N);
+                Require(StateSystem.curIndex == state + 1, "Rebound recalibration still reacted to N.");
+                Recalibrate(Key.B); Require(StateSystem.curIndex == state + 2, "The recalibration binding could not be rebound.");
+                StateSystem.instance.Undo(); CheckGrid();
+            }
+            finally { Keys(); recalibrate.defaultAction = gridAction; gridRebound.Dispose(); if (gridEnabled) gridAction.Enable(); }
+            pose = CustomMountGrid.PlacementPose(another, anotherPoint.Surface + anotherPoint.transform.right * .31f, anotherPoint.transform.forward, true, out _);
+            Near(pose.position, anotherPoint.Surface + anotherPoint.transform.right * .25f, "N changed another model's grid.");
+            anotherBody.SetActive(false); Object.Destroy(anotherBody);
+            tool.ToggleMounts();
+            editor.Select(first); Recalibrate(Key.N); CheckGrid();
+
+            var gridReferenceLocal = free.LocalPose;
             var saved = SceneBuild.ToBuildData(); using var memory = new MemoryStream(); var formatter = new BinaryFormatter();
             formatter.Serialize(memory, saved); memory.Position = 0;
             SceneBuild.GenerateBuild((BuildData)formatter.Deserialize(memory));
             Require(saved.CompareData(SceneBuild.ToBuildData()), "Copied point layouts changed through binary save/load.");
             var loaded = Object.FindFirstObjectByType<CustomModel>();
             var loadedFirst = loaded.GetComponentsInChildren<CustomMountPoint>().First();
+            Near(loadedFirst.LocalPose.position, gridReferenceLocal.position, "Save/load did not retain the explicitly selected grid reference.");
+            Near(loadedFirst.LocalPose.rotation, gridReferenceLocal.rotation, "Save/load did not retain the selected grid orientation.");
             var loadedRotation = loaded.transform.rotation;
             loaded.transform.SetPositionAndRotation(new Vector3(-70, 25, 30), Quaternion.Euler(43, 13, 71) * loadedRotation);
             pose = CustomMountGrid.PlacementPose(loaded, loadedFirst.Surface + loadedFirst.transform.right * .76f + loadedFirst.transform.up * .2f,
                 loadedFirst.transform.forward, true, out onGrid);
             Require(onGrid, "Moving/reloading a model discarded its plane layout."); Near(pose.position, loadedFirst.Surface + loadedFirst.transform.right * .75f + loadedFirst.transform.up * .25f, "A moved model's layout stayed in world coordinates.");
 
+            void Recalibrate(Key key) { Keys(); recalibrate.Update(); Keys(key); recalibrate.Update(); Keys(); recalibrate.Update(); }
+            void CheckGrid() {
+                var recalibrated = CustomMountGrid.PlacementPose(model, sample, free.transform.forward, true, out bool snapped);
+                Require(snapped, "Recalibration discarded the plane grid.");
+                Near(recalibrated.position, free.Surface + free.transform.right * .25f + free.transform.up * .25f, "N did not use the last-selected hole's origin/orientation.");
+                Near(recalibrated.rotation, free.transform.rotation, "N did not inherit the selected hole's grid orientation.");
+                var bypassPose = CustomMountGrid.PlacementPose(model, sample, free.transform.forward, false, out snapped);
+                Require(!snapped, "Recalibration disabled Snap Bypass."); Near(bypassPose.position, sample, "Bypass snapped to the new grid.");
+                var separateSample = separate.Surface + separate.transform.right * .31f;
+                var separatePose = CustomMountGrid.PlacementPose(model, separateSample, separate.transform.forward, true, out _);
+                Near(separatePose.position, separate.Surface + separate.transform.right * .25f, "N changed a different plane's grid.");
+            }
             void Pointer(Vector3 world) => InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(world));
             void Click(Vector3 world) {
                 var position = (Vector2)camera.WorldToScreenPoint(world);

@@ -45,6 +45,16 @@ namespace Protobot {
             foreach (var renderer in GetComponentsInChildren<MeshRenderer>(true)) renderer.SetPropertyBlock(block);
         }
 
+        internal static void RefreshAllVisuals() {
+            foreach (var point in FindObjectsByType<CustomMountPoint>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                point.RefreshVisuals();
+        }
+
+        private void RefreshVisuals() {
+            foreach (var renderer in GetComponentsInChildren<MeshRenderer>(true))
+                renderer.forceRenderingOff = !CustomModelTool.IsEditingMounts;
+        }
+
         internal void SetPreview(bool preview) {
             IsPreview = preview;
             GetComponent<Collider>().enabled = !preview;
@@ -100,6 +110,7 @@ namespace Protobot {
                 visual.GetComponent<MeshFilter>().sharedMesh = RingMesh;
                 visual.GetComponent<MeshRenderer>().sharedMaterial = Resources.Load<Material>("Custom Models/Mount");
             }
+            RefreshVisuals();
         }
 
         public void RecordAdded() {
@@ -126,7 +137,7 @@ namespace Protobot {
             HoleDetector.RefreshPart(owner, affected);
         }
 
-        private void OnEnable() => SetSelected(false);
+        private void OnEnable() { SetSelected(false); RefreshVisuals(); }
 
         private sealed class PoseElement : IElement {
             private readonly CustomMountPoint point;

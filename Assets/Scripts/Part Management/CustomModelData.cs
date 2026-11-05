@@ -20,7 +20,7 @@ namespace Protobot {
     public sealed class CustomMountData : IEquatable<CustomMountData> {
         public float x, y, z;
         public float qx, qy, qz, qw;
-        public float diameter = .169f, depth = .1f;
+        public float diameter = .169f, depth = .046f;
         public bool threaded = true;
 
         public bool Equals(CustomMountData other) => other != null && x == other.x && y == other.y && z == other.z &&

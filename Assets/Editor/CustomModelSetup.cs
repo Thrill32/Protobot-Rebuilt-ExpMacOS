@@ -14,7 +14,8 @@ namespace ProtobotEditorTools {
     public static class CustomModelSetup {
         internal static readonly (string name, string path, string field)[] Bindings = {
             ("Import Custom Model", "<Keyboard>/i", "importInput"),
-            ("Add Custom Mounting Points", "<Keyboard>/m", "mountInput")
+            ("Add Custom Mounting Points", "<Keyboard>/m", "mountInput"),
+            ("Recalibrate Mounting Grid", "<Keyboard>/n", "recalibrateInput")
         };
 
         [MenuItem("Tools/Protobot/Configure Custom Models")]
@@ -74,7 +75,7 @@ namespace ProtobotEditorTools {
                 foreach (var label in obj.GetComponentsInChildren<Text>(true)) label.text = "Import Model… (I)";
                 foreach (var label in obj.GetComponentsInChildren<TMPro.TMP_Text>(true)) label.text = "Import Model… (I)";
             }
-            menu.sizeDelta = new Vector2(210, 140);
+            menu.sizeDelta = new Vector2(Mathf.Max(menu.sizeDelta.x, 210), Mathf.Max(menu.sizeDelta.y, 140));
             EditorSceneManager.MarkSceneDirty(scene); EditorSceneManager.SaveScene(scene); AssetDatabase.SaveAssets();
             Debug.Log("Custom model import, repeated mounting points, File menu and Preferences configured.");
         }

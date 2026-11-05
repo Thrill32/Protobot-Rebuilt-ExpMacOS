@@ -55,12 +55,16 @@ namespace ProtobotEditorTools {
             var bodyPose = new Pose(body.transform.position, body.transform.rotation);
             var point = model.AddMount(body.transform.TransformPoint(new Vector3(-.8f, 0, 0)), body.transform.forward, .2f, .1f, true);
             point.RecordAdded(); var original = point.LocalPose;
+            Require(point.GetComponentsInChildren<MeshRenderer>().All(r => r.forceRenderingOff), "New mounting rings were visible outside M mode.");
+            Require(point.GetComponent<Collider>().enabled && point.GetComponent<HoleCollider>().isActiveAndEnabled &&
+                !body.GetComponent<MeshRenderer>().forceRenderingOff, "Hiding rings disabled a hole or its model.");
             PivotCamera.Main.SetTransform(body.transform.position, Quaternion.LookRotation(-body.transform.forward, body.transform.up).eulerAngles, -8);
             Physics.SyncTransforms();
             var centerRay = new Ray(body.transform.position + body.transform.forward * 3, -body.transform.forward);
             Require(!Physics.Raycast(centerRay, 6, LayerMask.GetMask("Default")), "Fixture did not have a real empty hole.");
             EventSystem.current.SetSelectedGameObject(null);
             tool.ToggleMounts(); await NextFrame();
+            Require(point.GetComponentsInChildren<MeshRenderer>().All(r => !r.forceRenderingOff), "Entering M did not reveal existing mounting rings.");
             Set(tool, "startFrame", -1);
             var editor = tool.MountEditor;
             Click(point.Surface);
@@ -137,15 +141,17 @@ namespace ProtobotEditorTools {
             Invoke(editor, "SubmitNumeric"); Near(point.Surface, previousSurface + Vector3.right * .125f, "Exact point offset failed.");
 
             var savedPose = point.LocalPose;
+            tool.ToggleMounts();
+            Require(point.GetComponentsInChildren<MeshRenderer>().All(r => r.forceRenderingOff), "Leaving M did not hide mounting rings.");
             var duplicator = Object.FindFirstObjectByType<ObjectDuplicator>(); var clone = duplicator.CreateCopies(new[] { body }).Single();
             var clonedPoint = clone.GetComponentInChildren<CustomMountPoint>();
+            Require(clonedPoint.GetComponentsInChildren<MeshRenderer>().All(r => r.forceRenderingOff), "Cloning outside M revealed mounting rings.");
             Require(clonedPoint.Owner.gameObject == clone, "Cloned point retained its source owner.");
             Near(clonedPoint.LocalPose.position, savedPose.position, "Cloning lost the edited position.");
             clonedPoint.ApplyLocalPose(new Pose(savedPose.position + Vector3.right, savedPose.rotation));
             Near(point.LocalPose.position, savedPose.position, "Editing a cloned point changed its source.");
             ObjectDuplicator.DiscardCopies(new[] { clone }.ToList());
             await NextFrame();
-            tool.ToggleMounts();
 
             // A foreground body must still obscure the analytic mounting disk.
             var block = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -158,6 +164,7 @@ namespace ProtobotEditorTools {
             using var memory = new MemoryStream(); new BinaryFormatter().Serialize(memory, data); memory.Position = 0;
             SceneBuild.GenerateBuild((BuildData)new BinaryFormatter().Deserialize(memory));
             var loaded = Object.FindFirstObjectByType<CustomMountPoint>();
+            Require(loaded.GetComponentsInChildren<MeshRenderer>().All(r => r.forceRenderingOff), "Loading outside M revealed mounting rings.");
             Near(loaded.LocalPose.position, savedPose.position, "Build load lost the edited local position.");
             Near(loaded.LocalPose.rotation, savedPose.rotation, "Build load lost the edited orientation.");
             Require(loaded.Owner != null && loaded.GetComponent<HoleCollider>().holeData.part == loaded.Owner.gameObject, "Reload broke mounting-point ownership.");
@@ -168,7 +175,10 @@ namespace ProtobotEditorTools {
             Keys(); delete.Update(); Keys(Key.Delete); delete.Update();
             Require(!loaded.gameObject.activeSelf && loaded.Owner.gameObject.activeSelf, "Deleting a selected point removed its model or failed.");
             StateSystem.instance.Undo(); Require(loaded.gameObject.activeSelf, "Undo point deletion failed after editing.");
+            Require(loaded.GetComponentsInChildren<MeshRenderer>().All(r => !r.forceRenderingOff), "Undoing deletion in M hid the restored mounting rings.");
             Keys(); tool.ToggleMounts();
+            Require(loaded.GetComponentsInChildren<MeshRenderer>().All(r => r.forceRenderingOff) && loaded.GetComponent<Collider>().enabled,
+                "Leaving M hid attachment colliders or left rings visible.");
 
             void Pointer(Vector3 world) => InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(world));
             void Click(Vector3 world) {

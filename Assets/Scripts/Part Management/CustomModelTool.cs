@@ -15,7 +15,7 @@ using UnityEngine.UI;
 
 namespace Protobot {
     public sealed class CustomModelTool : MonoBehaviour {
-        [SerializeField] private InputEvent importInput, mountInput, orbitInput, panInput, noclipInput;
+        [SerializeField] private InputEvent importInput, mountInput, recalibrateInput, orbitInput, panInput, noclipInput;
         [SerializeField] private SelectionManager selectionManager;
         [SerializeField] private Placement placement;
         [SerializeField] private Camera refCamera;
@@ -37,6 +37,7 @@ namespace Protobot {
 
         public static bool IsCapturingInput => instance != null && instance.isActiveAndEnabled &&
             (instance.options || instance.busy || instance.placingMounts || finishedFrame == Time.frameCount);
+        public static bool IsEditingMounts => instance != null && instance.isActiveAndEnabled && instance.placingMounts;
         public static bool BlocksCamera => IsCapturingInput && (instance.options || instance.busy || instance.mountEditor?.IsTyping == true || KeyboardTransformTool.IsEditingText());
         public static string ControlsText => instance != null && instance.placingMounts
             ? instance.mountEditor?.ControlsText : null;
@@ -136,13 +137,14 @@ namespace Protobot {
             Simulation.SimulationTool.ExitForEdit();
             selectionManager.ClearCurrent(false, true, true);
             placingMounts = true; startFrame = Time.frameCount;
+            CustomMountPoint.RefreshAllVisuals();
             mountEditor.Enabled = true;
             var panel = CreatePanel("Add / Edit Mounting Points", false, 385);
             AddLabel(panel, $"Click a surface to add on its {CustomMountGrid.Spacing:0.##} in layout. Select rings to move/copy points, including over pre-made holes. Dimensions are in inches.", 45, 75);
             AddLabel(panel, "New diameter", 125, 30, 140);
             diameterField = AddField(panel, "0.169", 125);
             AddLabel(panel, "New depth", 170, 30, 140);
-            depthField = AddField(panel, "0.1", 170);
+            depthField = AddField(panel, "0.046", 170);
             var typeButton = AddButton(panel, "", 215, () => { threaded = !threaded; UpdateTypeLabel(); });
             typeLabel = typeButton.GetComponentInChildren<Text>();
             UpdateTypeLabel();
@@ -225,6 +227,7 @@ namespace Protobot {
             mountEditor?.End();
             generation++;
             options = placingMounts = false;
+            CustomMountPoint.RefreshAllVisuals();
             finishedFrame = Time.frameCount;
             if (preview != null) { preview.SetActive(false); Destroy(preview); preview = null; }
             ClosePanel();

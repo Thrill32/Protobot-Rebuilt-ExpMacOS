@@ -13,7 +13,7 @@ namespace Protobot {
     /// <summary>Point-only edits inside M mode; the owning model stays stationary.</summary>
     public sealed class CustomMountEditor : IDisposable {
         private readonly Camera camera;
-        private readonly InputEvent grab, rotate, delete, multiple, duplicate, bypass;
+        private readonly InputEvent grab, rotate, delete, multiple, duplicate, bypass, recalibrate;
         private readonly ObjectDuplicator duplicator;
         private readonly TransformGesture gesture = new();
         private readonly TransformNumericInput numeric = new();
@@ -51,15 +51,17 @@ namespace Protobot {
             multiple = inputs.FirstOrDefault(input => input.name == "Multi-Select Button");
             duplicate = inputs.FirstOrDefault(input => input.name == "Duplicate");
             bypass = inputs.FirstOrDefault(input => input.name == "Snap Bypass");
+            recalibrate = inputs.FirstOrDefault(input => input.name == "Recalibrate Mounting Grid");
             duplicator = UnityEngine.Object.FindFirstObjectByType<ObjectDuplicator>();
             if (grab != null) grab.performed += Grab;
             if (rotate != null) rotate.performed += Rotate;
             if (delete != null) delete.performed += Delete;
+            if (recalibrate != null) recalibrate.performed += RecalibrateGrid;
         }
 
         public bool AllowsInput(InputEvent input) => !IsTyping &&
             (input == bypass || input == multiple || input == duplicate ||
-                !IsEditing && Selected != null && (input == grab || input == rotate || input == delete));
+                !IsEditing && Selected != null && (input == grab || input == rotate || input == delete || input == recalibrate));
         public Pose? SavedPose(CustomMountPoint point) {
             if (IsEditing)
                 foreach (var edit in edits) if (edit.point == point) return edit.before;
@@ -67,7 +69,7 @@ namespace Protobot {
         }
         public string ControlsText => IsEditing
             ? $"{SelectionName} · {(duplicating ? "Copy / " : "")}{(rotating ? "Rotate" : "Move")} · {(axis == Vector3.zero ? "surface plane" : axis == Vector3.right ? "X" : axis == Vector3.up ? "Y" : "Z")}\nX/Y/Z: axis    /: exact value    Click / Enter: set    Esc: cancel"
-            : Selected != null ? $"{SelectionName} selected · {grab?.GetCurrentKeybind() ?? "G"}: move · {rotate?.GetCurrentKeybind() ?? "R"}: rotate · Delete: remove\n{multiple?.GetCurrentKeybind() ?? "Ctrl"}+click: select multiple · Hold {duplicate?.GetCurrentKeybind() ?? "Alt"} with G/R: copy · Esc: deselect"
+            : Selected != null ? $"{SelectionName} selected · {grab?.GetCurrentKeybind() ?? "G"}: move · {rotate?.GetCurrentKeybind() ?? "R"}: rotate · Delete: remove\n{recalibrate?.GetCurrentKeybind() ?? "N"}: grid from last selected · {multiple?.GetCurrentKeybind() ?? "Ctrl"}+click: select multiple · Hold {duplicate?.GetCurrentKeybind() ?? "Alt"} with G/R: copy · Esc: deselect"
             : $"Mounting points · click a surface to add or a ring to select\n{CustomMountGrid.Spacing:0.##} in layout on each plane · {SnapBypassBinding}: bypass · M / Esc: finish";
 
         public void Select(CustomMountPoint point, bool additive = false) {
@@ -86,6 +88,13 @@ namespace Protobot {
         }
         private void Grab() => Begin(false);
         private void Rotate() => Begin(true);
+        private void RecalibrateGrid() {
+            if (!Enabled || IsEditing || Selected == null || Selected.IsPreview || !Selected.gameObject.activeInHierarchy ||
+                Selected.gameObject.IsDeleted() || KeyboardTransformTool.IsEditingText()) return;
+            bool changed = CustomMountGrid.Recalibrate(Selected);
+            InteractionFeedback.Notify(changed ? "Grid recalibrated from the last-selected hole; existing holes stay in place."
+                : "This hole already anchors its plane's grid.");
+        }
         public void Begin(bool rotatePoint) {
             if (!Enabled || Selected == null || IsEditing || KeyboardTransformTool.IsEditingText()) return;
             EventSystem.current?.SetSelectedGameObject(null);
@@ -284,6 +293,7 @@ namespace Protobot {
             if (grab != null) grab.performed -= Grab;
             if (rotate != null) rotate.performed -= Rotate;
             if (delete != null) delete.performed -= Delete;
+            if (recalibrate != null) recalibrate.performed -= RecalibrateGrid;
         }
     }
 }
