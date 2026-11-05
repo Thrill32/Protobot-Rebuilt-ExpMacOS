@@ -13,7 +13,7 @@ namespace Protobot {
     /// <summary>Point-only edits inside M mode; the owning model stays stationary.</summary>
     public sealed class CustomMountEditor : IDisposable {
         private readonly Camera camera;
-        private readonly InputEvent grab, rotate, delete, multiple, duplicate, bypass, recalibrate;
+        private readonly InputEvent grab, rotate, delete, multiple, duplicate, bypass, recalibrate, undo, redo;
         private readonly ObjectDuplicator duplicator;
         private readonly TransformGesture gesture = new();
         private readonly TransformNumericInput numeric = new();
@@ -52,6 +52,8 @@ namespace Protobot {
             duplicate = inputs.FirstOrDefault(input => input.name == "Duplicate");
             bypass = inputs.FirstOrDefault(input => input.name == "Snap Bypass");
             recalibrate = inputs.FirstOrDefault(input => input.name == "Recalibrate Mounting Grid");
+            undo = inputs.FirstOrDefault(input => input.name == "Undo");
+            redo = inputs.FirstOrDefault(input => input.name == "Redo");
             duplicator = UnityEngine.Object.FindFirstObjectByType<ObjectDuplicator>();
             if (grab != null) grab.performed += Grab;
             if (rotate != null) rotate.performed += Rotate;
@@ -61,6 +63,7 @@ namespace Protobot {
 
         public bool AllowsInput(InputEvent input) => !IsTyping &&
             (input == bypass || input == multiple || input == duplicate ||
+                !IsEditing && (input == undo || input == redo) ||
                 !IsEditing && Selected != null && (input == grab || input == rotate || input == delete || input == recalibrate));
         public Pose? SavedPose(CustomMountPoint point) {
             if (IsEditing)

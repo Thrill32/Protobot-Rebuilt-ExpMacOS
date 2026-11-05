@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(SmokeKey, false);
             try {
                 await Check();
-                Debug.Log("Custom mounting-point editing passed: M-mode ring/empty-center selection, point-only G movement over pre-made holes, surface-plane/axis movement, rotation, exact input, save-safe preview, cancellation, undo/redo, fastener refresh, independent clones, deletion, occlusion and binary save/load.");
+                Debug.Log("Custom mounting-point editing passed: M-mode ring/empty-center selection, point-only G movement over pre-made holes, surface-plane/axis movement, rotation, exact input, save-safe preview, cancellation, keyboard undo/redo with and without selected points, history guards during previews/text entry, fastener refresh, independent clones, deletion, occlusion and binary save/load.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -67,6 +67,13 @@ namespace ProtobotEditorTools {
             Require(point.GetComponentsInChildren<MeshRenderer>().All(r => !r.forceRenderingOff), "Entering M did not reveal existing mounting rings.");
             Set(tool, "startFrame", -1);
             var editor = tool.MountEditor;
+            var inputs = Object.FindObjectsByType<Protobot.InputEvents.InputEvent>(FindObjectsSortMode.None);
+            var undo = inputs.Single(i => i.name == "Undo");
+            var redo = inputs.Single(i => i.name == "Redo");
+            History(undo, Key.Z);
+            Require(!point.gameObject.activeSelf && CustomModelTool.IsEditingMounts, "Undo shortcut did not remove a new point while staying in M mode with no selection.");
+            History(redo, Key.Y);
+            Require(point.gameObject.activeSelf && CustomModelTool.IsEditingMounts, "Redo shortcut did not restore a new point in M mode.");
             Click(point.Surface);
             Require(editor.Selected == point && model.GetComponentsInChildren<CustomMountPoint>().Length == 1,
                 "Clicking an existing ring did not select it or created another point.");
@@ -90,8 +97,8 @@ namespace ProtobotEditorTools {
             editor.Select(null); Click(body.transform.position);
             Require(editor.Selected == point && model.GetComponentsInChildren<CustomMountPoint>().Length == 1, "M-mode center picking over the void failed.");
             var moved = point.LocalPose;
-            StateSystem.instance.Undo(); Near(point.LocalPose.position, original.position, "Undo did not restore local point position.");
-            StateSystem.instance.Redo(); Near(point.LocalPose.position, moved.position, "Redo did not restore point position.");
+            History(undo, Key.Z); Near(point.LocalPose.position, original.position, "Undo shortcut did not restore local point position.");
+            History(redo, Key.Y); Near(point.LocalPose.position, moved.position, "Redo shortcut did not restore point position.");
 
             var screwGen = PartsManager.GetPartType("SCRW").GetComponent<PartGenerator>(); PartParameterEditing.Load(screwGen, "SCRW-1.00in");
             var screwBody = screwGen.Generate(point.Surface, Quaternion.LookRotation(point.transform.forward));
@@ -99,14 +106,17 @@ namespace ProtobotEditorTools {
             Require(screw.holeDetector.holes.Contains(point.GetComponent<HoleCollider>()), "Moved attachment could not receive a screw.");
             editor.Begin(false); editor.Apply(point.Surface + point.transform.right, point.transform.rotation); editor.Finish(true);
             Require(!screw.holeDetector.holes.Contains(point.GetComponent<HoleCollider>()), "Moving an attachment left stale fastener occupancy.");
-            StateSystem.instance.Undo(); Require(screw.holeDetector.holes.Contains(point.GetComponent<HoleCollider>()), "Undo did not reconnect the restored attachment.");
+            History(undo, Key.Z); Require(screw.holeDetector.holes.Contains(point.GetComponent<HoleCollider>()), "Undo shortcut did not reconnect the restored attachment.");
             screwBody.SetActive(false); Object.Destroy(screwBody);
 
             state = StateSystem.curIndex; var canceled = point.LocalPose;
             editor.Begin(false); editor.Apply(point.Surface + point.transform.up * .3f, point.transform.rotation);
+            History(undo, Key.Z); History(redo, Key.Y);
+            Require(StateSystem.curIndex == state && editor.IsEditing, "History shortcuts changed committed history during a pending point preview.");
             Keys(Key.Escape); Require(EscapeDeselect.TryHandleEscape(), "Escape did not cancel the point edit."); Keys();
             Near(point.LocalPose.position, canceled.position, "Cancel did not restore local pose.");
             Require(StateSystem.curIndex == state, "Cancel added undo history.");
+            await NextFrame(); // Escape owns its entire frame; later shortcuts need a new one.
 
             Pointer(point.Surface); editor.Begin(false); Keys(Key.LeftCtrl);
             var anchor = point.Surface; var mountRotation = point.transform.rotation;
@@ -131,11 +141,14 @@ namespace ProtobotEditorTools {
             Near(point.Surface, surface, "Rotation moved the selected mounting face.");
             Require(!SceneBuild.ToBuildData().CompareData(beforeRotation), "Changing only a mounting-point rotation did not mark the build dirty.");
             var rotation = point.LocalPose.rotation;
-            StateSystem.instance.Undo(); Near(point.LocalPose.rotation, canceled.rotation, "Undo rotation failed.");
-            StateSystem.instance.Redo(); Near(point.LocalPose.rotation, rotation, "Redo rotation failed.");
+            History(undo, Key.Z); Near(point.LocalPose.rotation, canceled.rotation, "Undo rotation shortcut failed.");
+            History(redo, Key.Y); Near(point.LocalPose.rotation, rotation, "Redo rotation shortcut failed.");
 
             editor.Begin(false); Set(editor, "axis", Vector3.right);
             var numeric = Get<Protobot.Tools.TransformNumericInput>(editor, "numeric"); numeric.Cycle(false);
+            state = StateSystem.curIndex;
+            History(undo, Key.Z); History(redo, Key.Y);
+            Require(editor.IsTyping && StateSystem.curIndex == state, "History shortcuts escaped numeric entry or changed history while typing.");
             foreach (char c in ".125") InputSystem.QueueTextEvent(Keyboard.current, c); UpdateInput();
             var previousSurface = point.Surface;
             Invoke(editor, "SubmitNumeric"); Near(point.Surface, previousSurface + Vector3.right * .125f, "Exact point offset failed.");
@@ -174,12 +187,23 @@ namespace ProtobotEditorTools {
             var delete = Object.FindObjectsByType<Protobot.InputEvents.InputEvent>(FindObjectsSortMode.None).Single(i => i.name == "Delete Selection");
             Keys(); delete.Update(); Keys(Key.Delete); delete.Update();
             Require(!loaded.gameObject.activeSelf && loaded.Owner.gameObject.activeSelf, "Deleting a selected point removed its model or failed.");
-            StateSystem.instance.Undo(); Require(loaded.gameObject.activeSelf, "Undo point deletion failed after editing.");
+            tool.MountEditor.Tick(false);
+            Require(tool.MountEditor.Selected == null, "Deletion retained an inactive point selection.");
+            History(undo, Key.Z); Require(loaded.gameObject.activeSelf, "Undo point deletion shortcut failed without a selection.");
             Require(loaded.GetComponentsInChildren<MeshRenderer>().All(r => !r.forceRenderingOff), "Undoing deletion in M hid the restored mounting rings.");
+            History(redo, Key.Y); Require(!loaded.gameObject.activeSelf, "Redo point deletion shortcut failed without a selection.");
+            History(undo, Key.Z);
+            EventSystem.current.SetSelectedGameObject(Get<UnityEngine.UI.InputField>(tool, "depthField").gameObject);
+            state = StateSystem.curIndex; History(redo, Key.Y);
+            Require(loaded.gameObject.activeSelf && StateSystem.curIndex == state, "History shortcuts changed the build while a hole dimension field was focused.");
+            EventSystem.current.SetSelectedGameObject(null);
             Keys(); tool.ToggleMounts();
             Require(loaded.GetComponentsInChildren<MeshRenderer>().All(r => r.forceRenderingOff) && loaded.GetComponent<Collider>().enabled,
                 "Leaving M hid attachment colliders or left rings visible.");
 
+            void History(Protobot.InputEvents.InputEvent input, Key key) {
+                Keys(); input.Update(); Keys(Key.LeftCtrl, key); input.Update(); Keys(); input.Update();
+            }
             void Pointer(Vector3 world) => InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(world));
             void Click(Vector3 world) {
                 var position = (Vector2)camera.WorldToScreenPoint(world);
