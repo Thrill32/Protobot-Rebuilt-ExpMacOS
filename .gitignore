@@ -78,3 +78,5 @@ WebGL/*
 
 *.DS_Store
 **/*BackUpThisFolder_ButDontShipItWithYourGame/
+
+/Notes
