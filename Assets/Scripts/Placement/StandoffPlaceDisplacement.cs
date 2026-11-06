@@ -9,6 +9,8 @@ namespace Protobot {
         private GameObject HoverObj => mouseCast.gameObject;
         [SerializeField] private HoleFace currentHoleFace;
         public override bool ModifyRotation => true;
+        private Pose? mountingFace;
+        public override Pose GetRotationAnchor(Displacement displacement) => mountingFace ?? base.GetRotationAnchor(displacement);
 
         private List<string> AllowedIds = new List<string> {
             "SNDF",
@@ -28,6 +30,18 @@ namespace Protobot {
         }
 
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
+            mountingFace = null;
+            if (placementData is PartPlacementData bearing && bearing.partType.id == "BRNG" && HoverObj != null) {
+                if (currentHoleFace.direction != Vector3.zero && currentHoleFace.gameObject.activeInHierarchy)
+                    mountingFace = new Pose(currentHoleFace.position, currentHoleFace.LookRotation);
+                else if (HoverObj.TryGetComponent<Screw>(out var screw)) mountingFace = MoveTargeting.ForScrew(screw).face;
+                if (mountingFace.HasValue) {
+                    displacement = PartHolePlaceDisplacement.Align(bearing, mountingFace.Value.position, mountingFace.Value.rotation);
+                    return true;
+                }
+                displacement = null;
+                return false;
+            }
             if (placementData.TryGetPartData(out PartData partData)) {
                 if (HoverObj != null && IsIdAllowed(placementData)) {
                     if (currentHoleFace.direction != Vector3.zero && currentHoleFace.gameObject.activeInHierarchy) {

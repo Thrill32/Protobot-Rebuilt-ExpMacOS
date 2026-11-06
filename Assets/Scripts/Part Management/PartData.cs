@@ -19,7 +19,9 @@ namespace Protobot {
         [TextArea(0, 100)]
         public string holeData;
 
-        public float PrimaryHoleDepth => primaryHole != null ? primaryHole.holeData.depth : 0;
+        // Catalog definitions can retain old serialized HoleData. Use the authored
+        // collider geometry, matching the generated part and its attachment frame.
+        public float PrimaryHoleDepth => primaryHole != null ? primaryHole.transform.TransformVector(Vector3.forward).magnitude : 0;
         public HoleCollider primaryHole;
         public bool allowCenterInserts;
     }

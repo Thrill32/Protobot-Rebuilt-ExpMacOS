@@ -422,6 +422,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Normal
   param2Value: 
+  placementHole: {fileID: 5339055130354640007}
   holeData: 'shape=circle
 
     size=0.164
@@ -806,6 +807,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: High Strength
   param2Value: 
+  placementHole: {fileID: 5944845900401542407}
   holeData: 'shape=circle
 
     size=0

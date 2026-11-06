@@ -343,6 +343,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Nut Retainer
   param2Value: 
+  flipPlacement: 1
+  placementHole: {fileID: 860496885055301939}
   holeData: 'shape=circle
 
     size=0
@@ -503,6 +505,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Bearing Retainer
   param2Value: 
+  flipPlacement: 1
+  placementHole: {fileID: 3919051689367272863}
   holeData: 'shape=circle
 
     size=0
@@ -662,6 +666,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   param1Value: Square Retainer
   param2Value: 
+  flipPlacement: 1
+  placementHole: {fileID: 2412522778232271114}
   holeData: 'shape=circle
 
     size=0

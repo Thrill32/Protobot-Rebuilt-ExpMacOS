@@ -143,7 +143,8 @@ namespace ProtobotEditorTools {
             }
             ValidatePivot("MOTR-11W", new Vector3(0, 0, 1.5f));
             ValidatePivot("MOTR-5.5W", new Vector3(.125f, 0, 1.291f));
-            ValidatePivot("BLCK-High Strength", Vector3.zero);
+            ValidatePivot("BLCK-Normal", new Vector3(.5f, -.1875f, 0));
+            ValidatePivot("BLCK-High Strength", new Vector3(.5f, -.2107f, 0));
             ValidateMotorMounts("MOTR-11W");
             ValidateMotorMounts("MOTR-5.5W");
             Debug.Log($"Initial hole placement validation passed: Main wiring and rule priority, {checkedParts} part types, all structural profiles, reported mechanism/slide/sensor variants, both rail types above the mounting surface, rotated/opposite mating faces, free-placement defaults, motor/bearing pivot ownership, and both motor screw holes on the half-inch pattern independently of their shaft sockets.");
@@ -153,7 +154,8 @@ namespace ProtobotEditorTools {
             "UCHL-2x2-20", "RAILS-2x25", "RAILS-2x35", "CCHL-1x2-5", "CCHL-1x3-5", "CCHL-1x5-5",
             "ANGL-1x1-5", "ANGL-2x2-5", "ANGL-3x3-5", "MCMS-Bevel Gear-16T",
             "MCMS-Bevel Gear-32T", "MCMS-Rack-", "MCMS-Hand Crank-", "LMTK-Inner Slide Trunk",
-            "SNSR-Vision-V5", "SNSR-Potentiometer-V5", "MOTR-11W", "MOTR-5.5W"
+            "SNSR-Vision-V5", "SNSR-Potentiometer-V5", "MOTR-11W", "MOTR-5.5W",
+            "HexNR-Nut Retainer", "HexNR-Bearing Retainer", "HexNR-Square Retainer"
         };
 
         private static void ValidatePivot(string id, Vector3 expected) {

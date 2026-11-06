@@ -67,7 +67,7 @@ Search is case-insensitive and compares the query with the definition's name usi
 | `PartType.group`, `icon` | Control catalog categorization and row artwork. |
 | `PartGenerator.param1`, `param2` | Up to two ordered parameters. A nonempty parameter name enables it. Parameters can use discrete options or custom numeric values, units, defaults and limits. |
 | `PartData.param1Value`, `param2Value` | Match a `ChildPartGenerator` variant to the current parameter values. |
-| `PartData.primaryHole` | Mechanical/shaft reference and depth used by specialized placement rules. |
+| `PartData.primaryHole` | Mechanical/shaft reference used by specialized placement rules. `PrimaryHoleDepth` reads its collider transform so it matches generated geometry. |
 | `PartData.placementHole` | Optional mounting reference for initial catalog placement, independent of `primaryHole`. |
 | `PartData.flipPlacement` | Reverses the initial placement orientation and mounting face for that variant. Aluminum generators have their own family-level flag. |
 | `PartData.allowCenterInserts` | Enables the existing insert offset behavior when placing a compatible part along a normal shaft. |
@@ -128,6 +128,8 @@ Each update tries Main's serialized `placePositions` list in order; the first ru
 The rule implementations are in [Assets/Scripts/Placement](Assets/Scripts/Placement), with [GearPlaceDisplacement.cs](Assets/Scripts/Simulation/GearPlaceDisplacement.cs) under Simulation. The serialized list, not component or filename order, establishes priority. New hardware IDs/tags may need rule changes; catalog registration by itself does not grant specialized behavior.
 
 For ordinary hole placement, `PartGenerator.TryGetPlacementHole` takes `placementHole` when assigned, otherwise `primaryHole`. If the chosen reference is absent or belongs to a different variant, it searches for the closest owned hole instead. Plate/aluminum generators override this calculation to account for their generated offsets and even hole counts. `PartPlacementData.RefreshAttachment` caches that local pose, depth and initial flip. `PartHolePlaceDisplacement.Align` places the source's mating face against the target face using `MoveTargeting`; it does not just put the two object origins together. A catalog part without a source hole uses its origin at the target face.
+
+Flat-bearing catalog placement uses the shared face alignment even though the earlier `StandoffPlaceDisplacement` rule handles it: hole-center offsets and bore depth determine its contact with a hole or screw-stack endpoint. Its rotation pivot is that contact face. Block bearings author `placementHole` on their paired mounting side while retaining the perpendicular shaft bore as `primaryHole`. Hex nut retainers author their central mounting hole and `flipPlacement` so the nut pocket faces outward.
 
 Only free-plane placement is quantized by `Placement` to the shared 0.5-inch grid, using world zero for new parts. Holding Snap Bypass, default Control, disables that quantization; exact hole/shaft alignment is not rounded to the grid. Space follows touching, coaxial holes to the outside of the stack, stopping at gaps or misalignment and excluding moving/deleted geometry. Hover markers and catalog/hardware/Move/P/GH placement share this face through `MoveTargeting.ForHole`; G/H source picking limits traversal to the moving selection. P/import/paste sets only use `HolePlaceDisplacement` when they carry an explicit source-hole anchor; otherwise they use the plane/grid, bypassing hardware and gear inference.
 
