@@ -24,6 +24,7 @@ namespace Protobot.Builds {
             ? SelectedHoleAnchor.From(hole) : (selection as MultiSelection)?.placementHole;
 
         public static BuildData Capture(ISelection selection) {
+            if (CollaborationSession.HasPending) return null;
             var bodies = SelectedBodies(selection);
             if (bodies.Count == 0) return null;
             var build = SceneBuild.ToBuildData(bodies);

@@ -51,10 +51,10 @@ namespace Protobot.UI {
         }
 
         public void SavePaths(List<String> paths) {
-            PlayerPrefs.SetString(PrefsKey, String.Join("\n", paths));
+            LocalPreferences.SetString(PrefsKey, String.Join("\n", paths));
         }
 
-        public List<string> ReadPaths() => PlayerPrefs.GetString(PrefsKey).Split('\n')
+        public List<string> ReadPaths() => LocalPreferences.GetString(PrefsKey).Split('\n')
             .Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal).Take(sizeLimit).ToList();
 
         public List<string> GetPaths() {

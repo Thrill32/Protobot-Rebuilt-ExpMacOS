@@ -17,7 +17,7 @@ namespace Protobot {
         public static float xAxis => CurrentMouse.delta.x.ReadValue();
         public static float yAxis => CurrentMouse.delta.y.ReadValue();
         public static float scrollAxis => CurrentMouse.scroll.y.ReadValue();
-        public static bool overUI => EventSystem.current.IsPointerOverGameObject();
+        public static bool overUI => CollaborationSession.ContainsPointer || EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         public static bool withinScreen => new Rect(0,0, Screen.width, Screen.height).Contains(Position);
     }
 }

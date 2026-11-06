@@ -28,6 +28,7 @@ namespace Protobot.Builds {
         /// Generates all the objects into the scene using given BuildData
         /// </summary>
         public static void GenerateBuild(BuildData buildData) {
+            CollaborationSession.LeaveForFileOpen();
             // Validate embedded geometry before replacing any current scene objects.
             foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
                 if (part.IsCustomModel) CustomModel.Validate(part.customModel);

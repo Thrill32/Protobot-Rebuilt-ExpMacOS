@@ -54,7 +54,7 @@ namespace Protobot.InputEvents {
 
             // Capture even when a composite chord consumed the underlying action's value.
             // Otherwise releasing Command before C could fire the plain C action.
-            if (!shortcutAllowed || !EscapeDeselect.AllowsInput(this) || !Protobot.Builds.BuildTransferTool.AllowsInput(this))
+            if (!shortcutAllowed || !EscapeDeselect.AllowsInput(this) || !Protobot.Builds.BuildTransferTool.AllowsInput(this) || !CollaborationSession.AllowsInput(this))
                 suppressedUntilRelease = true;
             else if (!IsPressed)
                 suppressedUntilRelease = false;

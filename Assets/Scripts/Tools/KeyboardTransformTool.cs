@@ -138,7 +138,10 @@ namespace Protobot.Tools {
             BeginSelection(rotate);
         }
 
-        private void BeginSelection(bool rotate) {
+        private void BeginSelection(bool rotate) => BeginReservedSelection(rotate, false);
+
+        private void BeginReservedSelection(bool rotate, bool reservedForCollaboration) {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit && !reservedForCollaboration) return;
             if (active) {
                 if (settling || rotating == rotate)
                     return;
@@ -180,6 +183,18 @@ namespace Protobot.Tools {
             if (bodies.Count == 0)
                 return;
 
+            if (CollaborationSession.IsShared) {
+                if (!reservedForCollaboration) {
+                    var requestedSelection = selection;
+                    CollaborationSession.ReservePose(bodies, () => {
+                        if (selectionManager.current == requestedSelection) BeginReservedSelection(rotate, true);
+                        else CollaborationSession.CancelPose();
+                    });
+                    return;
+                }
+                if (!CollaborationSession.HasPoseReservation(bodies)) { CollaborationSession.CancelPose(); return; }
+            }
+
             // A MultiPivot is already a movement root. Never parent it under a
             // temporary pivot or transform its children a second time.
             foreach (var root in roots) {
@@ -208,6 +223,7 @@ namespace Protobot.Tools {
         }
 
         private void MoveFromGrab() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             if (!active || rotating || settling || numericInput.IsOpen ||
                 moveTool == null || moveToolManager == null) return;
 
@@ -400,6 +416,7 @@ namespace Protobot.Tools {
                         roots[i].SetPositionAndRotation(positions[i], rotations[i]);
                 }
                 ObjectDuplicator.DiscardCopies(duplicates);
+                CollaborationSession.CancelPose();
             }
             active = false;
             settling = false;
@@ -414,12 +431,16 @@ namespace Protobot.Tools {
                 (Vector3.Distance(root.position, positions[i]) > 0.00001f ||
                  Quaternion.Angle(root.rotation, rotations[i]) > 0.0001f)).Any();
             if (changed) {
-                StateSystem.AddElements(before);
-                StateSystem.AddEmptyState();
-                StateSystem.AddElements(CaptureState());
+                if (CollaborationSession.IsShared) CollaborationSession.ConfirmPose(bodies);
+                else {
+                    StateSystem.AddElements(before);
+                    StateSystem.AddEmptyState();
+                    StateSystem.AddElements(CaptureState());
+                }
             }
             else {
                 ObjectDuplicator.DiscardCopies(duplicates);
+                CollaborationSession.CancelPose();
             }
             duplicates.Clear();
             smoothingTween = null;

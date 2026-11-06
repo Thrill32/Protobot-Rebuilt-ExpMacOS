@@ -6,6 +6,10 @@ namespace Protobot {
     /// <summary>Keeps UI submit/cancel from competing with part picking and modal tools.</summary>
     public sealed class ToolUIInputModule : InputSystemUIInputModule {
         public override void Process() {
+            if (CollaborationSession.BlocksUIInput) {
+                if (eventSystem.currentSelectedGameObject != null) eventSystem.SetSelectedGameObject(null);
+                return;
+            }
             var focused = eventSystem.currentSelectedGameObject;
             bool captured = Protobot.InputEvents.EscapeDeselect.BlocksUINavigation || KeyboardTransformTool.BlocksUINavigation || Protobot.Simulation.SimulationTool.CapturesSelection || CustomModelTool.IsCapturingInput ||
                 (focused != null && focused.GetComponentInParent<PartDisplayUI>() != null);

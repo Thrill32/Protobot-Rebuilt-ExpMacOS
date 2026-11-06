@@ -70,6 +70,7 @@ namespace Protobot.Simulation {
         }
 
         public void ChainSelected() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
             var selection = selectionManager.current;
             var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
@@ -88,6 +89,7 @@ namespace Protobot.Simulation {
         }
 
         public void SetActive(bool value) {
+            if (value && CollaborationSession.BlocksLegacyMutation) return;
             if (value) CustomModelTool.CancelActive();
             if (value && (placement.placing || KeyboardTransformTool.IsCapturingInput)) {
                 toolbarToggle.SetIsOnWithoutNotify(false);

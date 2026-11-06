@@ -33,7 +33,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           targetPlatform: StandaloneWindows64
-          unityVersion: 2021.3.45f2
+          unityVersion: 6000.6.6f1
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4

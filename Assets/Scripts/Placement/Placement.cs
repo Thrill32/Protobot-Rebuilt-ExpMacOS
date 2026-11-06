@@ -188,6 +188,8 @@ namespace Protobot {
         private void UpdatePosition() {
             if (currentPlacementData is SelectionPlacementData && (IsNavigatingCamera || MouseInput.overUI)) return;
             foreach (PlaceDisplacement placePosition in placePositions) {
+                // Connected alpha exposes free grid placement until target dependency capture is migrated.
+                if (CollaborationSession.IsShared && placePosition is not PlanePlaceDisplacement) continue;
                 // P uses only its explicitly selected source face, or the grid.
                 // Hardware and gear rules must never infer an anchor for this rigid copy.
                 if (currentPlacementData is SelectionPlacementData selection && placePosition is not PlanePlaceDisplacement &&
@@ -264,6 +266,10 @@ namespace Protobot {
         }
 
         public void StartPlacing(PlacementData newPlacementData) {
+            if (CollaborationSession.IsShared && (!CollaborationSession.CanEdit || newPlacementData is not PartPlacementData)) {
+                if (newPlacementData is SelectionPlacementData unsupported) unsupported.Dispose();
+                return;
+            }
             CustomModelTool.CancelActive();
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (stopping != null) { StopCoroutine(stopping); stopping = null; }
@@ -355,6 +361,7 @@ namespace Protobot {
         }
 
         private void Place() {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return;
             StopRotation();
             bool isPartPlacement = currentPlacementData.GetType() == typeof(PartPlacementData);
             bool isGameObjectPlacement = currentPlacementData.GetType() == typeof(GameObjectPlacementData);
@@ -365,6 +372,10 @@ namespace Protobot {
             if (isPartPlacement) {
                 var generator = ((PartPlacementData)currentPlacementData).partGenerator;
                 GameObject placedObj = generator.Generate(displacePos, displaceRot);
+                if (CollaborationSession.IsShared) {
+                    CollaborationSession.PlaceCatalog(placedObj);
+                    return;
+                }
 
                 // Call OutputPartsList to update the weight display after placing a part
                 PartListOutput partListOutput = FindObjectOfType<PartListOutput>();

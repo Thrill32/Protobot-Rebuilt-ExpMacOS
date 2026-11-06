@@ -72,6 +72,7 @@ namespace Protobot.Builds {
         }
 
         public async Task<bool> PasteAsync() {
+            if (CollaborationSession.BlocksLegacyMutation) return false;
             if (!CanStart) return false;
             var text = GUIUtility.systemCopyBuffer;
             if (string.IsNullOrEmpty(text) || !text.StartsWith(BuildTransfer.ClipboardPrefix, StringComparison.Ordinal)) {
@@ -97,6 +98,7 @@ namespace Protobot.Builds {
         }
 
         public async Task<bool> ImportBuildAsync(string path = null) {
+            if (CollaborationSession.BlocksLegacyMutation) return false;
             if (!CanStart) return false;
             busy = true;
             int request = generation;

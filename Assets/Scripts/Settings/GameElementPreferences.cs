@@ -21,10 +21,10 @@ namespace Protobot {
         }
 
         static void Bind(Toggle toggle, string key) {
-            toggle.SetIsOnWithoutNotify(PlayerPrefs.GetInt(key, 0) != 0);
+            toggle.SetIsOnWithoutNotify(LocalPreferences.GetInt(key, 0) != 0);
             toggle.onValueChanged.AddListener(value => {
-                PlayerPrefs.SetInt(key, value ? 1 : 0);
-                PlayerPrefs.Save();
+                LocalPreferences.SetInt(key, value ? 1 : 0);
+                LocalPreferences.Save();
                 Changed?.Invoke();
             });
         }
@@ -45,7 +45,7 @@ namespace Protobot {
                 default:
                     return true;
             }
-            return PlayerPrefs.GetInt(key, 0) != 0;
+            return LocalPreferences.GetInt(key, 0) != 0;
         }
     }
 }

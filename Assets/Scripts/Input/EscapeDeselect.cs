@@ -76,6 +76,7 @@ namespace Protobot.InputEvents {
         }
 
         private static bool CancelFocusedUI() {
+            if (CollaborationSession.CancelPanel()) return true;
             var events = EventSystem.current;
             var focused = events != null ? events.currentSelectedGameObject : null;
             if (focused != null) {

@@ -16,7 +16,7 @@ namespace Protobot {
 
         // Poll the binding itself so G/R works even when its InputEvent updates
         // earlier than the Duplicate modifier or modal capture is active.
-        public bool IsDuplicateHeld => input != null && input.IsCurrentlyPressed &&
+        public bool IsDuplicateHeld => !CollaborationSession.BlocksLegacyMutation && input != null && input.IsCurrentlyPressed &&
             !(Keyboard.current != null && Keyboard.current.tabKey.isPressed && input.GetCurrentKeybind() == "Alt");
 
         public bool IsDuplicateFeedbackHeld => IsDuplicateHeld && Protobot.Tools.KeyboardTransformTool.AllowsInput(input);

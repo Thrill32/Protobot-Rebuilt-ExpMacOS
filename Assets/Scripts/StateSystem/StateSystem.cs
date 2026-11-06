@@ -94,6 +94,7 @@ namespace Protobot.StateSystems {
         /// Changes the current state to the previous one
         /// </summary>
         public void Undo() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (curIndex - 1 >= 0) {
                 curIndex--;
@@ -106,6 +107,7 @@ namespace Protobot.StateSystems {
         /// Changes the current state to the next one if not at the last created state
         /// </summary>
         public void Redo() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (curIndex + 1 <= lastStateIndex) {
                 curIndex++;

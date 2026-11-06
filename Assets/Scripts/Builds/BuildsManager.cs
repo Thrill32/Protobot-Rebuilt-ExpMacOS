@@ -22,6 +22,8 @@ namespace Protobot.Builds {
         /// Stores the currently saved data for the loaded build
         /// </summary>
         private BuildData savedBuildData;
+        private string savedCollaborationHash;
+        private Action attemptContinuation;
 
         private string attemptPath = "";
         private BuildData attemptData;
@@ -38,7 +40,7 @@ namespace Protobot.Builds {
         private const string TransferDirectoryKey = "selectionFileDirectory";
 
         private string DialogDirectory => string.IsNullOrEmpty(buildPath)
-            ? PlayerPrefs.GetString(LastDirectoryKey, "") : Path.GetDirectoryName(buildPath);
+            ? LocalPreferences.GetString(LastDirectoryKey, "") : Path.GetDirectoryName(buildPath);
 
         private void Awake() {
             saveInput.performed += Save;
@@ -76,10 +78,8 @@ namespace Protobot.Builds {
                     SaveAndLoadAttempt();
             };
             
-            string[] arguments = Environment.GetCommandLineArgs();
-            for (int i = 1; i < arguments.Length; i++) {
-                if (!IsBuildPath(arguments[i])) continue;
-                _ = OpenPathAsync(arguments[i]);
+            foreach (var startupPath in CollaborationArguments.StartupFiles) {
+                _ = OpenPathAsync(startupPath);
                 break;
             }
         }
@@ -98,7 +98,7 @@ namespace Protobot.Builds {
             IsFileOperationInProgress = true;
             try {
                 string name = string.IsNullOrEmpty(buildPath) ? "Selected Parts" : Path.GetFileNameWithoutExtension(buildPath) + " Selection";
-                var path = await NativeFileDialogs.SaveFileAsync("Save Selected Parts As", PlayerPrefs.GetString(TransferDirectoryKey, DialogDirectory), name, "pbb");
+                var path = await NativeFileDialogs.SaveFileAsync("Save Selected Parts As", LocalPreferences.GetString(TransferDirectoryKey, DialogDirectory), name, "pbb");
                 if (string.IsNullOrEmpty(path) || this == null) return false;
                 if (!IsBuildPath(path)) path += ".pbb";
                 snapshot.name = Path.GetFileNameWithoutExtension(path);
@@ -108,7 +108,7 @@ namespace Protobot.Builds {
                     new BinaryFormatter().Serialize(file, snapshot);
                 });
                 if (this == null) return false;
-                PlayerPrefs.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
+                LocalPreferences.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
                 InteractionFeedback.Notify("Selected parts saved to " + Path.GetFileName(path));
                 return true;
             }
@@ -125,13 +125,13 @@ namespace Protobot.Builds {
             IsFileOperationInProgress = true;
             try {
                 if (string.IsNullOrEmpty(path)) {
-                    var paths = await NativeFileDialogs.OpenFileAsync("Import Build", PlayerPrefs.GetString(TransferDirectoryKey, DialogDirectory), "pbb");
+                    var paths = await NativeFileDialogs.OpenFileAsync("Import Build", LocalPreferences.GetString(TransferDirectoryKey, DialogDirectory), "pbb");
                     if (paths == null || paths.Length == 0 || string.IsNullOrEmpty(paths[0]) || this == null) return null;
                     path = paths[0];
                 }
                 var build = await Task.Run(() => ParsePath(path));
                 if (build == null || this == null) return null;
-                PlayerPrefs.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
+                LocalPreferences.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
                 return build;
             }
             catch (Exception exception) {
@@ -153,13 +153,15 @@ namespace Protobot.Builds {
             if (IsFileOperationInProgress || NativeFileDialogs.IsOpen) return false;
             IsFileOperationInProgress = true;
             try {
+                if (!await CollaborationSession.WaitForSaveAsync()) return false;
                 var path = buildPath;
                 if (saveAs || string.IsNullOrEmpty(path)) {
                     var name = string.IsNullOrEmpty(path) ? "Untitled" : Path.GetFileNameWithoutExtension(path);
                     path = await NativeFileDialogs.SaveFileAsync("Save Build File", DialogDirectory, name, "pbb");
                     if (string.IsNullOrEmpty(path) || this == null) return false;
                 }
-                var data = SceneBuild.ToBuildData();
+                var data = CollaborationSession.SaveSnapshot();
+                var sharedHash = CollaborationSession.CommittedHash;
                 await Task.Run(() => {
                     using var file = File.Create(path);
                     new BinaryFormatter().Serialize(file, data);
@@ -167,6 +169,7 @@ namespace Protobot.Builds {
                 if (this == null) return false;
                 buildPath = path;
                 savedBuildData = data;
+                savedCollaborationHash = sharedHash;
                 RememberDirectory(path);
                 OnSaveBuild?.Invoke(data);
                 return true;
@@ -190,13 +193,15 @@ namespace Protobot.Builds {
         }
 
         private bool HasUnsavedChanges() {
-            var sceneBuild = SceneBuild.ToBuildData();
+            var sceneBuild = CollaborationSession.SaveSnapshot();
             
             if (IsNotSaved) {
                 return sceneBuild.parts.Length > 0;
             }
 
-            return !sceneBuild.CompareData(savedBuildData);
+            if (CollaborationSession.IsShared && savedCollaborationHash != null)
+                return savedCollaborationHash != CollaborationSession.CommittedHash;
+            return savedBuildData == null || !sceneBuild.CompareData(savedBuildData);
         }
 
         public async void OpenBuild() {
@@ -241,7 +246,7 @@ namespace Protobot.Builds {
         private static bool IsBuildPath(string path) => !string.IsNullOrEmpty(path) &&
             string.Equals(Path.GetExtension(path), ".pbb", StringComparison.OrdinalIgnoreCase);
 
-        private static void RememberDirectory(string path) => PlayerPrefs.SetString(LastDirectoryKey, Path.GetDirectoryName(path) ?? "");
+        private static void RememberDirectory(string path) => LocalPreferences.SetString(LastDirectoryKey, Path.GetDirectoryName(path) ?? "");
         
         /// <summary>
         /// Converts a given file path to BuildData
@@ -263,6 +268,7 @@ namespace Protobot.Builds {
         /// <param name="newPath"></param>
         public void AttemptLoad(BuildData newData, string newPath) {
             if (newData == null) return;
+            attemptContinuation = null;
             attemptData = newData;
             attemptPath = newPath;
 
@@ -281,7 +287,15 @@ namespace Protobot.Builds {
         }
 
         public void LoadAttempt() {
+            if (attemptContinuation != null) {
+                var continuation = attemptContinuation;
+                attemptContinuation = null;
+                continuation();
+                return;
+            }
             if (attemptData == null) return;
+            CollaborationSession.LeaveForFileOpen();
+            savedCollaborationHash = null;
             savedBuildData = attemptData;
             buildPath = attemptPath;
             SceneBuild.GenerateBuild(attemptData);
@@ -299,6 +313,28 @@ namespace Protobot.Builds {
         public void CreateNewBuild() {
             if (IsFileOperationInProgress || NativeFileDialogs.IsOpen) return;
             AttemptLoad(SceneBuild.DefaultBuild, "");
+        }
+
+        public void RunAfterUnsavedChanges(Action continuation) {
+            if (IsFileOperationInProgress || NativeFileDialogs.IsOpen) return;
+            avoidingQuit = false;
+            attemptContinuation = continuation;
+            if (HasUnsavedChanges()) unsavedChangesMenu.Enable(IsNotSaved);
+            else LoadAttempt();
+        }
+
+        public void BeginJoinedDocument() {
+            buildPath = "";
+            savedBuildData = null;
+            savedCollaborationHash = null;
+        }
+
+        public bool CurrentBuildIsSaved => !HasUnsavedChanges();
+
+        public void BeginHostedDocument(string acceptedHash, bool wasSaved) {
+            // A local file has no network revision until hosting starts. Preserve
+            // its existing clean/dirty state, then compare every accepted edit by hash.
+            savedCollaborationHash = wasSaved ? acceptedHash : "unsaved-before-host";
         }
     }
 }

@@ -65,13 +65,14 @@ namespace Protobot {
             FindFirstObjectByType<BuildsManager>()?.IsFileOperationInProgress != true;
 
         public void OpenImportSettings() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             if (!CanStart) return;
             CancelMode();
             Simulation.SimulationTool.ExitForEdit();
             options = true;
             var panel = CreatePanel("Import Custom Model", true, 340);
             AddLabel(panel, "OBJ and STL geometry is embedded in your build.\nChoose the source file's units before importing.", 50, 70);
-            units = Mathf.Clamp(PlayerPrefs.GetInt("customModelUnits", 0), 0, 2);
+            units = Mathf.Clamp(LocalPreferences.GetInt("customModelUnits", 0), 0, 2);
             Button unitButton = null;
             unitButton = AddButton(panel, "Source units: " + UnitNames[units], 140, () => {
                 units = (units + 1) % UnitNames.Length;
@@ -86,12 +87,12 @@ namespace Protobot {
         private async void ChooseFile() {
             if (!options || busy || NativeFileDialogs.IsOpen) return;
             options = false;
-            PlayerPrefs.SetInt("customModelUnits", units);
+            LocalPreferences.SetInt("customModelUnits", units);
             int request = generation;
             busy = true;
             ClosePanel();
             try {
-                var paths = await NativeFileDialogs.OpenModelAsync(PlayerPrefs.GetString(DirectoryKey, ""));
+                var paths = await NativeFileDialogs.OpenModelAsync(LocalPreferences.GetString(DirectoryKey, ""));
                 if (this == null || request != generation || paths == null || paths.Length == 0 || string.IsNullOrEmpty(paths[0])) return;
                 await ReadAndCreate(paths[0], UnitScales[units], request);
             }
@@ -101,6 +102,7 @@ namespace Protobot {
 
         // Also used by validation and integrations that already have a file path.
         public async Task<GameObject> ImportPathAsync(string path, float inchesPerUnit) {
+            if (CollaborationSession.BlocksLegacyMutation) return null;
             if (!CanStart) return null;
             Simulation.SimulationTool.ExitForEdit();
             CancelMode();
@@ -122,7 +124,7 @@ namespace Protobot {
             selectionManager.ClearCurrent(false, true, true);
             selectionManager.SetCurrent(new ObjectSelection { gameObject = obj, individual = true }, true);
             StateSystem.AddState(new ObjectElement(obj));
-            PlayerPrefs.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
+            LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
             FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
             InteractionFeedback.Notify($"Imported {data.name}. G: move · {mountInput.GetCurrentKeybind()}: add mounting points.");
             return obj;
@@ -134,6 +136,7 @@ namespace Protobot {
         }
 
         public void ToggleMounts() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             if (placingMounts) { CancelMode(); return; }
             if (!CanStart || options) return;
             Simulation.SimulationTool.ExitForEdit();

@@ -1,0 +1,53 @@
+name: Collaboration
+
+on:
+  push:
+    paths: ['Collaboration/**', 'Packages/com.protobot.collaboration/**', '.github/workflows/collaboration.yml']
+  pull_request:
+    paths: ['Collaboration/**', 'Packages/com.protobot.collaboration/**', '.github/workflows/collaboration.yml']
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Collaboration/global.json
+      - run: dotnet build src/Cli/Cli.csproj
+        working-directory: Collaboration
+      - run: dotnet run --project tools/Lab/Lab.csproj -- run --bots 10
+        working-directory: Collaboration
+  helpers:
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Collaboration/global.json
+      - run: dotnet publish src/Cli/Cli.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o artifacts/${{ matrix.rid }}
+        working-directory: Collaboration
+      - name: Include source license and runtime notices
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE Collaboration/artifacts/${{ matrix.rid }}/LICENSE-Protobot.txt
+          Copy-Item Collaboration/THIRD-PARTY-NOTICES.md Collaboration/artifacts/${{ matrix.rid }}/
+          Copy-Item "$env:DOTNET_ROOT/LICENSE.txt" Collaboration/artifacts/${{ matrix.rid }}/LICENSE-dotnet.txt
+          Copy-Item "$env:DOTNET_ROOT/ThirdPartyNotices.txt" Collaboration/artifacts/${{ matrix.rid }}/NOTICES-dotnet.txt
+      - name: Preserve executable permissions in archive
+        shell: bash
+        run: tar -czf protobot-collab-${{ matrix.rid }}.tar.gz -C Collaboration/artifacts/${{ matrix.rid }} .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protobot-collab-${{ matrix.rid }}
+          path: protobot-collab-${{ matrix.rid }}.tar.gz

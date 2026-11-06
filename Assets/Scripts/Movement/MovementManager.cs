@@ -87,6 +87,7 @@ namespace Protobot {
         /// </summary>
         /// <param name="value"></param>
         public void StartContinuous() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             displaceContinous = true;
 
             if (displaceContinous) {
@@ -99,6 +100,7 @@ namespace Protobot {
         }
 
         public void DisplaceTo(Displacement displacement, float duration = 0.25f) {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             if (!displaceContinous) {
                 movingObjs = GetMovingConnectedObjs();
                 BeginMovement();

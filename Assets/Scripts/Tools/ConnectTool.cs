@@ -88,6 +88,7 @@ namespace Protobot.Tools {
         }
 
         public void SetActive(bool value) {
+            if (value && CollaborationSession.BlocksLegacyMutation) return;
             if (value) CustomModelTool.CancelActive();
             toolActive = value;
             IsCapturingPoints = value;

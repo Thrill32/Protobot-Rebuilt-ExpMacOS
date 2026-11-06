@@ -23,6 +23,7 @@ namespace Protobot {
         }
 
         public void StartMoving() {
+            if (CollaborationSession.BlocksLegacyMutation) return;
             if (placement.placing || !objectLink.active || Tools.KeyboardTransformTool.IsCapturingInput)
                 return;
             // A grab can restore the body before the face's next Update.

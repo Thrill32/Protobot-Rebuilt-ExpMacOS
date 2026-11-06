@@ -1,0 +1,4 @@
+<linker>
+  <assembly fullname="Protobot.Collaboration" preserve="all" />
+  <assembly fullname="System.Runtime.Serialization" preserve="all" />
+</linker>

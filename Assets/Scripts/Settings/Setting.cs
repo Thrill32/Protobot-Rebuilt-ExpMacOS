@@ -22,7 +22,7 @@ namespace Protobot {
             }
         }
 
-        private string SavedValue => PlayerPrefs.GetString(name);
+        private string SavedValue => LocalPreferences.GetString(name);
 
         public IntEvent OnUpdateIntValue;
         public BoolEvent OnUpdateBoolValue;
@@ -55,7 +55,7 @@ namespace Protobot {
         }
 
         public void SaveValue() {
-            PlayerPrefs.SetString(name, currentValue);
+            LocalPreferences.SetString(name, currentValue);
         }
 
         public void SetValue(string newValue) {

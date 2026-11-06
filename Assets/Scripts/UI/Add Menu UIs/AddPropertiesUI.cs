@@ -175,6 +175,7 @@ namespace Protobot.UI {
         }
 
         private void ApplyParameters() {
+            if (CollaborationSession.BlocksLegacyMutation && editingObject != null) return;
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (editingObject == null) {
                 placement.RefreshPartPreview();

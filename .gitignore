@@ -80,3 +80,10 @@ WebGL/*
 **/*BackUpThisFolder_ButDontShipItWithYourGame/
 
 /Notes
+
+# Authored collaboration projects (Unity-generated projects stay ignored).
+!Collaboration/**/*.csproj
+!Collaboration/**/*.sln
+Collaboration/**/bin/
+Collaboration/**/obj/
+Collaboration/artifacts/
