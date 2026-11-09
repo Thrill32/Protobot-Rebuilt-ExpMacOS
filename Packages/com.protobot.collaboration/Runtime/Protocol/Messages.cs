@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
-        public const string Version = "0.2.0-alpha";
+        public const string Version = "0.3.0-alpha";
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -87,6 +87,8 @@ namespace Protobot.Collaboration {
     [Serializable] public sealed class Participant { public string id, name, role; }
     [Serializable] public sealed class JoinResponse {
         public string token;
+        public string resumeToken;
+        public long sequence;
         public Participant participant;
         public string incarnation;
         public Document document;
@@ -110,6 +112,7 @@ namespace Protobot.Collaboration {
         public string version = CollaborationProtocol.Version;
         public string[] transports = new[] { "websocket", "long-polling" };
         public bool durable = false;
+        public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {
         public string room = "team";
@@ -118,7 +121,12 @@ namespace Protobot.Collaboration {
         public CatalogManifest catalog;
         public Document document;
     }
-    [Serializable] public sealed class Ready { public string type = "ready"; public string url, room, version = CollaborationProtocol.Version; }
+    [Serializable] public sealed class Ready {
+        public string type = "ready";
+        public string url, room, version = CollaborationProtocol.Version;
+        public bool durable, recovered;
+        public long revision;
+    }
     [Serializable] public sealed class WireError { public string error; }
 
     public sealed class CollaborationException : Exception {

@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Protobot.Collaboration;
 using Protobot.Collaboration.Server;
 
-internal static class Program {
+internal static partial class Program {
     private static int assertions;
     public static async Task<int> Main(string[] args) {
         string directory = Path.Combine(Path.GetTempPath(), "protobot-collab-" + Guid.NewGuid().ToString("N"));
@@ -23,6 +23,7 @@ internal static class Program {
         var timer = Stopwatch.StartNew();
         try {
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await DurabilityChecks(directory);
             foreach (var transport in transports) await NetworkChecks(bots, transport, directory);
             await FailureChecks();
             await ProcessChecks(directory);
@@ -106,7 +107,7 @@ internal static class Program {
         Reject(() => authority.Reserve(bob.token, new LeaseRequest { ids = new[] { "b" } }), "parts-reserved");
         var preview = new Preview { lease = hold.token, sequence = 2, parts = new[] { Cube("a", 3), Cube("b", 3) } };
         authority.Preview(alice.token, preview);
-        var snapshot = authority.Join(new JoinRequest { resumeToken = bob.token, catalogHash = seed.catalog.hash });
+        var snapshot = authority.Join(new JoinRequest { resumeToken = bob.resumeToken, catalogHash = seed.catalog.hash });
         string oldToken = bob.token;
         bob = snapshot;
         Reject(() => authority.Outcome(oldToken, "delayed-old-connection"), "invalid-session");
@@ -134,7 +135,7 @@ internal static class Program {
         var inactive = capacity.Join(Join("Sleeping client"));
         capacityTime = 60001;
         for (int i = 0; i < 10; i++) capacity.Join(Join("Active " + i));
-        Reject(() => capacity.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = inactive.token }), "room-full");
+        Reject(() => capacity.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = inactive.resumeToken }), "room-full");
     }
 
     private static void HistoryChecks() {
@@ -193,7 +194,7 @@ internal static class Program {
         var dependency = Tx(document, "AddParts", new[] { Cube("anchored") }, sequence: ++aliceSequence);
         dependency.expected = dependency.expected.Concat(new[] { new VersionRef { id = "b", version = Part("b").version - 1 } }).ToArray();
         Check(room.Commit(alice.token, dependency).error == "stale-entity" && !document.parts.Any(p => p.id == "anchored"), "stale placement target rejects create atomically");
-        bob = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = bob.token });
+        bob = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = bob.resumeToken });
         Check(History(bob, true).accepted && Part("a").position[1] == 8, "resumed identity retains personal redo history");
     }
 
@@ -278,7 +279,7 @@ internal static class Program {
         // dotnet run creates an apphost for this lab, so resolve the dotnet host independently.
         start.FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
         start.ArgumentList.Add(dll); start.ArgumentList.Add("serve"); start.ArgumentList.Add("--bootstrap-stdin");
-        start.ArgumentList.Add("--listen"); start.ArgumentList.Add("http://127.0.0.1:0");
+        start.ArgumentList.Add("--listen"); start.ArgumentList.Add("http://127.0.0.1:0"); start.ArgumentList.Add("--ephemeral");
         using var child = Process.Start(start);
         try {
             var stderr = child.StandardError.ReadToEndAsync();

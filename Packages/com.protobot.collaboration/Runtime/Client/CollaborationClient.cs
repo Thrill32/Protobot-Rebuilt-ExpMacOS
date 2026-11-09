@@ -12,6 +12,12 @@ namespace Protobot.Collaboration {
     public enum CollaborationTransport { Auto, WebSocket, LongPolling }
 
     public sealed class CollaborationClient : IEditSession, IDisposable {
+        [Serializable] private sealed class RecoveryState {
+            public int schema = 1;
+            public string origin, room, catalogHash, generation, resumeToken;
+            public long sequence;
+            public string[] pendingIds = Array.Empty<string>();
+        }
         private readonly HttpClient http;
         private readonly Uri endpoint;
         private readonly string room;
@@ -19,6 +25,10 @@ namespace Protobot.Collaboration {
         private readonly object gate = new object();
         private Document document;
         private string token;
+        private string resumeToken;
+        private readonly string recoveryPath;
+        private FileStream recoveryOwnership;
+        private bool loadedRecovery, disposed;
         private CancellationTokenSource lifetime;
         private Task pump;
         private TaskCompletionSource<bool> advanced = Signal();
@@ -28,6 +38,7 @@ namespace Protobot.Collaboration {
         private readonly Dictionary<string, Transaction> pending = new Dictionary<string, Transaction>();
         public Participant Participant { get; private set; }
         public bool IsConnected { get; private set; }
+        public bool IsDurable { get; private set; }
         public string ActiveTransport { get; private set; }
         public CollaborationTransport Transport { get; }
         public long ConnectionEpoch => Interlocked.Read(ref connectionEpoch);
@@ -39,12 +50,13 @@ namespace Protobot.Collaboration {
         public Document Snapshot { get { lock (gate) return document == null ? null : WireJson.Clone(document); } }
         public int PendingCount { get { lock (gate) return pending.Count; } }
 
-        public CollaborationClient(string url, string roomId, CatalogManifest manifest, CollaborationTransport transport = CollaborationTransport.Auto, bool allowInsecureLan = false) {
+        public CollaborationClient(string url, string roomId, CatalogManifest manifest, CollaborationTransport transport = CollaborationTransport.Auto, bool allowInsecureLan = false, string recoveryFile = null) {
             endpoint = new Uri(url.TrimEnd('/') + "/");
             DocumentModel.Require(string.IsNullOrEmpty(endpoint.UserInfo) && string.IsNullOrEmpty(endpoint.Query) && string.IsNullOrEmpty(endpoint.Fragment) &&
                 endpoint.AbsolutePath == "/" && DocumentModel.ValidId(roomId), "invalid-endpoint");
             DocumentModel.Require(endpoint.Scheme == "https" || endpoint.Scheme == "http" && (endpoint.IsLoopback || allowInsecureLan), "https-required-use-explicit-lan-http");
             room = roomId; catalog = WireJson.Clone(manifest); Transport = transport;
+            recoveryPath = recoveryFile == null ? null : Path.GetFullPath(recoveryFile);
             // Default OS trust/proxy behavior is intentional. No certificate bypass callbacks.
             http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
         }
@@ -54,19 +66,24 @@ namespace Protobot.Collaboration {
             Interlocked.Increment(ref connectionEpoch);
             var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
             DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
+            DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
+            IsDurable = capabilities.durable;
+            LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
             var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
                 catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
-                resumeToken = token
+                resumeToken = resumeToken
             }, cancellation).ConfigureAwait(false);
             DocumentModel.Validate(joined.document, catalog);
-            token = joined.token; Participant = joined.participant;
-            lock (gate) document = WireJson.Clone(joined.document);
+            DocumentModel.Require(!string.IsNullOrEmpty(joined.resumeToken) && joined.resumeToken.Length < 256 && joined.sequence >= 0 &&
+                joined.document.generation == capabilities.generation, "invalid-join-response");
+            token = joined.token; resumeToken = joined.resumeToken; Participant = joined.participant;
+            lock (gate) { document = WireJson.Clone(joined.document); sequence = Math.Max(sequence, joined.sequence); SaveRecovery(); }
             string[] unresolved;
             var recovery = new List<string>();
             lock (gate) unresolved = pending.Keys.ToArray();
             foreach (var operation in unresolved) {
                 var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation), cancellation).ConfigureAwait(false);
-                lock (gate) pending.Remove(operation);
+                lock (gate) { pending.Remove(operation); SaveRecovery(); }
                 string message = receipt.accepted ? "Recovered accepted edit at revision " + receipt.revision : receipt.error ?? "Edit was not accepted; retry explicitly.";
                 recovery.Add(message); PendingResolved?.Invoke(message);
             }
@@ -76,6 +93,41 @@ namespace Protobot.Collaboration {
             var connectionLifetime = lifetime;
             pump = Task.Run(() => Pump(connectionLifetime.Token));
             return joined;
+        }
+
+        private void LoadRecovery(Capabilities capabilities, bool ownedLoopback) {
+            lock (gate) {
+                DocumentModel.Require(!disposed, "client-closed");
+                if (recoveryPath == null || loadedRecovery) return;
+                if (!IsDurable) { DocumentModel.Require(!File.Exists(recoveryPath), "saved-room-is-not-durable"); return; }
+                RecoveryFiles.CreateDirectory(Path.GetDirectoryName(recoveryPath));
+                recoveryOwnership = new FileStream(recoveryPath + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                try {
+                    RecoveryFiles.PrivateFile(recoveryPath + ".lock");
+                    if (File.Exists(recoveryPath)) {
+                        var saved = RecoveryFiles.Read<RecoveryState>(recoveryPath);
+                        DocumentModel.Require(saved != null && saved.schema == 1 && saved.room == room && saved.catalogHash == catalog.hash &&
+                            saved.generation == capabilities.generation && (saved.origin == endpoint.GetLeftPart(UriPartial.Authority) || ownedLoopback), "saved-room-does-not-match");
+                        DocumentModel.Require(!string.IsNullOrEmpty(saved.resumeToken) && saved.resumeToken.Length < 256 && saved.sequence >= 0 &&
+                            saved.pendingIds != null && saved.pendingIds.Length <= 256 && saved.pendingIds.All(DocumentModel.ValidId) &&
+                            saved.pendingIds.Distinct().Count() == saved.pendingIds.Length, "invalid-session-recovery-file");
+                        resumeToken = saved.resumeToken; sequence = saved.sequence;
+                        foreach (var id in saved.pendingIds) pending[id] = new Transaction { operationId = id };
+                    }
+                    loadedRecovery = true;
+                }
+                catch { recoveryOwnership.Dispose(); recoveryOwnership = null; throw; }
+            }
+        }
+        private void SaveRecovery() {
+            if (recoveryPath == null || !IsDurable) return;
+            DocumentModel.Require(!disposed && resumeToken != null, "client-closed");
+            RecoveryFiles.Write(recoveryPath, new RecoveryState { origin = endpoint.GetLeftPart(UriPartial.Authority), room = room,
+                catalogHash = catalog.hash, generation = document.generation, resumeToken = resumeToken, sequence = sequence, pendingIds = pending.Keys.ToArray() });
+        }
+        public static void ForgetRecovery(string path) {
+            if (!File.Exists(path)) return;
+            using (var ownership = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) File.Delete(path);
         }
 
         public Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string lease = null) {
@@ -92,11 +144,14 @@ namespace Protobot.Collaboration {
         public async Task<Receipt> SubmitAsync(Transaction transaction, CancellationToken cancellation = default) {
             DocumentModel.Require(IsConnected, "disconnected");
             long epoch = ConnectionEpoch;
-            lock (gate) pending[transaction.operationId] = WireJson.Clone(transaction);
             try {
+                lock (gate) {
+                    DocumentModel.Require(pending.Count < 256 || pending.ContainsKey(transaction.operationId), "pending-operation-limit");
+                    pending[transaction.operationId] = WireJson.Clone(transaction); SaveRecovery();
+                }
                 var receipt = await Post<Transaction, Receipt>("commit", transaction, cancellation).ConfigureAwait(false);
                 if (receipt.accepted) await WaitForRevisionAsync(receipt.revision, cancellation).ConfigureAwait(false);
-                lock (gate) pending.Remove(transaction.operationId);
+                lock (gate) { pending.Remove(transaction.operationId); SaveRecovery(); }
                 return receipt;
             }
             catch { if (ConnectionEpoch == epoch) Freeze("Connection interrupted; pending outcome must be resolved by reconnecting."); throw; }
@@ -126,8 +181,15 @@ namespace Protobot.Collaboration {
         }
 
         public async Task LeaveAsync() {
-            try { if (token != null) await Post<WireError, WireError>("leave", new WireError(), CancellationToken.None).ConfigureAwait(false); }
-            finally { token = null; await StopPump().ConfigureAwait(false); }
+            bool left = false;
+            try { if (token != null) { await Post<WireError, WireError>("leave", new WireError(), CancellationToken.None).ConfigureAwait(false); left = true; } }
+            finally {
+                token = null; await StopPump().ConfigureAwait(false);
+                if (left) lock (gate) {
+                    resumeToken = null; pending.Clear(); sequence = 0;
+                    if (recoveryPath != null && File.Exists(recoveryPath)) File.Delete(recoveryPath);
+                }
+            }
         }
         public async Task PrepareReconnectAsync() => await StopPump().ConfigureAwait(false);
 
@@ -238,6 +300,9 @@ namespace Protobot.Collaboration {
             }
         }
         private static TaskCompletionSource<bool> Signal() => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        public void Dispose() { Freeze("Connection closed."); http.Dispose(); }
+        public void Dispose() {
+            lock (gate) { if (disposed) return; disposed = true; Interlocked.Increment(ref connectionEpoch); }
+            Freeze("Connection closed."); http.Dispose(); recoveryOwnership?.Dispose();
+        }
     }
 }

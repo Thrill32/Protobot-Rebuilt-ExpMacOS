@@ -11,18 +11,13 @@ using Protobot.Collaboration;
 namespace Protobot.Collaboration.Server {
     // Every room transition is serialized under one gate, including snapshot/event handoff.
     public sealed class Room {
-        private sealed class Member {
-            public Participant participant;
+        private sealed class Member : StoredMember {
             public long lastSeen;
-            public long sequence;
+            public string accessHash;
             public Dictionary<string, Receipt> receipts = new Dictionary<string, Receipt>();
-            public List<HistoryEntry> history = new List<HistoryEntry>();
-            public int historyCursor;
-        }
-        private sealed class HistoryEntry {
-            public string[] ids;
-            public Part[] before, after;
-            public bool blocked;
+            public List<StoredHistory> history = new List<StoredHistory>();
+            public StoredMember Record() => new StoredMember { participant = participant, resumeHash = resumeHash,
+                sequence = sequence, historyCursor = historyCursor, revoked = revoked };
         }
         private sealed class Lease {
             public string token, author;
@@ -36,6 +31,7 @@ namespace Protobot.Collaboration.Server {
         private readonly byte[] passwordHash;
         private readonly string ownerHash;
         private readonly Dictionary<string, Member> members = new Dictionary<string, Member>();
+        private readonly Dictionary<string, Member> sessions = new Dictionary<string, Member>();
         private readonly Dictionary<string, Lease> leases = new Dictionary<string, Lease>();
         private readonly List<AcceptedEdit> events = new List<AcceptedEdit>();
         private TaskCompletionSource<bool> changed = Signal();
@@ -44,45 +40,78 @@ namespace Protobot.Collaboration.Server {
         private long historyBytes;
         private int receiptCount;
         private readonly Func<long> clock;
+        private readonly RoomStore store;
+        private bool storageFailed;
+        public string Name { get; }
+        public bool IsDurable => store != null;
+        public bool IsHealthy => !storageFailed;
+        public bool Recovered { get; }
+        public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
+        public Capabilities Capabilities => new Capabilities { durable = IsDurable, room = Name, generation = document.generation, catalogHash = catalog.hash };
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
         public const int LeaseMilliseconds = 10000;
 
-        public Room(Bootstrap seed, Func<long> monotonicMilliseconds = null) {
-            DocumentModel.Validate(seed.document, seed.catalog);
-            document = WireJson.Clone(seed.document); catalog = WireJson.Clone(seed.catalog);
-            passwordHash = Password(seed.password ?? ""); ownerHash = string.IsNullOrEmpty(seed.ownerCredential) ? null : TokenHash(seed.ownerCredential);
+        public Room(Bootstrap seed, Func<long> monotonicMilliseconds = null, RoomStore storage = null) {
             clock = monotonicMilliseconds ?? (() => (long)(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency));
+            store = storage;
+            var archive = store?.Load();
+            if (archive != null) {
+                DocumentModel.Require(seed == null || seed.room == archive.info.room && seed.catalog?.hash == archive.info.catalog.hash, "recovery-catalog-or-room-mismatch");
+                Name = archive.info.room; catalog = archive.info.catalog; document = archive.document;
+                salt = archive.info.salt; passwordHash = archive.info.passwordHash; ownerHash = archive.info.ownerHash;
+                events.AddRange(archive.events); historyBytes = archive.historyBytes; Recovered = true;
+                foreach (var loaded in archive.members.Values) {
+                    var data = loaded.member;
+                    var member = new Member { participant = data.participant, resumeHash = data.resumeHash, sequence = data.sequence,
+                        historyCursor = data.historyCursor, revoked = data.revoked, lastSeen = clock() - 60001,
+                        history = loaded.history, receipts = loaded.receipts.ToDictionary(r => r.operationId) };
+                    members.Add(member.resumeHash, member); receiptCount += member.receipts.Count;
+                }
+            }
+            else {
+                DocumentModel.Require(seed != null, "recovery-room-not-found");
+                DocumentModel.Validate(seed.document, seed.catalog);
+                Name = seed.room; document = WireJson.Clone(seed.document); catalog = WireJson.Clone(seed.catalog);
+                passwordHash = Password(seed.password ?? ""); ownerHash = string.IsNullOrEmpty(seed.ownerCredential) ? null : TokenHash(seed.ownerCredential);
+                store?.Initialize(new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision,
+                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash }, document);
+            }
         }
 
         public JoinResponse Join(JoinRequest request) {
             lock (gate) {
-                Expire();
+                Healthy(); Expire();
                 DocumentModel.Require(request != null && request.protocol == 1, "protocol-mismatch");
                 DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 Member member;
-                string token = request.resumeToken;
-                if (!string.IsNullOrEmpty(token)) {
-                    member = Authenticate(token);
+                string resume = request.resumeToken;
+                if (!string.IsNullOrEmpty(resume)) {
+                    DocumentModel.Require(resume.Length < 256 && members.TryGetValue(TokenHash(resume), out _), "invalid-session");
+                    member = members[TokenHash(resume)]; DocumentModel.Require(!member.revoked, "invalid-session"); Touch(member);
                     // Fence requests from the old transport before returning a fresh snapshot.
                     // A delayed old create cannot arrive after pending outcomes were resolved as absent.
-                    members.Remove(TokenHash(token)); token = NewToken(); members.Add(TokenHash(token), member);
+                    if (member.accessHash != null) sessions.Remove(member.accessHash);
                     foreach (var key in leases.Where(l => l.Value.author == member.participant.id).Select(l => l.Key).ToArray()) leases.Remove(key);
                     Pulse();
                 }
                 else {
-                    DocumentModel.Require(CryptographicOperations.FixedTimeEquals(Password(request.password ?? ""), passwordHash), "wrong-password");
-                    DocumentModel.Require(members.Count < 1000 && members.Values.Count(m => clock() - m.lastSeen < 60000) < 10, "room-full");
+                    bool owner = ownerHash != null && !string.IsNullOrEmpty(request.ownerCredential) && TokenHash(request.ownerCredential) == ownerHash;
+                    DocumentModel.Require(owner || CryptographicOperations.FixedTimeEquals(Password(request.password ?? ""), passwordHash), "wrong-password");
+                    DocumentModel.Require(members.Count < 1000 && ActiveCount() < 10, "room-full");
                     DocumentModel.Require(!string.IsNullOrWhiteSpace(request.name) && request.name.Length <= 48 && !request.name.Any(char.IsControl), "invalid-name");
-                    token = NewToken();
+                    resume = NewToken();
                     member = new Member { participant = new Participant {
                         id = Guid.NewGuid().ToString("N"), name = request.name,
-                        role = ownerHash != null && !string.IsNullOrEmpty(request.ownerCredential) && TokenHash(request.ownerCredential) == ownerHash ? "owner" : request.viewer ? "viewer" : "editor"
-                    }, lastSeen = clock() };
-                    members.Add(TokenHash(token), member);
+                        role = owner ? "owner" : request.viewer ? "viewer" : "editor"
+                    }, lastSeen = clock(), resumeHash = TokenHash(resume) };
+                    Persist(() => store.AddMember(member.Record()));
+                    members.Add(member.resumeHash, member);
                     Pulse();
                 }
-                return new JoinResponse { token = token, incarnation = Incarnation, participant = WireJson.Clone(member.participant), document = WireJson.Clone(document) };
+                string token = NewToken(); member.accessHash = TokenHash(token); sessions.Add(member.accessHash, member);
+                return new JoinResponse { token = token, resumeToken = resume, sequence = member.sequence,
+                    incarnation = Incarnation, participant = WireJson.Clone(member.participant), document = WireJson.Clone(document) };
             }
         }
 
@@ -144,7 +173,7 @@ namespace Protobot.Collaboration.Server {
                 try {
                     DocumentModel.Require(transaction.sequence > member.sequence, "sequence-reused");
                     bool undo = transaction.kind == "Undo", redo = transaction.kind == "Redo";
-                    HistoryEntry inverse = null;
+                    StoredHistory inverse = null;
                     var command = transaction;
                     if (undo || redo) {
                         DocumentModel.Require(transaction.writes != null && transaction.deletes != null && transaction.writes.Length == 0 && transaction.deletes.Length == 0, "invalid-history-command");
@@ -177,9 +206,17 @@ namespace Protobot.Collaboration.Server {
                         lease = OwnedLease(member, transaction.lease);
                         DocumentModel.Require(existing.All(lease.ids.Contains), "lease-set-mismatch");
                     }
-                    // Only version preconditions constrain unrelated edits, never the global revision.
-                    document = next;
-                    historyBytes += transactionBytes;
+                    var accepted = WireJson.Clone(command); accepted.lease = null;
+                    var edit = new AcceptedEdit { revision = next.revision, author = member.participant.id, transaction = accepted, hash = DocumentModel.Hash(next) };
+                    var entry = inverse == null ? new StoredHistory { ids = changedIds, before = WireJson.Clone(before), after = WireJson.Clone(after) } : null;
+                    var blocked = members.Values.Where(m => m != member).SelectMany(m => m.history.Select((h, i) => (member: m.participant.id, index: i, entry: h)))
+                        .Where(h => !h.entry.blocked && h.entry.ids.Intersect(changedIds).Any()).Select(h => (h.member, h.index)).ToArray();
+                    var recorded = member.Record(); recorded.sequence = transaction.sequence;
+                    recorded.historyCursor = inverse != null ? member.historyCursor + (undo ? -1 : 1) : member.historyCursor + 1;
+                    receipt.accepted = true; receipt.revision = next.revision;
+                    // Commit document journal, receipt, identity sequence and undo state together before publication/acknowledgment.
+                    Persist(() => store.Commit(recorded, receipt, edit, next, entry, member.historyCursor, blocked, transactionBytes, historyBytes + transactionBytes));
+                    document = next; historyBytes += transactionBytes;
                     // Only the authority supplies inverse content. Another participant touching any of its
                     // entities permanently fences an older inverse, even if they later restore equal values.
                     foreach (var other in members.Values.Where(m => m != member))
@@ -187,19 +224,16 @@ namespace Protobot.Collaboration.Server {
                     if (inverse != null) member.historyCursor += undo ? -1 : 1;
                     else {
                         member.history.RemoveRange(member.historyCursor, member.history.Count - member.historyCursor);
-                        member.history.Add(new HistoryEntry { ids = changedIds, before = WireJson.Clone(before), after = WireJson.Clone(after) });
+                        member.history.Add(entry);
                         member.historyCursor = member.history.Count;
                     }
-                    var accepted = WireJson.Clone(command);
-                    // Receipts/events never disclose the ephemeral reservation credential.
-                    accepted.lease = null;
-                    events.Add(new AcceptedEdit { revision = next.revision, author = member.participant.id, transaction = accepted, hash = DocumentModel.Hash(next) });
-                    receipt.accepted = true; receipt.revision = next.revision;
+                    events.Add(edit);
                     if (lease != null) leases.Remove(lease.token);
                     member.sequence = transaction.sequence;
                     Pulse();
                 }
-                catch (CollaborationException error) { receipt.error = error.Code; }
+                catch (CollaborationException error) { if (storageFailed) throw; receipt.error = error.Code; }
+                if (!receipt.accepted) Persist(() => store.RecordReceipt(member.participant.id, receipt));
                 member.receipts.Add(transaction.operationId, receipt);
                 receiptCount++;
                 return WireJson.Clone(receipt);
@@ -238,7 +272,9 @@ namespace Protobot.Collaboration.Server {
         public void Leave(string token) {
             lock (gate) {
                 var member = Authenticate(token);
-                members.Remove(TokenHash(token));
+                var revoked = member.Record(); revoked.revoked = true;
+                Persist(() => store.Revoke(revoked));
+                member.revoked = true; sessions.Remove(member.accessHash);
                 foreach (var key in leases.Where(l => l.Value.author == member.participant.id).Select(l => l.Key).ToArray()) leases.Remove(key);
                 Pulse();
             }
@@ -248,13 +284,24 @@ namespace Protobot.Collaboration.Server {
             edits = events.Where(e => e.revision > after).Take(1).ToArray(),
             previews = leases.Values.Where(l => l.preview != null).Select(l => {
                 var preview = WireJson.Clone(l.preview); preview.lease = null; return preview;
-            }).ToArray(), participants = members.Values.Where(m => clock() - m.lastSeen < 60000).Select(m => m.participant).ToArray(), transientVersion = transientVersion
+            }).ToArray(), participants = members.Values.Where(m => !m.revoked && clock() - m.lastSeen < 60000).Select(m => m.participant).ToArray(), transientVersion = transientVersion
         };
         private Member Authenticate(string token) {
-            DocumentModel.Require(token != null && token.Length < 256 && members.TryGetValue(TokenHash(token), out _), "invalid-session");
-            var member = members[TokenHash(token)];
-            DocumentModel.Require(clock() - member.lastSeen < 60000 || members.Values.Count(m => clock() - m.lastSeen < 60000) < 10, "room-full");
-            member.lastSeen = clock(); return member;
+            Healthy();
+            DocumentModel.Require(token != null && token.Length < 256 && sessions.TryGetValue(TokenHash(token), out _), "invalid-session");
+            var member = sessions[TokenHash(token)]; DocumentModel.Require(!member.revoked, "invalid-session");
+            Touch(member); return member;
+        }
+        private int ActiveCount() => members.Values.Count(m => !m.revoked && clock() - m.lastSeen < 60000);
+        private void Touch(Member member) {
+            DocumentModel.Require(clock() - member.lastSeen < 60000 || ActiveCount() < 10, "room-full");
+            member.lastSeen = clock();
+        }
+        private void Healthy() => DocumentModel.Require(!storageFailed, "room-storage-failed-restart-required");
+        private void Persist(Action write) {
+            if (store == null) return;
+            try { write(); }
+            catch { storageFailed = true; Pulse(); throw new CollaborationException("room-storage-failed-restart-required"); }
         }
         private Member Editor(string token) {
             var member = Authenticate(token); DocumentModel.Require(member.participant.role != "viewer", "viewer-read-only"); return member;

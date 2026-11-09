@@ -11,8 +11,9 @@ internal static class Program {
     public static async Task<int> Main(string[] args) {
         try {
             if (args.Length == 0 || args[0] == "--help") {
-                Console.WriteLine("protobot-collab serve --config <protected-bootstrap.json> [--listen http://127.0.0.1:8787] [--allow-lan-http]\n" +
-                    "protobot-collab doctor --url <https-origin>\nDevelopment alpha: one ephemeral room; Save locally before stopping hosting."); return 0;
+                Console.WriteLine("protobot-collab serve --data-dir <local-directory> [--config <initial-bootstrap.json>] [--listen http://127.0.0.1:8787] [--allow-lan-http]\n" +
+                    "protobot-collab serve --ephemeral --config <protected-bootstrap.json>\n" +
+                    "protobot-collab doctor --url <https-origin>\nDevelopment alpha: one room; server recovery and participant Save are independent."); return 0;
             }
             string Option(string key, string fallback = null) {
                 int i = Array.IndexOf(args, key);
@@ -28,14 +29,19 @@ internal static class Program {
             }
             DocumentModel.Require(args[0] == "serve", "unknown-command");
             bool parentOwned = Array.IndexOf(args, "--bootstrap-stdin") >= 0;
-            string json = parentOwned ? await Console.In.ReadLineAsync() : await File.ReadAllTextAsync(Option("--config") ?? throw new ArgumentException("--config is required"));
+            string dataDirectory = Option("--data-dir");
+            bool ephemeral = Array.IndexOf(args, "--ephemeral") >= 0;
+            DocumentModel.Require((dataDirectory != null) != ephemeral, "use-data-dir-or-explicit-ephemeral");
+            string config = Option("--config");
+            string json = parentOwned ? await Console.In.ReadLineAsync() : config == null ? "null" : await File.ReadAllTextAsync(config);
             DocumentModel.Require(json != null && Encoding.UTF8.GetByteCount(json) <= WireJson.MaxMessageBytes, "invalid-bootstrap");
             var seed = WireJson.Decode<Bootstrap>(Encoding.UTF8.GetBytes(json));
             using var stop = new CancellationTokenSource();
             Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-            await using var server = new CollaborationServer(seed, Option("--listen", "http://127.0.0.1:8787"), Array.IndexOf(args, "--allow-lan-http") >= 0);
+            await using var server = new CollaborationServer(seed, Option("--listen", "http://127.0.0.1:8787"), Array.IndexOf(args, "--allow-lan-http") >= 0, dataDirectory);
             await server.StartAsync(stop.Token);
-            Console.WriteLine(WireJson.Text(new Ready { url = server.Url, room = seed.room }));
+            Console.WriteLine(WireJson.Text(new Ready { url = server.Url, room = server.Room.Name, durable = server.Room.IsDurable,
+                recovered = server.Room.Recovered, revision = server.Room.Snapshot.revision }));
             await Console.Out.FlushAsync();
             if (parentOwned) {
                 // EOF (including a crashed parent) or an explicit line closes only this owned server.

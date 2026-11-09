@@ -18,14 +18,17 @@ using Microsoft.Extensions.Hosting;
 namespace Protobot.Collaboration.Server {
     public sealed class CollaborationServer : IAsyncDisposable {
         private readonly WebApplication app;
+        private readonly RoomStore storage;
         public Room Room { get; }
         public string Url { get; private set; }
 
-        public CollaborationServer(Bootstrap seed, string listen = "http://127.0.0.1:0", bool allowInsecureLan = false) {
-            DocumentModel.Require(DocumentModel.ValidId(seed.room), "invalid-room");
+        public CollaborationServer(Bootstrap seed, string listen = "http://127.0.0.1:0", bool allowInsecureLan = false, string dataDirectory = null) {
+            DocumentModel.Require(seed == null || DocumentModel.ValidId(seed.room), "invalid-room");
             var endpoint = new Uri(listen);
             DocumentModel.Require(endpoint.Scheme == "https" || endpoint.Scheme == "http" && (endpoint.IsLoopback || allowInsecureLan), "https-required-use-explicit-lan-http");
-            Room = new Room(seed);
+            storage = dataDirectory == null ? null : new RoomStore(dataDirectory);
+            try { Room = new Room(seed, storage: storage); }
+            catch { storage?.Dispose(); throw; }
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = Array.Empty<string>() });
             // Application stdout is reserved for the private readiness protocol. Do not log bodies/credentials.
             builder.Logging.ClearProviders();
@@ -52,9 +55,9 @@ namespace Protobot.Collaboration.Server {
                 }
             });
             app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
-            app.MapGet("/capabilities", context => Write(context, new Capabilities()));
-            app.MapGet("/health", context => Write(context, new Capabilities()));
-            string path = "/rooms/" + seed.room;
+            app.MapGet("/capabilities", context => Write(context, Room.Capabilities));
+            app.MapGet("/health", context => { context.Response.StatusCode = Room.IsHealthy ? 200 : 503; return Write(context, Room.Capabilities); });
+            string path = "/rooms/" + Room.Name;
             // Bound failed-join work as well as participant count. No endpoint accepts filesystem paths.
             var joinGate = new object();
             long window = Environment.TickCount64;
@@ -118,7 +121,10 @@ namespace Protobot.Collaboration.Server {
             Url = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>().Addresses.Single();
         }
         public Task WaitAsync(CancellationToken cancellation) => app.WaitForShutdownAsync(cancellation);
-        public async ValueTask DisposeAsync() { await app.StopAsync(TimeSpan.FromSeconds(5)); await app.DisposeAsync(); }
+        public async ValueTask DisposeAsync() {
+            try { await app.StopAsync(TimeSpan.FromSeconds(5)); await app.DisposeAsync(); }
+            finally { storage?.Dispose(); }
+        }
         private static string Token(HttpContext context) {
             string auth = context.Request.Headers.Authorization;
             DocumentModel.Require(auth != null && auth.StartsWith("Bearer ", StringComparison.Ordinal) && auth.Length < 270, "invalid-session");

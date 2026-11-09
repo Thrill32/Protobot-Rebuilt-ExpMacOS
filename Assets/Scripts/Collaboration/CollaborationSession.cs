@@ -19,6 +19,10 @@ namespace Protobot {
         private static CollaborationSession instance;
         private CollaborationClient client;
         private CollaborationHost host;
+        private CollaborationRecovery.HostedRoom hostedRoom;
+        private CollaborationRecovery.HostedRoom[] recoveredRooms = Array.Empty<CollaborationRecovery.HostedRoom>();
+        private bool portEdited, unreadableRecovery;
+        private Vector2 panelScroll;
         private CatalogManifest catalog;
         private readonly object queueGate = new object();
         private readonly Queue<(Action action, int bytes)> main = new Queue<(Action, int)>();
@@ -34,6 +38,7 @@ namespace Protobot {
         private int reservationGeneration;
         private Task releasePending = Task.CompletedTask;
         private Task reservationPending = Task.CompletedTask;
+        private Task hostShutdown = Task.CompletedTask;
         private readonly Dictionary<string, (SelectionManager manager, string[] ids)> selectAfterApply = new();
         private long previewSequence;
         private long lastSubmittedRevision;
@@ -82,6 +87,7 @@ namespace Protobot {
             room = CollaborationArguments.Get("--collab-room", room);
             var requestedTransport = CollaborationArguments.Get("--collab-transport", "auto");
             transport = requestedTransport == "long-polling" ? CollaborationTransport.LongPolling : requestedTransport == "websocket" ? CollaborationTransport.WebSocket : CollaborationTransport.Auto;
+            RefreshRecoveredRooms();
             Application.quitting += OnQuitting;
         }
         private void Start() {
@@ -134,8 +140,10 @@ namespace Protobot {
         private async Task HostAsync() {
             if (busy || IsShared) return;
             busy = true;
+            status = "Starting room…";
             try {
                 CancelTools();
+                await hostShutdown;
                 catalog = CollaborationScene.Catalog;
                 committed = CollaborationScene.CaptureDocument(catalog);
                 string hostedBaselineHash = DocumentModel.Hash(committed);
@@ -143,22 +151,60 @@ namespace Protobot {
                 bool wasSaved = builds.CurrentBuildIsSaved;
                 if (!int.TryParse(port, out var listenPort) || listenPort < 0 || listenPort > 65535) throw new ArgumentException("Use a port from 0 to 65535.");
                 var owner = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+                var seed = new Bootstrap { room = room, password = password, ownerCredential = owner, catalog = catalog, document = committed };
+                hostedRoom = CollaborationRecovery.Create(seed, listenPort);
                 host = new CollaborationHost();
-                await host.StartAsync(new Bootstrap { room = room, password = password, ownerCredential = owner, catalog = catalog, document = committed }, listenPort, lan);
+                await host.StartAsync(seed, listenPort, lan, hostedRoom.directory);
+                hostedRoom.port = host.BoundPort; CollaborationRecovery.Save(hostedRoom);
                 endpoint = host.Url;
                 await ConnectAsync(owner, true);
                 builds.BeginHostedDocument(hostedBaselineHash, wasSaved);
-                if (lan) {
-                    var address = NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up)
-                        .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
-                        .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a) && !a.ToString().StartsWith("169.254.", StringComparison.Ordinal));
-                    if (address != null) endpoint = new UriBuilder(host.Url) { Host = address.ToString() }.Uri.GetLeftPart(UriPartial.Authority);
-                }
+                if (lan) AdvertiseLan();
                 panel = false;
                 status = lan ? "Hosting on LAN · reachability from another computer is untested." : "Hosting on loopback · other local players can join.";
             }
-            catch (Exception error) { Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; }
-            finally { password = ""; busy = false; }
+            catch (Exception error) { Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null; }
+            finally { password = ""; busy = false; RefreshRecoveredRooms(); }
+        }
+
+        private void RefreshRecoveredRooms() {
+            try { recoveredRooms = CollaborationRecovery.List(out unreadableRecovery); }
+            catch { recoveredRooms = Array.Empty<CollaborationRecovery.HostedRoom>(); unreadableRecovery = true; }
+        }
+        private void RequestRecovery(CollaborationRecovery.HostedRoom saved) {
+            if (busy || IsShared) return;
+            CancelTools(); panel = false;
+            FindFirstObjectByType<BuildsManager>().RunAfterUnsavedChanges(() => _ = RecoverHostAsync(saved));
+        }
+        private async Task RecoverHostAsync(CollaborationRecovery.HostedRoom saved) {
+            if (busy || IsShared) return;
+            busy = true;
+            status = "Recovering accepted room…";
+            try {
+                CancelTools();
+                await hostShutdown;
+                hostedRoom = CollaborationRecovery.Read(saved.directory);
+                catalog = CollaborationScene.Catalog;
+                DocumentModel.Require(hostedRoom.catalogHash == catalog.hash, "recovery-catalog-mismatch-use-the-matching-build");
+                room = hostedRoom.room;
+                int listenPort = hostedRoom.port;
+                if (portEdited && (!int.TryParse(port, out listenPort) || listenPort < 0 || listenPort > 65535)) throw new ArgumentException("Use a port from 0 to 65535.");
+                host = new CollaborationHost(); await host.StartAsync(null, listenPort, lan, hostedRoom.directory);
+                DocumentModel.Require(host.Recovered, "recovery-room-not-found");
+                hostedRoom.port = host.BoundPort; CollaborationRecovery.Save(hostedRoom);
+                endpoint = host.Url;
+                await ConnectAsync(hostedRoom.ownerCredential, false);
+                if (lan) AdvertiseLan();
+                status = "Recovered accepted room · local files use Save As. " + string.Join(" ", client.RecoveryMessages);
+            }
+            catch (Exception error) { Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null; }
+            finally { password = ""; busy = false; RefreshRecoveredRooms(); }
+        }
+        private void AdvertiseLan() {
+            var address = NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
+                .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a) && !a.ToString().StartsWith("169.254.", StringComparison.Ordinal));
+            if (address != null) endpoint = new UriBuilder(host.Url) { Host = address.ToString() }.Uri.GetLeftPart(UriPartial.Authority);
         }
 
         private void RequestJoin() {
@@ -169,12 +215,13 @@ namespace Protobot {
         }
         private async Task JoinAsync() {
             busy = true;
-            try { catalog = CollaborationScene.Catalog; await ConnectAsync(null, false); status = "Connected to " + room; }
+            try { await hostShutdown; catalog = CollaborationScene.Catalog; await ConnectAsync(null, false); status = "Connected to " + room; }
             catch (Exception error) { Report(error); client?.Dispose(); client = null; }
             finally { password = ""; busy = false; }
         }
         private async Task ConnectAsync(string owner, bool hosting) {
-            var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan);
+            string recovery = owner != null && hostedRoom != null ? CollaborationRecovery.OwnerSession(hostedRoom) : CollaborationRecovery.SessionFile(endpoint, room, catalog.hash);
+            var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan, recovery);
             try {
                 await candidate.JoinAsync(displayName, password, owner);
                 client = candidate;
@@ -188,7 +235,7 @@ namespace Protobot {
                 committed = candidate.Snapshot;
                 applying = true; try { CollaborationScene.Load(committed); } finally { applying = false; }
             }
-            catch { _ = LeaveAndDispose(candidate); throw; }
+            catch { candidate.Dispose(); throw; }
         }
 
         private void Subscribe(CollaborationClient connected) {
@@ -432,20 +479,27 @@ namespace Protobot {
             CancelTools(); CancelPose();
             if (committed != null) CollaborationScene.ApplyParts(committed.parts);
             var previous = client; client = null;
-            if (previous != null) _ = LeaveAndDispose(previous);
-            var owned = host; host = null; if (owned != null) _ = owned.StopAsync();
+            var owned = host; host = null; hostShutdown = LeaveAndStop(previous, owned);
+            hostedRoom = null;
             committed = null; participants = Array.Empty<Participant>(); ClearGhosts(); status = "Continuing offline.";
             submitting = reserving = sendingPreview = false;
             lastSubmittedRevision = 0;
             selectAfterApply.Clear();
             StateSystems.StateSystem.instance?.ResetStates();
+            RefreshRecoveredRooms();
         }
         private static async Task LeaveAndDispose(CollaborationClient previous) { try { await previous.LeaveAsync(); } catch { } finally { previous.Dispose(); } }
+        private static async Task LeaveAndStop(CollaborationClient previous, CollaborationHost owned) {
+            try { if (previous != null) await LeaveAndDispose(previous); }
+            finally { if (owned != null) await owned.StopAsync(); }
+        }
         private async Task ReconnectAsync() {
             if (client == null || busy) return;
             busy = true;
             try {
-                await client.PrepareReconnectAsync(); await client.JoinAsync(displayName);
+                await client.PrepareReconnectAsync();
+                if (host != null && !host.IsRunning) await host.RestartAsync();
+                await client.JoinAsync(displayName);
                 submitting = reserving = sendingPreview = false;
                 lock (queueGate) { main.Clear(); queuedBytes = 0; latestPresence = null; presenceClient = null; }
                 committed = client.Snapshot;
@@ -525,19 +579,32 @@ namespace Protobot {
             GUILayout.BeginArea(panelRect, GUI.skin.box);
             if (GUILayout.Button(panel ? "Close collaboration" : "Collaboration · development alpha")) panel = !panel;
             if (panel) {
-                GUILayout.Label("Catalog builds · ephemeral room · save locally");
+                GUILayout.Label(IsShared && !client.IsDurable ? "Temporary room · save locally" : "Room recovery enabled · save local files independently");
                 if (!IsShared) {
+                    panelScroll = GUILayout.BeginScrollView(panelScroll, GUILayout.MaxHeight(panelRect.height - 100));
                     GUILayout.Label("Your name"); displayName = GUILayout.TextField(displayName, 48);
                     GUILayout.Label("Room ID"); room = GUILayout.TextField(room, 80);
                     GUILayout.Label("Password (optional)"); password = GUILayout.PasswordField(password, '*', 128);
                     lan = GUILayout.Toggle(lan, "Allow unencrypted LAN HTTP");
                     transport = (CollaborationTransport)GUILayout.SelectionGrid((int)transport, new[] { "Auto", "WebSocket", "HTTPS requests" }, 1);
-                    GUILayout.Label("Host port (0 chooses a free port)"); port = GUILayout.TextField(port, 5);
+                    GUILayout.Label("Host port (0 chooses a free port)");
+                    string previousPort = port; port = GUILayout.TextField(port, 5); if (port != previousPort) portEdited = true;
                     GUI.enabled = !busy;
                     if (GUILayout.Button("Host current build")) _ = HostAsync();
                     GUILayout.Label("Join server origin"); endpoint = GUILayout.TextField(endpoint, 256);
                     if (GUILayout.Button("Join room…")) RequestJoin();
+                    if (GUILayout.Button("Forget saved membership for this address/room")) {
+                        try { CollaborationClient.ForgetRecovery(CollaborationRecovery.SessionFile(endpoint, room, CollaborationScene.Catalog.hash)); status = "Saved identity cleared; Join creates a new membership."; }
+                        catch (Exception error) { Report(error); }
+                    }
+                    if (recoveredRooms.Length > 0) {
+                        GUILayout.Label("Recovered rooms · open only when you choose Resume");
+                        foreach (var saved in recoveredRooms)
+                            if (GUILayout.Button("Resume " + saved.room + " · " + saved.createdUtc)) RequestRecovery(saved);
+                    }
+                    if (unreadableRecovery) GUILayout.Label("Some room recovery records could not be read; their files have been retained.");
                     GUI.enabled = true;
+                    GUILayout.EndScrollView();
                 }
             }
             if (IsShared) {
@@ -546,10 +613,10 @@ namespace Protobot {
                 GUILayout.Label("Available: " + string.Join(", ", mutations));
                 GUILayout.Label("Server origin: " + endpoint);
                 if (GUILayout.Button("Copy endpoint and room")) GUIUtility.systemCopyBuffer = endpoint + "  room: " + room;
-                if (!client.IsConnected && GUILayout.Button("Reconnect")) _ = ReconnectAsync();
+                if (!client.IsConnected && GUILayout.Button(host != null && !host.IsRunning ? "Restart host and reconnect" : "Reconnect")) _ = ReconnectAsync();
                 if (GUILayout.Button(host != null ? "Stop hosting and continue offline" : "Leave and continue offline")) Detach();
             }
-            if (panel || IsShared) GUILayout.Label(status, new GUIStyle(GUI.skin.label) { wordWrap = true });
+            if (panel || IsShared || busy) GUILayout.Label(status, new GUIStyle(GUI.skin.label) { wordWrap = true });
             GUILayout.EndArea();
         }
     }

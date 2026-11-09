@@ -1,4 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Shared/Shared.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" /></ItemGroup>
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- The SDK removes RuntimeIdentifier on project references; keep the publish lock scope explicit. -->
+    <NuGetLockFilePath Condition="'$(CollaborationRuntime)' != ''">packages.$(CollaborationRuntime).lock.json</NuGetLockFilePath>
+  </PropertyGroup>
 </Project>

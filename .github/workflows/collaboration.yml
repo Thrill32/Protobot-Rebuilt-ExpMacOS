@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: Collaboration/global.json
-      - run: dotnet build src/Cli/Cli.csproj
+      - run: dotnet build src/Cli/Cli.csproj -p:RestoreLockedMode=true
         working-directory: Collaboration
       - run: dotnet run --project tools/Lab/Lab.csproj -- run --bots 10
         working-directory: Collaboration
@@ -35,13 +35,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: Collaboration/global.json
-      - run: dotnet publish src/Cli/Cli.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o artifacts/${{ matrix.rid }}
+      - run: dotnet publish src/Cli/Cli.csproj -c Release -r ${{ matrix.rid }} --self-contained true -p:CollaborationRuntime=${{ matrix.rid }} -p:RestoreLockedMode=true -o artifacts/${{ matrix.rid }}
         working-directory: Collaboration
       - name: Include source license and runtime notices
         shell: pwsh
         run: |
           Copy-Item LICENSE Collaboration/artifacts/${{ matrix.rid }}/LICENSE-Protobot.txt
           Copy-Item Collaboration/THIRD-PARTY-NOTICES.md Collaboration/artifacts/${{ matrix.rid }}/
+          Copy-Item Collaboration/licenses/*.txt Collaboration/artifacts/${{ matrix.rid }}/
           Copy-Item "$env:DOTNET_ROOT/LICENSE.txt" Collaboration/artifacts/${{ matrix.rid }}/LICENSE-dotnet.txt
           Copy-Item "$env:DOTNET_ROOT/ThirdPartyNotices.txt" Collaboration/artifacts/${{ matrix.rid }}/NOTICES-dotnet.txt
       - name: Preserve executable permissions in archive

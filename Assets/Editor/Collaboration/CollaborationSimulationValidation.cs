@@ -263,7 +263,7 @@ namespace ProtobotEditorTools {
             Require(ghostFrames == 0, "Private simulation sent ghost frames.");
             await peer.LeaveAsync();
             var owned = Get<CollaborationHost>(session, "host");
-            Invoke(session, "Detach"); await owned.StopAsync();
+            Invoke(session, "Detach"); await Get<Task>(session, "hostShutdown"); await owned.StopAsync();
             File.Delete(savedPath);
         }
         private static Vector3 Position(Part part) => new((float)part.position[0], (float)part.position[1], (float)part.position[2]);

@@ -145,6 +145,7 @@ namespace ProtobotEditorTools {
             await bob.LeaveAsync();
             var owned = Get<CollaborationHost>(session, "host");
             Invoke(session, "Detach");
+            await Get<Task>(session, "hostShutdown");
             await owned.StopAsync();
             Require(!CollaborationSession.IsShared && PartsManager.FindLoadedObjects().Count == 2, "Leave must preserve last accepted local document.");
             // Join path uses normal file-save handling and clears path only for newly joined content.
