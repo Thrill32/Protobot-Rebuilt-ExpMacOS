@@ -2,7 +2,7 @@
 
 This is the single-room deployment path for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Multi-room administration, backup/restore commands, custom models and chains remain unfinished.
 
-The supplied artifact is `linux-x64` (check `uname -m` for `x86_64`). .NET 10 supports Debian 12 and 13; its self-contained publish includes the managed runtime, but still requires the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. Linux ARM is not included in this pass.
+Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux-arm64` for `aarch64`/`arm64` systems such as a 64-bit Raspberry Pi 4. These self-contained .NET 10 publishes include the managed runtime, but still require the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. A 32-bit `armv7l` operating system is not supported by the supplied artifacts.
 
 ## Prepare the matching release
 
@@ -10,17 +10,18 @@ On the development computer, publish with the pinned SDK:
 
 ```sh
 cd Collaboration
-bash publish.sh linux-x64
+bash publish.sh linux-x64   # x86_64
+bash publish.sh linux-arm64 # aarch64 / arm64
 ```
 
-Copy the **entire** `artifacts/linux-x64` directory to the Debian computer. Copy `catalog.json` from the exact player release that everyone will use (on macOS: `Protobot.app/Contents/Helpers/Collaboration/catalog.json`). To seed an existing catalog build, use **Collaboration → Export current build for CLI...** and copy that JSON too. It contains accepted parts and the matching catalog, without passwords, local file paths or history. For an empty room, the catalog alone is enough. Never send a legacy `.pbb` file to the CLI.
+Copy the **entire** matching `artifacts/linux-<architecture>` directory to the Debian computer. Copy `catalog.json` from the exact player release that everyone will use (on macOS: `Protobot.app/Contents/Helpers/Collaboration/catalog.json`). To seed an existing catalog build, use **Collaboration → Export current build for CLI...** and copy that JSON too. It contains accepted parts and the matching catalog, without passwords, local file paths or history. For an empty room, the catalog alone is enough. Never send a legacy `.pbb` file to the CLI.
 
 On Debian, from the directory containing the copied artifact directory and catalog:
 
 ```sh
 sudo useradd --system --user-group --home-dir /var/lib/protobot-collab --shell /usr/sbin/nologin protobot
 sudo install -d -m 0755 /opt/protobot-collab
-sudo cp -a linux-x64/. /opt/protobot-collab/
+sudo cp -a linux-arm64/. /opt/protobot-collab/ # use linux-x64 on x86_64
 sudo chmod 0755 /opt/protobot-collab/protobot-collab
 sudo install -m 0644 catalog.json /opt/protobot-collab/catalog.json
 sudo install -d -m 0700 -o protobot -g protobot /var/lib/protobot-collab

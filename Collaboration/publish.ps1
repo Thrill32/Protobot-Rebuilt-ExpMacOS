@@ -1,4 +1,4 @@
-param([ValidateSet('osx-arm64', 'win-x64', 'linux-x64')][string]$Runtime = 'win-x64')
+param([ValidateSet('osx-arm64', 'win-x64', 'linux-x64', 'linux-arm64')][string]$Runtime = 'win-x64')
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
