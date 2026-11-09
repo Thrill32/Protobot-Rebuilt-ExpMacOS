@@ -25,6 +25,7 @@ namespace Protobot.Collaboration.Server {
         public CollaborationServer(Bootstrap seed, string listen = "http://127.0.0.1:0", bool allowInsecureLan = false, string dataDirectory = null) {
             DocumentModel.Require(seed == null || DocumentModel.ValidId(seed.room), "invalid-room");
             var endpoint = new Uri(listen);
+            DocumentModel.Require(string.IsNullOrEmpty(endpoint.UserInfo) && string.IsNullOrEmpty(endpoint.Query) && string.IsNullOrEmpty(endpoint.Fragment) && endpoint.AbsolutePath == "/", "invalid-listener");
             DocumentModel.Require(endpoint.Scheme == "https" || endpoint.Scheme == "http" && (endpoint.IsLoopback || allowInsecureLan), "https-required-use-explicit-lan-http");
             storage = dataDirectory == null ? null : new RoomStore(dataDirectory);
             try { Room = new Room(seed, storage: storage); }

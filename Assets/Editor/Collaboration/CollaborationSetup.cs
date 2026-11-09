@@ -16,7 +16,7 @@ namespace ProtobotEditorTools {
         public static void Enable() {
             EditorPrefs.SetBool("Protobot.Collaboration.Development", true);
             if (Application.isPlaying) CollaborationSession.EnableDevelopment();
-            Debug.Log("Collaboration development UI enabled for Play Mode. Player builds require --collaboration.");
+            Debug.Log("Collaboration development UI enabled for Play Mode. Development players show the button on normal launch; release builds require --collaboration.");
         }
         [MenuItem("Tools/Protobot/Collaboration/Disable Development UI")]
         public static void Disable() => EditorPrefs.SetBool("Protobot.Collaboration.Development", false);

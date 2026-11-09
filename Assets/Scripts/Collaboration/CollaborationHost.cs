@@ -62,7 +62,7 @@ namespace Protobot {
             await StopAsync(); await StartAsync(null, port, lan, directory);
         }
         private async Task DrainErrors(StreamReader reader) { string line; while ((line = await reader.ReadLineAsync()) != null) lastError = line.Substring(0, Math.Min(line.Length, 256)); }
-        private static string Quote(string value) {
+        internal static string Quote(string value) {
             var result = new StringBuilder("\""); int slashes = 0;
             foreach (char c in value) {
                 if (c == '\\') { slashes++; continue; }

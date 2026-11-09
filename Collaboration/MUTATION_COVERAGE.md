@@ -20,6 +20,8 @@ The development switch is required. Only the rows marked supported may mutate a 
 | Alt copies / P stamping | Supported for catalog parts | G/R and handles latch Duplicate before waiting; `TransformAndCopy` commits movement and new IDs atomically; `SelectionPlacementData` stamps frozen copies through `AddParts` |
 | Paste / build import | Supported for catalog-only builds | `BuildTransferTool` rejects custom geometry/chains before preview; selection follows accepted materialization |
 | Selection export / clipboard copy | Existing local read-only paths | ordinary modal guards apply; no shared mutation |
+| Portable room export for CLI | Supported, catalog-only accepted snapshot | `CollaborationSessionExport.ExportRoomAsync` waits pending outcomes, captures before the native dialog and preserves local save state; `RoomExport.CreateRoom` seeds a fresh generation/history |
+| Server connection test / CLI doctor | Read-only room probes | `ConnectionDoctor` joins viewer identities, checks the chosen event transport and leaves; diagnostic reports exclude credentials |
 | Custom model import / mounts / depth / grid edits | Disabled; custom documents cannot host | `CustomModelTool` guard and host preflight |
 | Simulation scrub / numeric entry / timeline playback | Private, including for viewers | `SimulationTool` owns temporary transforms; no room lease or preview frames; Save uses accepted poses; a shared edit resets the local preview before remote apply |
 | Simulation mouse confirm / timeline Set pose | Supported for catalog mechanisms | `SimulationTool.Commit` → `CommitResolvedPosesAsync`; frozen live world poses, scoped full write-set lease and exact mechanism revision precondition; one personal undo step |

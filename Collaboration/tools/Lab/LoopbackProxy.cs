@@ -6,9 +6,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using Protobot.Collaboration;
 
 // Failure controls are accessible only to this process, with a listener bound to loopback.
 internal sealed class LoopbackProxy : IAsyncDisposable {
@@ -17,10 +19,14 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public string Url { get; private set; }
     public bool DropNextCommitResponse;
     public int CommitDelayMilliseconds;
+    public string RejectedJoinError;
     public LoopbackProxy(string upstream) {
         var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
         app = builder.Build();
         app.Run(async context => {
+            if (RejectedJoinError != null && context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal)) {
+                context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedJoinError })); return;
+            }
             if (string.Equals(context.Request.Headers.Upgrade, "websocket", StringComparison.OrdinalIgnoreCase)) { context.Response.StatusCode = 403; return; }
             using var request = new HttpRequestMessage(new HttpMethod(context.Request.Method), upstream + context.Request.Path + context.Request.QueryString);
             if (context.Request.Headers.TryGetValue("Authorization", out var auth)) request.Headers.TryAddWithoutValidation("Authorization", auth.ToArray());

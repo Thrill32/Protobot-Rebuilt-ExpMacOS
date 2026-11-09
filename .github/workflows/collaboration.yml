@@ -43,6 +43,8 @@ jobs:
           Copy-Item LICENSE Collaboration/artifacts/${{ matrix.rid }}/LICENSE-Protobot.txt
           Copy-Item Collaboration/THIRD-PARTY-NOTICES.md Collaboration/artifacts/${{ matrix.rid }}/
           Copy-Item Collaboration/licenses/*.txt Collaboration/artifacts/${{ matrix.rid }}/
+          New-Item -ItemType Directory -Force Collaboration/artifacts/${{ matrix.rid }}/deploy | Out-Null
+          Copy-Item Collaboration/deploy/* Collaboration/artifacts/${{ matrix.rid }}/deploy/
           Copy-Item "$env:DOTNET_ROOT/LICENSE.txt" Collaboration/artifacts/${{ matrix.rid }}/LICENSE-dotnet.txt
           Copy-Item "$env:DOTNET_ROOT/ThirdPartyNotices.txt" Collaboration/artifacts/${{ matrix.rid }}/NOTICES-dotnet.txt
       - name: Preserve executable permissions in archive

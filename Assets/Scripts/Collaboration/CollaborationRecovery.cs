@@ -14,7 +14,7 @@ namespace Protobot {
             public string room, catalogHash, generation, ownerCredential, createdUtc, directory;
             public int port;
         }
-        private static string Root => Path.Combine(LocalPreferences.ProfileDirectory ?? Application.persistentDataPath, "Collaboration");
+        internal static string Root => Path.Combine(LocalPreferences.ProfileDirectory ?? Application.persistentDataPath, "Collaboration");
         public static HostedRoom Create(Bootstrap seed, int port) {
             var info = new HostedRoom { room = seed.room, catalogHash = seed.catalog.hash, generation = seed.document.generation,
                 ownerCredential = seed.ownerCredential, port = port, createdUtc = DateTime.UtcNow.ToString("O"),

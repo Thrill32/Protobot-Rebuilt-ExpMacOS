@@ -24,6 +24,7 @@ internal static partial class Program {
         try {
             ModelChecks(); RoomChecks(); HistoryChecks();
             await DurabilityChecks(directory);
+            await DeploymentChecks(directory);
             foreach (var transport in transports) await NetworkChecks(bots, transport, directory);
             await FailureChecks();
             await ProcessChecks(directory);
