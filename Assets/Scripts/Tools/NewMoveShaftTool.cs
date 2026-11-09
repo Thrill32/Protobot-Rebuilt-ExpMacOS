@@ -134,6 +134,7 @@ namespace Protobot.Tools {
 
 
         public void SetShaftPosition(bool reverseDir) {
+            if (CollaborationSession.IsShared) { Protobot.UI.InteractionFeedback.Notify("Use the shared Move tool to reposition shafts."); return; }
             SavedObject savedObj = targetObjLink?.obj?.GetComponent<SavedObject>();
 
             if (savedObj != null && savedObj.nameId == "MOTR") {

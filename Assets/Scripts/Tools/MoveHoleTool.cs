@@ -18,15 +18,16 @@ namespace Protobot.Tools {
             if (!hoverObjectLink.active) return;
 
             if (HoverObj.CompareTag("Screw")) {
+                CollaborationScene.BeginReads();
                 Screw screw = HoverObj.GetComponent<Screw>();
                // if (!screw.holeDetector.holes.Contains(selectedHoleFace.hole)) {
                     var displacement = new Displacement(screw.GetLowestPoint(), HoverObj.transform.forward);
-                    movementManager.DisplaceTo(displacement);
+                    movementManager.DisplaceTo(displacement, dependencies: CollaborationScene.EndReads());
                 //}
             }
             else if (HoverObj.tag.Contains("Hole")) {
                 var displacement = new Displacement(hoverHoleFace.position, -hoverHoleFace.direction);
-                movementManager.DisplaceTo(displacement);
+                movementManager.DisplaceTo(displacement, dependencies: CollaborationSession.Versions(new[] { hoverHoleFace.hole.part.GetComponent<SavedObject>().ConnectionId }));
             }
         }
 

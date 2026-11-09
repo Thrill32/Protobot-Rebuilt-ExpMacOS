@@ -12,7 +12,6 @@ namespace Protobot.Tools {
 
         public bool active {
             get {
-                if (CollaborationSession.BlocksLegacyMutation) return false;
                 if (hideDuringKeyboardTransform && (KeyboardTransformTool.IsCapturingInput || CustomModelTool.IsCapturingInput || Placement.IsCopyingSelection))
                     return false;
                 if (toggled) {

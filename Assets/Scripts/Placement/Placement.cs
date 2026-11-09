@@ -10,6 +10,8 @@ using Protobot.Tools;
 using Protobot.Transformations;
 using UnityEngine.InputSystem;
 using Protobot.SelectionSystem;
+using Protobot.Collaboration;
+using System.Linq;
 
 namespace Protobot {
     public class Placement : MonoBehaviour { 
@@ -100,6 +102,21 @@ namespace Protobot {
         [SerializeField] private UnityEvent OnStopRotate;
 
         private Displacement currentDisplacement;
+        private VersionRef[] targetDependencies = System.Array.Empty<VersionRef>();
+        public Part[] SharedMovePreview() {
+            if (!placing || currentPlacementData is not GameObjectPlacementData moving) return null;
+            var source = moving.GetGameObject();
+            var bodies = source.GetConnectedObjects(true, false, !moving.individual);
+            var delta = currentDisplacement.rotation.Orientation * Quaternion.Inverse(source.transform.rotation);
+            var origin = source.transform.position;
+            return bodies.Select(body => {
+                var part = CollaborationScene.Capture(body);
+                var position = currentDisplacement.translation.Position + delta * (body.transform.position - origin);
+                var rotation = delta * body.transform.rotation;
+                part.position = new double[] { position.x, position.y, position.z };
+                part.rotation = new double[] { rotation.x, rotation.y, rotation.z, rotation.w }; return part;
+            }).ToArray();
+        }
         private Vector3 placementSnapOrigin;
 
         [SerializeField] private Camera refCamera = null; //used for dot product angle comparison
@@ -188,13 +205,16 @@ namespace Protobot {
         private void UpdatePosition() {
             if (currentPlacementData is SelectionPlacementData && (IsNavigatingCamera || MouseInput.overUI)) return;
             foreach (PlaceDisplacement placePosition in placePositions) {
-                // Connected alpha exposes free grid placement until target dependency capture is migrated.
-                if (CollaborationSession.IsShared && placePosition is not PlanePlaceDisplacement) continue;
                 // P uses only its explicitly selected source face, or the grid.
                 // Hardware and gear rules must never infer an anchor for this rigid copy.
                 if (currentPlacementData is SelectionPlacementData selection && placePosition is not PlanePlaceDisplacement &&
                     (!selection.HasHole || placePosition is not HolePlaceDisplacement)) continue;
-                if (placePosition.TryGetDisplacement(currentPlacementData, out Displacement displacement)) {
+                CollaborationScene.BeginReads();
+                bool found;
+                Displacement displacement;
+                try { found = placePosition.TryGetDisplacement(currentPlacementData, out displacement); }
+                finally { targetDependencies = CollaborationScene.EndReads(); }
+                if (found) {
                     var newDisplacement = displacement;
 
                     // Hole and shaft placement already provide exact mechanical alignment.
@@ -266,7 +286,7 @@ namespace Protobot {
         }
 
         public void StartPlacing(PlacementData newPlacementData) {
-            if (CollaborationSession.IsShared && (!CollaborationSession.CanEdit || newPlacementData is not PartPlacementData)) {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) {
                 if (newPlacementData is SelectionPlacementData unsupported) unsupported.Dispose();
                 return;
             }
@@ -276,6 +296,7 @@ namespace Protobot {
             ReleaseMovePreview();
             ReleaseSelectionPreview();
             currentPlacementData = newPlacementData;
+            targetDependencies = System.Array.Empty<VersionRef>();
             placementStartFrame = Time.frameCount;
             awaitingPlaceInputRelease = true;
             placing = true;
@@ -330,6 +351,7 @@ namespace Protobot {
         public void StopPlacing() {
             if (!placing || stopping != null) return;
             ReleaseMovePreview();
+            if (CollaborationSession.IsShared && currentPlacementData is GameObjectPlacementData) CollaborationSession.CancelPose();
             transform.DOKill();
             
             transform.rotation = Quaternion.identity;
@@ -373,7 +395,7 @@ namespace Protobot {
                 var generator = ((PartPlacementData)currentPlacementData).partGenerator;
                 GameObject placedObj = generator.Generate(displacePos, displaceRot);
                 if (CollaborationSession.IsShared) {
-                    CollaborationSession.PlaceCatalog(placedObj);
+                    CollaborationSession.PlaceCatalog(placedObj, targetDependencies);
                     return;
                 }
 
@@ -391,6 +413,13 @@ namespace Protobot {
                 StateSystem.AddState(objElement);
             }
             else if (currentPlacementData is SelectionPlacementData selection) {
+                if (CollaborationSession.IsShared) {
+                    var selected = selection.ResultSelection;
+                    var sharedCopies = selection.Generate(displacePos, displaceRot);
+                    if (!selection.RepeatPlacement) StopPlacing();
+                    CollaborationSession.PlaceCopies(sharedCopies, targetDependencies, selected);
+                    return;
+                }
                 var resultSelection = selection.ResultSelection;
                 var previousSelection = resultSelection != null ? resultSelection.current : null;
                 if (resultSelection != null) StateSystem.AddElement(new PlacedSelectionElement(resultSelection, previousSelection));
@@ -414,7 +443,17 @@ namespace Protobot {
                 FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
             }
             else if (isGameObjectPlacement) {
-                movementManager.DisplaceTo(currentDisplacement, 0);
+                if (CollaborationSession.IsShared) {
+                    var moving = (GameObjectPlacementData)currentPlacementData;
+                    var source = moving.GetGameObject();
+                    var bodies = source.GetConnectedObjects(true, false, !moving.individual);
+                    var delta = displaceRot * Quaternion.Inverse(source.transform.rotation);
+                    var origin = source.transform.position;
+                    var poses = bodies.Select(b => new Pose(displacePos + delta * (b.transform.position - origin), delta * b.transform.rotation)).ToArray();
+                    for (int i = 0; i < bodies.Count; i++) bodies[i].transform.SetPositionAndRotation(poses[i].position, poses[i].rotation);
+                    CollaborationSession.ConfirmPose(bodies, dependencies: targetDependencies);
+                }
+                else movementManager.DisplaceTo(currentDisplacement, 0);
                 StopPlacing();
             }
 

@@ -23,9 +23,16 @@ namespace Protobot {
         }
 
         public void StartMoving() {
-            if (CollaborationSession.BlocksLegacyMutation) return;
             if (placement.placing || !objectLink.active || Tools.KeyboardTransformTool.IsCapturingInput)
                 return;
+            if (CollaborationSession.IsShared && !CollaborationSession.HasPoseReservation(objectLink.obj.GetConnectedObjects(true, false, !objectLink.individual))) {
+                var source = objectLink.obj;
+                CollaborationSession.ReservePose(source.GetConnectedObjects(true, false, !objectLink.individual), () => {
+                    if (source == objectLink.obj && !placement.placing && CollaborationSession.HasPoseReservation(source.GetConnectedObjects(true, false, !objectLink.individual))) StartMoving();
+                    else CollaborationSession.CancelPose();
+                });
+                return;
+            }
             // A grab can restore the body before the face's next Update.
             // Build the preview from the live source frame in either entry path.
             if (objectLink.obj.TryGetComponent<HoleFace>(out var face)) face.Refresh();

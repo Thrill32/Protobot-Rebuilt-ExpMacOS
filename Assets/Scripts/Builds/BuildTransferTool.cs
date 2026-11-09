@@ -46,6 +46,7 @@ namespace Protobot.Builds {
         }
 
         private bool CanStart => isActiveAndEnabled && placement.isActiveAndEnabled && !busy && !buildsManager.IsFileOperationInProgress && !NativeFileDialogs.IsOpen &&
+            !CollaborationSession.HasActivePreview && (!CollaborationSession.IsShared || CollaborationSession.CanEdit) &&
             !placement.placing && !RebindAction.Rebinding && !KeyboardTransformTool.IsEditingText() && !KeyboardTransformTool.IsCapturingInput &&
             !ConnectTool.IsCapturingPoints && !Simulation.SimulationTool.CapturesSelection && !CustomModelTool.IsCapturingInput &&
             !InputEvent.IsNoclipMovementCaptured;
@@ -72,7 +73,7 @@ namespace Protobot.Builds {
         }
 
         public async Task<bool> PasteAsync() {
-            if (CollaborationSession.BlocksLegacyMutation) return false;
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return false;
             if (!CanStart) return false;
             var text = GUIUtility.systemCopyBuffer;
             if (string.IsNullOrEmpty(text) || !text.StartsWith(BuildTransfer.ClipboardPrefix, StringComparison.Ordinal)) {
@@ -98,7 +99,7 @@ namespace Protobot.Builds {
         }
 
         public async Task<bool> ImportBuildAsync(string path = null) {
-            if (CollaborationSession.BlocksLegacyMutation) return false;
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return false;
             if (!CanStart) return false;
             busy = true;
             int request = generation;
@@ -112,6 +113,9 @@ namespace Protobot.Builds {
 
         private bool BeginPlacement(BuildData data) {
             if (placement.placing || !isActiveAndEnabled) return false;
+            if (CollaborationSession.IsShared && ((data.chains?.Length ?? 0) > 0 || System.Array.Exists(data.parts, p => p.IsCustomModel))) {
+                InteractionFeedback.Notify("Shared import currently supports catalog parts without chains or custom models."); return false;
+            }
             var copied = SelectionPlacementData.FromBuild(data, placement.transform, duplicator, selectionManager);
             placement.StartPlacing(copied);
             return true;

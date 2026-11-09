@@ -8,6 +8,15 @@ using UnityEngine;
 
 namespace Protobot {
     public static class CollaborationScene {
+        private static Dictionary<string, VersionRef> reads;
+        public static void BeginReads() { reads = CollaborationSession.IsShared ? new Dictionary<string, VersionRef>() : null; }
+        public static void Read(GameObject target) {
+            if (reads == null) return;
+            var body = PartColors.BodyOf(target);
+            if (body == null) return;
+            foreach (var version in CollaborationSession.Versions(new[] { body.GetComponent<SavedObject>().ConnectionId })) reads[version.id] = version;
+        }
+        public static VersionRef[] EndReads() { var result = reads?.Values.ToArray() ?? Array.Empty<VersionRef>(); reads = null; return result; }
         public static CatalogManifest Catalog {
             get {
                 var text = Resources.Load<TextAsset>("Collaboration/catalog");
@@ -56,10 +65,15 @@ namespace Protobot {
             StateSystems.StateSystem.instance?.ResetStates();
         }
         public static void Apply(AcceptedEdit edit, Document accepted) {
+            var existing = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
+            var replacements = edit.transaction.writes.Where(p => existing.TryGetValue(p.id, out var body) && body.GetComponent<SavedObject>().id != p.catalogId).Select(p => p.id).ToHashSet();
             var ids = edit.transaction.deletes.ToHashSet();
+            var reselect = new List<(SelectionManager manager, string[] ids, bool individual)>();
             foreach (var manager in UnityEngine.Object.FindObjectsByType<SelectionManager>(FindObjectsSortMode.None)) {
                 if (manager.current?.gameObject == null) continue;
-                if (BuildTransfer.SelectedBodies(manager.current).Any(b => ids.Contains(b.GetComponent<SavedObject>().ConnectionId)))
+                var selected = BuildTransfer.SelectedBodies(manager.current).Select(b => b.GetComponent<SavedObject>().ConnectionId).ToArray();
+                if (selected.Any(replacements.Contains) && !selected.Any(ids.Contains)) reselect.Add((manager, selected, manager.current.individual));
+                if (selected.Any(id => ids.Contains(id) || replacements.Contains(id)))
                     manager.ClearCurrent(false, true, true);
             }
             var bodies = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
@@ -68,8 +82,16 @@ namespace Protobot {
             foreach (var id in edit.transaction.deletes) if (bodies.TryGetValue(id, out var body)) { body.SetActive(false); UnityEngine.Object.Destroy(body); }
             foreach (var write in edit.transaction.writes) {
                 var part = accepted.parts.First(p => p.id == write.id);
-                if (!bodies.TryGetValue(part.id, out var body)) body = SceneBuild.GenerateObject(ToObjectData(part), ToBuild(accepted));
+                bodies.TryGetValue(part.id, out var body);
+                if (body != null && replacements.Contains(part.id)) { body.SetActive(false); UnityEngine.Object.Destroy(body); body = null; }
+                if (body == null) body = SceneBuild.GenerateObject(ToObjectData(part), ToBuild(accepted));
+                ApplyAppearance(body, part);
                 SetPose(body, part);
+            }
+            foreach (var selection in reselect) {
+                var selected = PartsManager.FindLoadedObjects().Where(b => selection.ids.Contains(b.GetComponent<SavedObject>().ConnectionId)).ToList();
+                if (selected.Count > 0) selection.manager.SetCurrent(selected.Count == 1 ? new ObjectSelection { gameObject = selected[0], individual = selection.individual } :
+                    new MultiSelection(null, selected) { individual = selection.individual }, true, bypassResponseSelectors: true);
             }
             Physics.SyncTransforms();
             foreach (var write in edit.transaction.writes) {
@@ -91,6 +113,16 @@ namespace Protobot {
         private static void SetPose(GameObject body, Part part) {
             // Work in world space; selection and connection pivots remain temporary, local objects.
             body.transform.SetPositionAndRotation(new Vector3((float)part.position[0], (float)part.position[1], (float)part.position[2]), Rotation(part));
+        }
+        private static void ApplyAppearance(GameObject body, Part part) {
+            body.GetComponent<SavedObject>().state = part.state;
+            var color = new Color((float)part.color[0], (float)part.color[1], (float)part.color[2]);
+            if (part.hasPaint) PartColors.ApplyPaint(body, color);
+            else {
+                PartColors.RestoreDefaults(body);
+                var material = PartColors.SampleMaterial(body);
+                if (material != null) { color.a = material.color.a; material.color = color; }
+            }
         }
         private static Quaternion Rotation(Part part) => new Quaternion((float)part.rotation[0], (float)part.rotation[1], (float)part.rotation[2], (float)part.rotation[3]);
     }

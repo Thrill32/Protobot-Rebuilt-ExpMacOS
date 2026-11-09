@@ -73,6 +73,8 @@ namespace Protobot {
 
         public Vector3 GetLowestPoint(Func<Transform, bool> ignore = null) {
             var hits = GetOrderedHoleHits(ignore);
+            CollaborationScene.Read(gameObject);
+            foreach (var hit in hits) CollaborationScene.Read(hit.collider.gameObject);
             return hits.Length > 0 ? GetExitPoint(hits[hits.Length - 1].collider) : transform.position;
         }
 

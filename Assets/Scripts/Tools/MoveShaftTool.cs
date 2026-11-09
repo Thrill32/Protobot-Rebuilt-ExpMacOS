@@ -22,11 +22,11 @@ namespace Protobot.Tools {
                 Vector3 newPos = motrTransform.position + motrTransform.right * -0.5f + (motrTransform.forward * (shaftLength + 0.85f));
 
                 var displacement = new Displacement(newPos, motrTransform.forward);
-                movementManager.DisplaceTo(displacement);
+                movementManager.DisplaceTo(displacement, dependencies: CollaborationSession.Versions(new[] { savedObj.ConnectionId }));
             }
             else if (targetHoleFace.gameObject.activeInHierarchy) {
                 var displacement = new Displacement(targetHoleFace.position, targetHoleFace.direction);
-                movementManager.DisplaceTo(displacement);
+                movementManager.DisplaceTo(displacement, dependencies: CollaborationSession.Versions(new[] { targetHoleFace.hole.part.GetComponent<SavedObject>().ConnectionId }));
             }
         }
     }

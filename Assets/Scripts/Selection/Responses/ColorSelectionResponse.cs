@@ -19,7 +19,6 @@ namespace Protobot.SelectionSystem {
         public void ChangeColor(GameObject target) => ChangeColors(new[] { PartColors.BodyOf(target) });
 
         private static void ChangeColors(IEnumerable<GameObject> bodies) {
-            if (CollaborationSession.BlocksLegacyMutation) return;
             var parts = bodies.Where(p => p != null).Distinct().ToArray();
             ColorTool.Material = parts.Select(PartColors.SampleMaterial).FirstOrDefault(m => m != null);
             if (!ColorToolActiveCheck.colorToolActive) return;
@@ -27,6 +26,7 @@ namespace Protobot.SelectionSystem {
                 ? p.GetComponent<SavedObject>().hasPaint || !PartColors.IsDefault(p)
                 : PartColors.Materials(p).Any(m => !PartColors.SameRGB(m.color, ColorTool.ColorToSet))).ToArray();
             if (changed.Length == 0) return;
+            if (CollaborationSession.IsShared) { CollaborationSession.Paint(changed, ColorTool.ColorToSet, ColorTool.UseDefaultColor); return; }
             var after = new List<IElement>();
             foreach (var part in changed) {
                 OwnedPartMaterials.CaptureGenerated(part);

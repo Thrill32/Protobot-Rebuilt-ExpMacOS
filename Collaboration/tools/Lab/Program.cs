@@ -22,7 +22,7 @@ internal static class Program {
         if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
-            ModelChecks(); RoomChecks();
+            ModelChecks(); RoomChecks(); HistoryChecks();
             foreach (var transport in transports) await NetworkChecks(bots, transport, directory);
             await FailureChecks();
             await ProcessChecks(directory);
@@ -131,6 +131,66 @@ internal static class Program {
         Reject(() => capacity.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = inactive.token }), "room-full");
     }
 
+    private static void HistoryChecks() {
+        var seed = Fixture();
+        seed.catalog.entries = seed.catalog.entries.Concat(new[] { new CatalogEntry { id = "PLATE" } }).ToArray();
+        var room = new Room(seed);
+        var alice = room.Join(new JoinRequest { name = "Alice", catalogHash = seed.catalog.hash });
+        var bob = room.Join(new JoinRequest { name = "Bob", catalogHash = seed.catalog.hash });
+        var document = seed.document;
+        long aliceSequence = 0, bobSequence = 0;
+        Receipt Commit(JoinResponse author, string kind, Part[] writes, string[] deletes = null) {
+            var ids = writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Where(id => document.parts.Any(p => p.id == id)).ToArray();
+            string lease = ids.Length == 0 || kind == "Undo" || kind == "Redo" ? null : room.Reserve(author.token, new LeaseRequest { ids = ids }).token;
+            var tx = Tx(document, kind, writes, deletes, lease, author == alice ? ++aliceSequence : ++bobSequence);
+            var receipt = room.Commit(author.token, tx);
+            if (receipt.accepted) {
+                var edit = room.ReadAsync(author.token, document.revision, -1, CancellationToken.None).GetAwaiter().GetResult().edits.Single();
+                document = DocumentModel.Reduce(document, edit.transaction, seed.catalog);
+                Check(document.revision == receipt.revision && DocumentModel.Hash(document) == edit.hash, "history event replays to authority hash");
+                Check(room.Commit(author.token, tx).revision == receipt.revision, "history receipt deduplicates");
+            }
+            if (lease != null) room.Release(author.token, lease);
+            return receipt;
+        }
+        Receipt History(JoinResponse author, bool redo = false) => Commit(author, redo ? "Redo" : "Undo", Array.Empty<Part>());
+        Part Part(string id) => WireJson.Clone(document.parts.Single(p => p.id == id));
+        Check(Commit(alice, "AddParts", new[] { Cube("a"), Cube("b", 10) }).accepted, "history fixture create");
+        Check(Commit(bob, "AddParts", new[] { Cube("c", 20) }).accepted, "other participant create");
+        var paint = Part("a"); paint.hasPaint = true; paint.color = new double[] { .2, .3, .4 };
+        Check(Commit(alice, "SetParts", new[] { paint }).accepted, "leased painting accepted");
+        var replacement = Part("a"); replacement.catalogId = "PLATE";
+        Check(Commit(alice, "SetParts", new[] { replacement }).accepted, "stable-ID property replacement accepted");
+        Check(History(alice).accepted && Part("a").catalogId == "CUBE" && Part("a").hasPaint, "undo replacement preserves paint");
+        Check(History(alice).accepted && !Part("a").hasPaint, "sequential own undo rebases increasing versions");
+        Check(History(alice, true).accepted && History(alice, true).accepted && Part("a").catalogId == "PLATE", "sequential redo restores content");
+        long beforeDelete = Part("a").version;
+        Check(Commit(alice, "DeleteParts", Array.Empty<Part>(), new[] { "a" }).accepted, "history delete");
+        Check(History(alice).accepted && Part("a").version == beforeDelete + 2 && !document.tombstones.Any(p => p.id == "a"), "undo delete resurrects same identity with a newer version");
+        Check(History(alice, true).accepted && !document.parts.Any(p => p.id == "a"), "redo delete");
+        Check(History(alice).accepted, "restore before compound copy");
+        var moving = Part("a"); moving.position[0] = 30;
+        var copy = Part("a"); copy.id = "copy";
+        Check(Commit(alice, "TransformAndCopy", new[] { moving, copy }).accepted, "atomic Alt transform plus create");
+        Check(History(alice).accepted && Part("a").position[0] == 0 && !document.parts.Any(p => p.id == "copy"), "compound undo restores source and removes copy");
+        Check(History(alice, true).accepted && Part("a").position[0] == 30 && document.parts.Any(p => p.id == "copy"), "compound redo resurrects copy");
+        Check(History(bob).accepted && !document.parts.Any(p => p.id == "c") && document.parts.Any(p => p.id == "copy"), "personal undo preserves other participants' operations");
+        var held = room.Reserve(bob.token, new LeaseRequest { ids = new[] { "a" } });
+        Check(History(alice).error == "parts-reserved", "undo cannot bypass another live reservation");
+        room.Release(bob.token, held.token);
+        var remote = Part("a"); remote.position[1] = 8;
+        Check(Commit(bob, "SetPoses", new[] { remote }).accepted, "remote move after own edit");
+        Check(History(alice).error == "history-changed-by-another-participant" && Part("a").position[1] == 8, "stale inverse never overwrites a remote edit");
+        Check(History(bob).accepted && History(alice).error == "history-changed-by-another-participant", "remote undo does not revive an invalidated inverse");
+        var forged = Tx(document, "RestoreParts", new[] { Part("a") }, sequence: ++aliceSequence);
+        Check(room.Commit(alice.token, forged).error == "authority-only-mutation", "clients cannot forge inverse content");
+        var dependency = Tx(document, "AddParts", new[] { Cube("anchored") }, sequence: ++aliceSequence);
+        dependency.expected = dependency.expected.Concat(new[] { new VersionRef { id = "b", version = Part("b").version - 1 } }).ToArray();
+        Check(room.Commit(alice.token, dependency).error == "stale-entity" && !document.parts.Any(p => p.id == "anchored"), "stale placement target rejects create atomically");
+        bob = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = bob.token });
+        Check(History(bob, true).accepted && Part("a").position[1] == 8, "resumed identity retains personal redo history");
+    }
+
     private static async Task NetworkChecks(int count, CollaborationTransport transport, string directory) {
         var seed = Fixture();
         await using var server = new CollaborationServer(seed);
@@ -179,6 +239,14 @@ internal static class Program {
             Check((await clients[0].SubmitAsync(deletion)).accepted, "network delete accepted");
             await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(2 * count + 1)));
             Check(clients.All(c => c.Snapshot.parts.Length == count - 1 && c.Snapshot.tombstones.Length == 1), "delete propagates to every client");
+            var paint = WireJson.Clone(clients[1].Snapshot.parts.Single(p => p.id == "part1"));
+            paint.hasPaint = true; paint.color = new double[] { .2, .4, .6 };
+            var paintLease = await clients[1].ReserveAsync(new[] { paint.id });
+            Check((await clients[1].SubmitAsync(clients[1].CreateTransaction("SetParts", new[] { paint }, lease: paintLease.token))).accepted, transport + " paint accepted");
+            Check((await clients[1].SubmitAsync(clients[1].CreateTransaction("Undo", Array.Empty<Part>()))).accepted && !clients[1].Snapshot.parts.Single(p => p.id == paint.id).hasPaint, transport + " personal undo");
+            var redo = await clients[1].SubmitAsync(clients[1].CreateTransaction("Redo", Array.Empty<Part>()));
+            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(redo.revision)));
+            Check(redo.accepted && clients.All(c => c.Snapshot.parts.Single(p => p.id == paint.id).hasPaint) && clients.Select(c => DocumentModel.Hash(c.Snapshot)).Distinct().Count() == 1, transport + " property history converges");
             File.WriteAllBytes(Path.Combine(directory, transport + "-document.json"), WireJson.Encode(clients[0].Snapshot));
             Console.WriteLine(transport + ": " + count + " clients converged at revision " + clients[0].Snapshot.revision + " (" + DocumentModel.Hash(clients[0].Snapshot) + ")");
         }

@@ -40,6 +40,7 @@ namespace Protobot.Tools {
         private readonly List<Quaternion> rotations = new();
         private List<GameObject> bodies;
         private List<IElement> before;
+        private bool duplicateForGesture;
         private readonly List<GameObject> duplicates = new();
         private ISelection selection;
         private Vector3 origin;
@@ -142,6 +143,7 @@ namespace Protobot.Tools {
 
         private void BeginReservedSelection(bool rotate, bool reservedForCollaboration) {
             if (CollaborationSession.IsShared && !CollaborationSession.CanEdit && !reservedForCollaboration) return;
+            if (!reservedForCollaboration) duplicateForGesture = duplicator != null && duplicator.IsDuplicateHeld;
             if (active) {
                 if (settling || rotating == rotate)
                     return;
@@ -223,7 +225,6 @@ namespace Protobot.Tools {
         }
 
         private void MoveFromGrab() {
-            if (CollaborationSession.BlocksLegacyMutation) return;
             if (!active || rotating || settling || numericInput.IsOpen ||
                 moveTool == null || moveToolManager == null) return;
 
@@ -243,7 +244,7 @@ namespace Protobot.Tools {
         }
 
         private void BeginDuplication() {
-            if (duplicator == null || !duplicator.IsDuplicateHeld)
+            if (duplicator == null || !(CollaborationSession.IsShared ? duplicateForGesture : duplicator.IsDuplicateHeld))
                 return;
             duplicates.AddRange(duplicator.CreateCopies(bodies));
             foreach (var copy in duplicates)
@@ -424,6 +425,8 @@ namespace Protobot.Tools {
         }
 
         private void CompleteConfirmation() {
+            smoothingTween?.Kill();
+            smoothingTween = null;
             displayedOffset = targetOffset;
             displayedRotation = targetRotation;
             ApplyDisplayedTransform();
@@ -431,7 +434,7 @@ namespace Protobot.Tools {
                 (Vector3.Distance(root.position, positions[i]) > 0.00001f ||
                  Quaternion.Angle(root.rotation, rotations[i]) > 0.0001f)).Any();
             if (changed) {
-                if (CollaborationSession.IsShared) CollaborationSession.ConfirmPose(bodies);
+                if (CollaborationSession.IsShared) CollaborationSession.ConfirmPose(bodies, duplicates);
                 else {
                     StateSystem.AddElements(before);
                     StateSystem.AddEmptyState();

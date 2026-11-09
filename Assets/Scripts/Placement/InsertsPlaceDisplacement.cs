@@ -12,6 +12,7 @@ namespace Protobot {
             if (placementData.objectId == "PLSI" || placementData.objectId == "MESI") {
                 if (hoverHoleFace.gameObject.activeInHierarchy && hoverHoleFace.hole.IsHighStrength()) {
                     displacement = new Displacement(hoverHoleFace.position - hoverHoleFace.direction * 0.05f, -hoverHoleFace.direction);
+                    CollaborationScene.Read(hoverHoleFace.hole.part);
                     return true;
                 }
                 else {

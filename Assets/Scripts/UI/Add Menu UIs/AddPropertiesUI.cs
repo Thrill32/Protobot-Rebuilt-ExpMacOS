@@ -30,6 +30,7 @@ namespace Protobot.UI {
         private InputEvent repeatInput;
         private float nextRepeat;
         private bool wasPlacing;
+        private string observedId;
 
         private void Start() {
             PartDisplayUI.OnChangeSelected += UpdateDisplay;
@@ -52,7 +53,7 @@ namespace Protobot.UI {
             UnityEngine.InputSystem.Mouse.current != null && !UnityEngine.InputSystem.Mouse.current.leftButton.isPressed;
 
         private void LateUpdate() {
-            if (!placement.placing && (wasPlacing || observedSelection != selectionManager.current))
+            if (!placement.placing && (wasPlacing || observedSelection != selectionManager.current || editingObject != null && observedId != editingObject.GetComponent<SavedObject>().id))
                 ObserveSelection();
             wasPlacing = placement.placing;
             if (!CanUseShortcut || generator == null || (!placement.placing && editingObject == null) ||
@@ -91,6 +92,7 @@ namespace Protobot.UI {
                 return;
             }
             RefreshDisplay();
+            observedId = editingObject.GetComponent<SavedObject>().id;
         }
 
         private GameObject SelectedPart() {
@@ -175,7 +177,6 @@ namespace Protobot.UI {
         }
 
         private void ApplyParameters() {
-            if (CollaborationSession.BlocksLegacyMutation && editingObject != null) return;
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (editingObject == null) {
                 placement.RefreshPartPreview();
@@ -186,6 +187,10 @@ namespace Protobot.UI {
             var hole = previousSelection as HoleSelection;
             Vector3? anchor = hole?.holeData.position;
             Vector3? localHole = anchor.HasValue ? old.transform.InverseTransformPoint(anchor.Value) : null;
+            if (CollaborationSession.IsShared) {
+                CollaborationSession.ReplacePart(old, generator, anchor, localHole);
+                return;
+            }
             var replacement = PartParameterEditing.Replace(old, generator, anchor, localHole);
             if (replacement == null) return;
             ISelection nextSelection = new ObjectSelection { gameObject = replacement, individual = previousSelection?.individual ?? false };

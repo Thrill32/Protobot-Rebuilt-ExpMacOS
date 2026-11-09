@@ -32,7 +32,8 @@ namespace Protobot.Collaboration {
             Require(tx.expected != null && tx.writes != null && tx.deletes != null &&
                 tx.writes.Length + tx.deletes.Length > 0 && tx.writes.Length + tx.deletes.Length <= MaxWriteSet &&
                 tx.expected.Length <= MaxWriteSet * 2, "write-set-limit");
-            Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "DeleteParts", "unsupported-mutation");
+            Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "DeleteParts" ||
+                tx.kind == "TransformAndCopy" || tx.kind == "RestoreParts", "unsupported-mutation");
             var parts = current.parts.ToDictionary(p => p.id, StringComparer.Ordinal);
             var tombstones = current.tombstones.ToDictionary(p => p.id, p => p.version, StringComparer.Ordinal);
             var expected = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -51,19 +52,26 @@ namespace Protobot.Collaboration {
                 if (tx.kind == "AddParts") {
                     Require(!exists && !tombstones.ContainsKey(write.id) && expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
                 }
+                else if (tx.kind == "RestoreParts") {
+                    Require(exists || tombstones.ContainsKey(write.id), "missing-entity");
+                }
+                else if (tx.kind == "TransformAndCopy" && !exists) {
+                    Require(!tombstones.ContainsKey(write.id) && expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
+                }
                 else {
-                    Require(tx.kind == "SetPoses" && exists && tx.deletes.Length == 0, "missing-entity");
-                    Require(before.catalogId == write.catalogId && before.state == write.state && before.hasPaint == write.hasPaint &&
+                    Require(exists && tx.kind != "DeleteParts" && tx.deletes.Length == 0, "missing-entity");
+                    if (tx.kind != "SetParts") Require(before.catalogId == write.catalogId && before.state == write.state && before.hasPaint == write.hasPaint &&
                         before.color.SequenceEqual(write.color), "pose-only");
                 }
                 var accepted = WireJson.Clone(write);
-                accepted.version = exists ? before.version + 1 : 1;
+                accepted.version = exists ? before.version + 1 : tombstones.TryGetValue(write.id, out var dead) ? dead + 1 : 1;
                 // Canonical signs and negative zero are normalized by the authority.
                 accepted.rotation = NormalizeRotation(accepted.rotation);
                 parts[accepted.id] = accepted;
+                tombstones.Remove(accepted.id);
             }
             foreach (var id in tx.deletes) {
-                Require(tx.kind == "DeleteParts" && tx.writes.Length == 0 && ValidId(id) && changed.Add(id) &&
+                Require((tx.kind == "RestoreParts" || tx.kind == "DeleteParts" && tx.writes.Length == 0) && ValidId(id) && changed.Add(id) &&
                     expected.ContainsKey(id) && parts.ContainsKey(id), "invalid-delete");
                 tombstones[id] = parts[id].version + 1;
                 parts.Remove(id);
@@ -77,6 +85,11 @@ namespace Protobot.Collaboration {
             Require(WireJson.Encode(next).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
             return next;
         }
+
+        // History compares logical content; accepted entity versions always increase, including resurrection.
+        public static bool SamePart(Part a, Part b) => a == null || b == null ? a == b :
+            a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") && a.hasPaint == b.hasPaint &&
+            a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.color.SequenceEqual(b.color);
 
         public static void ValidatePart(Part part, CatalogManifest catalog) {
             Require(part != null && ValidId(part.id) && part.catalogId != null && part.catalogId.Length <= 200 &&

@@ -12,6 +12,8 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.EventSystems;
 using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
@@ -27,8 +29,9 @@ namespace ProtobotEditorTools {
         private static void Devices() {
             if (!SessionState.GetBool(Key, false)) return;
             InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
-            if (Mouse.current == null) InputSystem.AddDevice<Mouse>();
-            if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
+            InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+            InputSystem.AddDevice<Mouse>();
+            InputSystem.AddDevice<Keyboard>();
         }
         [InitializeOnLoadMethod]
         private static void Resume() { if (SessionState.GetBool(Key, false)) { frames = 0; EditorApplication.update += Tick; } }
@@ -128,6 +131,7 @@ namespace ProtobotEditorTools {
             var painted = PartsManager.FindLoadedObjects().Single(p => p.GetComponent<SavedObject>().ConnectionId == paintedId);
             Require(painted.GetComponent<SavedObject>().state == "collaboration-fixture" && painted.GetComponent<SavedObject>().hasPaint &&
                 Math.Abs(PartColors.GetColor(painted).g - .3f) < .001f, "Materialization lost paint/state.");
+            await CheckTools(session, bob, selection, keyboard, id, savedPath);
             var reservation = await bob.ReserveAsync(new[] { id });
             Require((await bob.SubmitAsync(bob.CreateTransaction("DeleteParts", Array.Empty<Part>(), new[] { id }, lease: reservation.token))).accepted, "Remote delete rejected.");
             await Until(() => PartsManager.FindLoadedObjects().Count == 2);
@@ -146,6 +150,149 @@ namespace ProtobotEditorTools {
             // Join path uses normal file-save handling and clears path only for newly joined content.
             await CheckJoinAsync(catalog, initial, session, manager);
         }
+        private static async Task CheckTools(CollaborationSession session, CollaborationClient peer, SelectionManager selection, KeyboardTransformTool keyboard, string id, string savedPath) {
+            GameObject Body() => PartsManager.FindLoadedObjects().Single(p => p.GetComponent<SavedObject>().ConnectionId == id);
+            Document Document() => Get<Document>(session, "committed");
+            async Task Changed(long revision) {
+                await Until(() => Document().revision > revision && !CollaborationSession.HasPending && CollaborationSession.CanEdit);
+                await peer.WaitForRevisionAsync(Document().revision);
+                Require(DocumentModel.Hash(peer.Snapshot) == DocumentModel.Hash(Document()), "Tool transaction diverged between participants.");
+            }
+            async Task History(bool redo = false) {
+                long revision = Document().revision;
+                if (redo) Protobot.StateSystems.StateSystem.instance.Redo(); else Protobot.StateSystems.StateSystem.instance.Undo();
+                await Changed(revision);
+            }
+            long rev = Document().revision;
+            ColorToolActiveCheck.colorToolActive = true;
+            ColorTool.ColorToSet = new Color(.7f, .2f, .1f);
+            Object.FindFirstObjectByType<ColorSelectionResponse>().ChangeColor(Body());
+            await Changed(rev);
+            Require(PartColors.Materials(Body()).All(m => Math.Abs(m.color.r - .7f) < .001f) && Body().GetComponent<SavedObject>().hasPaint, "Shared paint did not update actual material slots.");
+            rev = Document().revision;
+            Object.FindFirstObjectByType<ColorTool>(FindObjectsInactive.Include).HandleInput(0);
+            ColorToolActiveCheck.colorToolActive = true;
+            Object.FindFirstObjectByType<ColorSelectionResponse>().ChangeColor(Body());
+            await Changed(rev);
+            Require(!Body().GetComponent<SavedObject>().hasPaint && PartColors.IsDefault(Body()), "Shared Default did not restore generated colors.");
+            ColorToolActiveCheck.colorToolActive = false;
+
+            selection.SetCurrent(new ObjectSelection { gameObject = Body(), individual = true }, true, true);
+            var properties = Object.FindFirstObjectByType<Protobot.UI.AddPropertiesUI>();
+            Invoke(properties, "ObserveSelection");
+            rev = Document().revision;
+            properties.UpdateParam2("7");
+            await Changed(rev);
+            Require(Body().GetComponent<SavedObject>().id == "CCHL-1x2-7" && Body().GetComponentsInChildren<Collider>().Length > 0 &&
+                BuildTransfer.SelectedBodies(selection.current).Contains(Body()), "Shared parameter replacement lost geometry, identity or selection.");
+            await History(); Require(Body().GetComponent<SavedObject>().id == "CCHL-1x2-5", "Property undo did not regenerate old geometry.");
+            await History(true); Require(Body().GetComponent<SavedObject>().id == "CCHL-1x2-7", "Property redo did not regenerate new geometry.");
+
+            var placement = Object.FindFirstObjectByType<Placement>();
+            Invoke(keyboard, "BeginSelection", false);
+            await Until(() => Get<bool>(keyboard, "active"));
+            Invoke(keyboard, "MoveFromGrab");
+            await Until(() => placement.placing);
+            placement.CancelPlacement();
+            await Until(() => CollaborationSession.CanEdit);
+            rev = Document().revision;
+            Get<MoveToolManager>(keyboard, "moveToolManager").StartMoving();
+            await Until(() => placement.placing);
+            var target = Body().transform.position + Vector3.up * 2;
+            Set(placement, "currentDisplacement", new Protobot.Transformations.Displacement(target, Body().transform.rotation));
+            Invoke(placement, "Place");
+            await Changed(rev);
+            Require(Vector3.Distance(Body().transform.position, target) < .001f && Body().layer == 0 && MeshCombiner.GetRenderers(new[] { Body() }).All(r => r.enabled),
+                "Shared Move did not restore visible accepted geometry: pose=" + Body().transform.position + ", expected=" + target + ", layer=" + Body().layer + ", renderers=" + string.Join(",", MeshCombiner.GetRenderers(new[] { Body() }).Select(r => r.name + ":" + r.enabled)));
+
+            var transformTool = Object.FindObjectsByType<ToolToggle>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .First(t => Get<Protobot.InputEvents.InputEvent>(t, "toggleOnInput")?.name == "Enable Transform Tool");
+            transformTool.Toggle(true);
+            await Until(() => Object.FindObjectsByType<PositionAxis>(FindObjectsSortMode.None).Any(t => t.isActiveAndEnabled));
+            var handle = Object.FindObjectsByType<PositionAxis>(FindObjectsSortMode.None).First(t => t.isActiveAndEnabled);
+            // Release before a grant, then immediately retry: the obsolete grant must release before the next request.
+            handle.OnPointerDown(new PointerEventData(EventSystem.current));
+            handle.OnPointerUp(new PointerEventData(EventSystem.current));
+            handle.OnPointerDown(new PointerEventData(EventSystem.current));
+            Require(CollaborationSession.AllowsInput(handle.dragInput), "Reservation wait suppressed the held handle pointer.");
+            await Until(() => (bool)typeof(ClickDragTool).GetField("dragging", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(handle));
+            target = Body().transform.position + Vector3.right * 2;
+            rev = Document().revision;
+            handle.movementManager.MoveTo(target);
+            handle.OnPointerUp(new PointerEventData(EventSystem.current));
+            await Changed(rev);
+            Require(Vector3.Distance(Body().transform.position, target) < .001f, "Reserved transform handle did not commit.");
+
+            var connect = Object.FindFirstObjectByType<ConnectTool>();
+            connect.SetActive(true);
+            Set(connect, "sourcePosition", Body().transform.position);
+            Set(connect, "sourceVersions", CollaborationSession.Versions(new[] { id }));
+            target = Body().transform.position + Vector3.forward * 2;
+            rev = Document().revision;
+            Invoke(connect, "MoveSelection", target);
+            await Changed(rev); connect.SetActive(false);
+            Require(Vector3.Distance(Body().transform.position, target) < .001f, "Shared Connect translation did not commit.");
+
+            // Real duplicate modifier and keyboard tool; copies must be part of the same accepted edit.
+            int count = PartsManager.FindLoadedObjects().Count;
+            foreach (var device in InputSystem.devices.OfType<Keyboard>()) InputSystem.QueueStateEvent(device, new KeyboardState(UnityEngine.InputSystem.Key.LeftAlt));
+            UpdateInput();
+            var duplicateInput = Get<Protobot.InputEvents.InputEvent>(Get<ObjectDuplicator>(keyboard, "duplicator"), "input");
+            bool duplicateHeld = Get<ObjectDuplicator>(keyboard, "duplicator").IsDuplicateHeld;
+            Invoke(keyboard, "BeginSelection", false);
+            await Until(() => Get<bool>(keyboard, "active"));
+            Require(Get<System.Collections.Generic.List<GameObject>>(keyboard, "duplicates").Count == 1,
+                "Alt did not create a private gesture copy: count=" + Get<System.Collections.Generic.List<GameObject>>(keyboard, "duplicates").Count +
+                ", heldBefore=" + duplicateHeld + ", latched=" + Get<bool>(keyboard, "duplicateForGesture") + ", enabled=" + duplicateInput.defaultAction.enabled +
+                ", controls=" + string.Join(",", duplicateInput.defaultAction.controls.Select(c => c.path + ":" + c.IsPressed())));
+            rev = Document().revision;
+            Invoke(keyboard, "SetTarget", Vector3.up, Quaternion.identity);
+            Invoke(keyboard, "CompleteConfirmation");
+            foreach (var device in InputSystem.devices.OfType<Keyboard>()) InputSystem.QueueStateEvent(device, new KeyboardState());
+            UpdateInput();
+            await Changed(rev);
+            Require(PartsManager.FindLoadedObjects().Count == count + 1, "Compound transform-copy lost its create.");
+            await History(); Require(PartsManager.FindLoadedObjects().Count == count, "Compound undo left a duplicate behind.");
+            await History(true); Require(PartsManager.FindLoadedObjects().Count == count + 1, "Compound redo lost a duplicate.");
+            await History();
+
+            selection.SetCurrent(new ObjectSelection { gameObject = Body(), individual = true }, true, true);
+            Invoke(properties, "PlacePickedPart");
+            Require(placement.CurrentSelectionPlacement != null, "P did not start shared copy placement.");
+            Set(placement, "currentDisplacement", new Protobot.Transformations.Displacement(Vector3.right * 60, Quaternion.identity));
+            rev = Document().revision; Invoke(placement, "Place");
+            await Changed(rev); placement.CancelPlacement();
+            Require(PartsManager.FindLoadedObjects().Count == count + 1, "P stamp was not accepted.");
+            await History();
+
+            var transfer = Object.FindFirstObjectByType<BuildTransferTool>();
+            string clipboard = GUIUtility.systemCopyBuffer;
+            try {
+                Require(await transfer.CopySelectedAsync() && await transfer.PasteAsync(), "Shared clipboard workflow did not start.");
+                rev = Document().revision; Invoke(placement, "Place"); await Changed(rev);
+                Require(PartsManager.FindLoadedObjects().Count == count + 1 && BuildTransfer.SelectedBodies(selection.current).Count == 1, "Paste did not select accepted parts.");
+                await History();
+            }
+            finally { GUIUtility.systemCopyBuffer = clipboard; }
+            Require(await transfer.ImportBuildAsync(savedPath), "Catalog build import did not start.");
+            rev = Document().revision; Invoke(placement, "Place"); await Changed(rev);
+            Require(PartsManager.FindLoadedObjects().Count == count + 3 && BuildTransfer.SelectedBodies(selection.current).Count == 3, "Imported set was not accepted/selected atomically.");
+            await History();
+
+            var staleTarget = CollaborationSession.Versions(new[] { id });
+            var remote = WireJson.Clone(peer.Snapshot.parts.Single(p => p.id == id)); remote.position[1] += 1;
+            var reserved = await peer.ReserveAsync(new[] { id });
+            var accepted = await peer.SubmitAsync(peer.CreateTransaction("SetPoses", new[] { remote }, lease: reserved.token));
+            await Until(() => Document().revision == accepted.revision);
+            CollaborationSession.PlaceCatalog(PartsManager.GeneratePart("PLTE-3-3", Vector3.one * 80, Quaternion.identity), staleTarget);
+            await Until(() => !CollaborationSession.HasPending && Get<string>(session, "status").StartsWith("Edit rejected:"));
+            Require(Document().revision == accepted.revision && PartsManager.FindLoadedObjects().Count == count, "Stale target placement changed accepted geometry.");
+            Protobot.StateSystems.StateSystem.instance.Undo();
+            await Until(() => !CollaborationSession.HasPending && Get<string>(session, "status").Contains("history-changed-by-another-participant"));
+            Require(Document().revision == accepted.revision && Math.Abs(Body().transform.position.y - remote.position[1]) < .001, "Personal undo overwrote a remote edit.");
+            selection.SetCurrent(new ObjectSelection { gameObject = Body(), individual = true }, true, true);
+            Debug.Log("Collaboration tool validation passed: paint/Default, parameter replacement/selection, personal history, G-to-H, Move, pointer handle/early release, Connect, Alt copies, P, clipboard paste, build import, stale target and stale inverse refusal.");
+        }
         private static async Task CheckJoinAsync(CatalogManifest catalog, Document initial, CollaborationSession session, BuildsManager manager) {
             using var host = new CollaborationHost();
             try {
@@ -162,6 +309,8 @@ namespace ProtobotEditorTools {
             await Until(() => client.Snapshot.parts.Single(p => p.id == id).position[1] == y);
             return client.Snapshot.parts.Single(p => p.id == id);
         }
+        private static void UpdateInput() => typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,
+            new[] { typeof(InputUpdateType) }, null).Invoke(null, new object[] { InputUpdateType.Dynamic });
         private static async Task Until(Func<bool> predicate) {
             var watch = System.Diagnostics.Stopwatch.StartNew();
             while (!predicate()) { if (watch.Elapsed.TotalSeconds > 15) throw new TimeoutException("Unity collaboration scenario timed out."); await Task.Delay(20); }

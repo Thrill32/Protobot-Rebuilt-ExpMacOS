@@ -48,6 +48,7 @@ namespace Protobot.InputEvents {
             // Native panels and the rebind UI own their own Escape handling.
             if (NativeFileDialogs.IsOpen || RebindAction.Rebinding || RebindAction.CanceledThisFrame) return;
             if (CancelFocusedUI()) return;
+            if (CollaborationSession.CancelWaitingReservation()) return;
             if (KeyboardTransformTool.CancelActive()) return;
             if (placement != null && placement.placing) { placement.CancelPlacement(); return; }
             foreach (var drag in FindObjectsByType<ClickDragTool>(FindObjectsSortMode.None))

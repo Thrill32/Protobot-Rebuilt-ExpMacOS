@@ -10,7 +10,7 @@ namespace Protobot.Tools {
                 Vector3 newPos = targetHoleFace.position;
 
                 Displacement finalOrientation = new Displacement(newPos, targetHoleFace.direction);
-                movementManager.DisplaceTo(finalOrientation);
+                movementManager.DisplaceTo(finalOrientation, dependencies: CollaborationSession.Versions(new[] { targetHoleFace.hole.part.GetComponent<SavedObject>().ConnectionId }));
             }
         }
     }

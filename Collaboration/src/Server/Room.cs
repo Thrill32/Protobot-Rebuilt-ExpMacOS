@@ -16,6 +16,13 @@ namespace Protobot.Collaboration.Server {
             public long lastSeen;
             public long sequence;
             public Dictionary<string, Receipt> receipts = new Dictionary<string, Receipt>();
+            public List<HistoryEntry> history = new List<HistoryEntry>();
+            public int historyCursor;
+        }
+        private sealed class HistoryEntry {
+            public string[] ids;
+            public Part[] before, after;
+            public bool blocked;
         }
         private sealed class Lease {
             public string token, author;
@@ -135,19 +142,53 @@ namespace Protobot.Collaboration.Server {
                 var receipt = new Receipt { operationId = transaction.operationId, revision = document.revision };
                 try {
                     DocumentModel.Require(transaction.sequence > member.sequence, "sequence-reused");
-                    var next = DocumentModel.Reduce(document, transaction, catalog);
-                    int transactionBytes = WireJson.Encode(transaction).Length;
+                    bool undo = transaction.kind == "Undo", redo = transaction.kind == "Redo";
+                    HistoryEntry inverse = null;
+                    var command = transaction;
+                    if (undo || redo) {
+                        DocumentModel.Require(transaction.writes != null && transaction.deletes != null && transaction.writes.Length == 0 && transaction.deletes.Length == 0, "invalid-history-command");
+                        int index = undo ? member.historyCursor - 1 : member.historyCursor;
+                        DocumentModel.Require(index >= 0 && index < member.history.Count, undo ? "nothing-to-undo" : "nothing-to-redo");
+                        inverse = member.history[index];
+                        DocumentModel.Require(!inverse.blocked, "history-changed-by-another-participant");
+                        var expectedState = undo ? inverse.after : inverse.before;
+                        DocumentModel.Require(inverse.ids.All(id => DocumentModel.SamePart(document.parts.FirstOrDefault(p => p.id == id),
+                            expectedState.FirstOrDefault(p => p.id == id))), "stale-history");
+                        DocumentModel.Require(!leases.Values.Any(l => l.ids.Intersect(inverse.ids).Any()), "parts-reserved");
+                        var restore = undo ? inverse.before : inverse.after;
+                        command = new Transaction { operationId = transaction.operationId, sequence = transaction.sequence,
+                            generation = transaction.generation, kind = "RestoreParts", writes = WireJson.Clone(restore),
+                            deletes = inverse.ids.Where(id => !restore.Any(p => p.id == id)).ToArray(),
+                            expected = inverse.ids.Select(id => new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ??
+                                document.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray() };
+                    }
+                    else DocumentModel.Require(transaction.kind != "RestoreParts", "authority-only-mutation");
+                    var next = DocumentModel.Reduce(document, command, catalog);
+                    var changedIds = command.writes.Select(p => p.id).Concat(command.deletes).ToArray();
+                    var before = document.parts.Where(p => changedIds.Contains(p.id)).ToArray();
+                    var after = next.parts.Where(p => changedIds.Contains(p.id)).ToArray();
+                    int transactionBytes = WireJson.Encode(command).Length + (inverse == null ? WireJson.Encode(before).Length + WireJson.Encode(after).Length : 0);
                     DocumentModel.Require(historyBytes + transactionBytes <= 64 * 1024 * 1024, "alpha-history-limit");
-                    var existing = transaction.writes.Select(p => p.id).Concat(transaction.deletes).Where(id => document.parts.Any(p => p.id == id)).ToArray();
+                    var existing = changedIds.Where(id => document.parts.Any(p => p.id == id)).ToArray();
                     Lease lease = null;
-                    if (existing.Length > 0) {
+                    if (existing.Length > 0 && inverse == null) {
                         lease = OwnedLease(member, transaction.lease);
                         DocumentModel.Require(existing.All(lease.ids.Contains), "lease-set-mismatch");
                     }
                     // Only version preconditions constrain unrelated edits, never the global revision.
                     document = next;
                     historyBytes += transactionBytes;
-                    var accepted = WireJson.Clone(transaction);
+                    // Only the authority supplies inverse content. Another participant touching any of its
+                    // entities permanently fences an older inverse, even if they later restore equal values.
+                    foreach (var other in members.Values.Where(m => m != member))
+                        foreach (var item in other.history.Where(h => h.ids.Intersect(changedIds).Any())) item.blocked = true;
+                    if (inverse != null) member.historyCursor += undo ? -1 : 1;
+                    else {
+                        member.history.RemoveRange(member.historyCursor, member.history.Count - member.historyCursor);
+                        member.history.Add(new HistoryEntry { ids = changedIds, before = WireJson.Clone(before), after = WireJson.Clone(after) });
+                        member.historyCursor = member.history.Count;
+                    }
+                    var accepted = WireJson.Clone(command);
                     // Receipts/events never disclose the ephemeral reservation credential.
                     accepted.lease = null;
                     events.Add(new AcceptedEdit { revision = next.revision, author = member.participant.id, transaction = accepted, hash = DocumentModel.Hash(next) });

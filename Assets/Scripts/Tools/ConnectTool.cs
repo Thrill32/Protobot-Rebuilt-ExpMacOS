@@ -9,6 +9,7 @@ using UnityEngine.UI;
 using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.StateSystems;
+using Protobot.Collaboration;
 
 namespace Protobot.Tools {
     /// <summary>
@@ -29,6 +30,9 @@ namespace Protobot.Tools {
         private bool hadSelectionOnActivation;
         private bool hasSource;
         private bool isMoving;
+        private bool waitingForReservation;
+        private VersionRef[] sourceVersions;
+        private VersionRef[] targetVersions;
         private bool individualSelection;
         private Vector3 sourcePosition;
         private Tween moveTween;
@@ -81,14 +85,14 @@ namespace Protobot.Tools {
             if (Mouse.current == null || !Mouse.current.leftButton.wasPressedThisFrame)
                 return;
 
-            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            if (MouseInput.overUI || CollaborationSession.BlocksUIInput)
                 return;
 
             TryPickPoint();
         }
 
         public void SetActive(bool value) {
-            if (value && CollaborationSession.BlocksLegacyMutation) return;
+            if (value && CollaborationSession.IsShared && !CollaborationSession.CanEdit) return;
             if (value) CustomModelTool.CancelActive();
             toolActive = value;
             IsCapturingPoints = value;
@@ -101,6 +105,7 @@ namespace Protobot.Tools {
                     : "Connect · pick source");
             }
             else {
+                CancelPending();
                 ResetSource();
                 if (statusRoot != null)
                     statusRoot.SetActive(false);
@@ -108,6 +113,7 @@ namespace Protobot.Tools {
         }
 
         public bool CancelPending() {
+            if (waitingForReservation) { waitingForReservation = false; CollaborationSession.CancelPose(); RefreshSelection(); return true; }
             if (!toolActive || (!hasSource && !isMoving)) return false;
             if (isMoving) {
                 moveTween?.Kill(); moveTween = null;
@@ -135,7 +141,7 @@ namespace Protobot.Tools {
         }
 
         private void TryPickPoint() {
-            if (mouseCast == null || isMoving)
+            if (mouseCast == null || isMoving || waitingForReservation || CollaborationSession.IsShared && !CollaborationSession.CanEdit)
                 return;
 
             var hit = mouseCast.hit;
@@ -164,6 +170,7 @@ namespace Protobot.Tools {
                 }
 
                 sourcePosition = endpointPosition;
+                sourceVersions = CollaborationSession.Versions(movingBodies.Select(b => b.GetComponent<SavedObject>().ConnectionId));
                 hasSource = true;
                 ShowSourceMarker(sourcePosition);
                 SetStatus($"Connect · {endpointName} selected · pick target");
@@ -175,6 +182,7 @@ namespace Protobot.Tools {
                 return;
             }
 
+            targetVersions = CollaborationSession.Versions(new[] { endpointBody.GetComponent<SavedObject>().ConnectionId });
             MoveSelection(endpointPosition);
             ResetSource();
 
@@ -286,6 +294,18 @@ namespace Protobot.Tools {
                 return;
 
             var translation = targetPosition - sourcePosition;
+            if (CollaborationSession.IsShared) {
+                var dependencies = (sourceVersions ?? System.Array.Empty<VersionRef>()).Concat(targetVersions ?? System.Array.Empty<VersionRef>()).ToArray();
+                waitingForReservation = true;
+                CollaborationSession.ReservePose(stateBodies, () => {
+                    if (!toolActive || !waitingForReservation || stateBodies.Any(b => b == null)) { CollaborationSession.CancelPose(); return; }
+                    waitingForReservation = false;
+                    var poses = stateBodies.Select(b => new Pose(b.transform.position + translation, b.transform.rotation)).ToArray();
+                    for (int i = 0; i < stateBodies.Count; i++) stateBodies[i].transform.SetPositionAndRotation(poses[i].position, poses[i].rotation);
+                    CollaborationSession.ConfirmPose(stateBodies, dependencies: dependencies);
+                }, () => waitingForReservation = false);
+                return;
+            }
 
             movementState = StateSystem.curState;
             movementBefore = stateBodies.Select(body => (IElement)new ObjectElement(body)).ToList();

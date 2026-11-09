@@ -6,6 +6,7 @@ using DG.Tweening;
 using System;
 using Protobot.StateSystems;
 using System.Linq;
+using Protobot.Collaboration;
 
 namespace Protobot {
     public class MovementManager : MonoBehaviour {
@@ -26,14 +27,20 @@ namespace Protobot {
         private List<IElement> startingElements;
 
         List<GameObject> movingObjs;
+        private readonly List<GameObject> sharedCopies = new();
+        private VersionRef[] sharedDependencies;
+        private bool sharedDuplicateRequested;
+        public void PrepareSharedDuplicate(bool requested) => sharedDuplicateRequested = requested;
 
 
         private void Start() { 
             OnStartMoving += () => {
+                if (CollaborationSession.IsShared) return;
                 ObjectElement.AddObjectElements(GetMovingConnectedObjs());
             };
 
             OnFinishMoving += () => {
+                if (CollaborationSession.IsShared) { CollaborationSession.ConfirmPose(movingObjs, sharedCopies, sharedDependencies); return; }
                 StateSystem.AddEmptyState();
                 ObjectElement.AddObjectElements(GetMovingConnectedObjs());
             };
@@ -42,7 +49,7 @@ namespace Protobot {
         }
 
         private void Update() {
-            if (!movementPivot.IsEmpty && movementTween != null && !movementTween.active && !displaceContinous) {
+            if (!movementPivot.IsEmpty && (movementTween == null || !movementTween.active) && !displaceContinous) {
                 OnFinishMoving?.Invoke();
                 movementPivot.SetEmpty();
             }
@@ -71,6 +78,7 @@ namespace Protobot {
             displaceContinous = false;
             foreach (var element in startingElements) startingState.elements.Remove(element);
             startingState = null;
+            if (CollaborationSession.IsShared) { ObjectDuplicator.DiscardCopies(sharedCopies); CollaborationSession.CancelPose(); }
             OnCancelMoving?.Invoke();
             return true;
         }
@@ -80,6 +88,10 @@ namespace Protobot {
             int count = startingState.elements.Count;
             OnStartMoving?.Invoke();
             startingElements = startingState.elements.Skip(count).ToList();
+            if (CollaborationSession.IsShared) {
+                if (sharedDuplicateRequested) sharedCopies.AddRange(FindFirstObjectByType<ObjectDuplicator>().CreateCopies(movingObjs));
+                sharedDuplicateRequested = false;
+            }
         }
 
         /// <summary>
@@ -87,7 +99,8 @@ namespace Protobot {
         /// </summary>
         /// <param name="value"></param>
         public void StartContinuous() {
-            if (CollaborationSession.BlocksLegacyMutation) return;
+            if (CollaborationSession.IsShared && !CollaborationSession.HasPoseReservation(GetMovingConnectedObjs())) return;
+            sharedDependencies = null;
             displaceContinous = true;
 
             if (displaceContinous) {
@@ -99,9 +112,18 @@ namespace Protobot {
             }
         }
 
-        public void DisplaceTo(Displacement displacement, float duration = 0.25f) {
-            if (CollaborationSession.BlocksLegacyMutation) return;
+        public void DisplaceTo(Displacement displacement, float duration = 0.25f, VersionRef[] dependencies = null) {
+            if (CollaborationSession.IsShared && !displaceContinous && !CollaborationSession.HasPoseReservation(GetMovingConnectedObjs())) {
+                var requested = MovingObj;
+                bool duplicate = FindFirstObjectByType<ObjectDuplicator>()?.IsDuplicateHeld == true;
+                CollaborationSession.ReservePose(GetMovingConnectedObjs(), () => {
+                    if (requested == MovingObj) { sharedDuplicateRequested = duplicate; DisplaceTo(displacement, duration, dependencies); }
+                    else CollaborationSession.CancelPose();
+                });
+                return;
+            }
             if (!displaceContinous) {
+                sharedDependencies = dependencies;
                 movingObjs = GetMovingConnectedObjs();
                 BeginMovement();
             }

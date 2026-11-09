@@ -19,6 +19,7 @@ namespace Protobot {
             Motor refMotor = null;
 
             if (currentHoleActive) {
+                CollaborationScene.Read(currentHoleFace.hole.part);
                 refMotor = currentHoleFace.hole.part.GetComponent<Motor>();
                 displacement = new Displacement(currentHoleFace.position, currentHoleFace.LookRotation);
             }
@@ -27,6 +28,7 @@ namespace Protobot {
                 refMotor = motor;
 
             if (refMotor != null) {
+                CollaborationScene.Read(refMotor.gameObject);
                 var (length, hs) = GetShaftInfo(placementData);
                 displacement = refMotor.GetShaftDisplacement(length, hs);
             }

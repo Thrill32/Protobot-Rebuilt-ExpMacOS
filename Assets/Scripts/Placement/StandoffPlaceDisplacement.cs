@@ -30,6 +30,8 @@ namespace Protobot {
         }
 
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
+            CollaborationScene.Read(HoverObj);
+            if (currentHoleFace.gameObject.activeInHierarchy) CollaborationScene.Read(currentHoleFace.hole?.part);
             mountingFace = null;
             if (placementData is PartPlacementData bearing && bearing.partType.id == "BRNG" && HoverObj != null) {
                 if (currentHoleFace.direction != Vector3.zero && currentHoleFace.gameObject.activeInHierarchy)

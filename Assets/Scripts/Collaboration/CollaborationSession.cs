@@ -30,6 +30,11 @@ namespace Protobot {
         private bool busy, applying, reserving, submitting, sendingPreview;
         private string lease;
         private string[] reserved = Array.Empty<string>();
+        private VersionRef[] reservedVersions = Array.Empty<VersionRef>();
+        private int reservationGeneration;
+        private Task releasePending = Task.CompletedTask;
+        private Task reservationPending = Task.CompletedTask;
+        private readonly Dictionary<string, (SelectionManager manager, string[] ids)> selectAfterApply = new();
         private long previewSequence;
         private long lastSubmittedRevision;
         private float nextRenew, nextPreview;
@@ -39,11 +44,12 @@ namespace Protobot {
         private CollaborationTransport transport;
         private Participant[] participants = Array.Empty<Participant>();
         private Rect panelRect;
-        private string[] mutations = { "Grid placement", "G / R", "Delete" };
+        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Delete", "Personal undo / redo" };
         public static bool IsShared => instance != null && instance.client != null;
         public static bool IsApplying => instance != null && instance.applying;
-        public static bool CanEdit => !IsShared || instance.client.IsConnected && instance.client.Participant.role != "viewer" && !instance.busy && !instance.submitting && !instance.reserving;
+        public static bool CanEdit => !IsShared || instance.client.IsConnected && instance.client.Participant.role != "viewer" && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
         public static bool HasPending => IsShared && (instance.submitting || instance.client.PendingCount > 0);
+        public static bool HasActivePreview => IsShared && (instance.lease != null || instance.reserving);
         public static string CommittedHash => IsShared && instance.committed != null ? DocumentModel.Hash(instance.committed) : null;
         public static bool ContainsPointer => instance != null && MouseInput.CurrentMouse != null && instance.panelRect.Contains(new Vector2(MouseInput.Position.x, Screen.height - MouseInput.Position.y));
         public static bool BlocksLegacyMutation => IsShared && !IsApplying;
@@ -98,9 +104,14 @@ namespace Protobot {
                 case "Pointer Select": case "Box Select": case "Select All": case "Multi-Select Button": case "Grouping Bypass":
                 case "Toggle Grid": case "Toggle Holes Only": case "Select Opposite Hole": case "Enable Sidebar":
                 case "Save": case "Stop Placing": case "Snap Bypass": return true;
-                case "Grab Selection": case "Rotate Placement": case "Delete Selection": case "Place": return CanEdit;
+                // A held pointer must survive the asynchronous reservation wait; dragging starts only after the grant.
+                case "Tool Drag": return instance.client.IsConnected && instance.client.Participant.role != "viewer";
+                case "Grab Selection": case "Rotate Placement": case "Delete Selection": case "Place":
+                case "Grab Hole Snap": case "Duplicate": case "Pick Part": case "Copy Selection": case "Paste Selection":
+                case "Undo": case "Redo": case "Enable Transform Tool": case "Enable Move Tool": case "Enable Color Tool": case "Enable Connect Tool":
+                case "Place Selection": case "Import Build": case "Save Selected Parts As": return CanEdit;
                 case "Increase First Property": case "Decrease First Property": case "Increase Second Property": case "Decrease Second Property":
-                    return CanEdit && UnityEngine.Object.FindFirstObjectByType<Placement>()?.placing == true;
+                    return CanEdit;
                 default: return false;
             }
         }
@@ -184,8 +195,9 @@ namespace Protobot {
                         // Apply this revision even if the network thread has already received later edits.
                         var next = DocumentModel.Reduce(committed, edit.transaction, catalog);
                         var ids = edit.transaction.writes.Select(p => p.id).Concat(edit.transaction.deletes);
-                        if (reserved.Intersect(ids).Any()) { KeyboardTransformTool.CancelActive(); CancelPose(); }
+                        if (edit.author != connected.Participant.id && reserved.Intersect(ids).Any()) CancelSharedPreview();
                         CollaborationScene.Apply(edit, next); committed = next;
+                        if (selectAfterApply.Remove(edit.transaction.operationId, out var result)) SelectParts(result.manager, result.ids);
                     }
                     catch (Exception error) { Report(error); connected.Suspend("Scene apply failed; reconnect to synchronize."); CollaborationScene.Load(committed); }
                     finally { applying = false; }
@@ -195,6 +207,7 @@ namespace Protobot {
             connected.Disconnected += reason => Enqueue(() => {
                 if (client != connected) return;
                 CancelTools(); CancelPose(); ClearGhosts(); status = reason;
+                CollaborationScene.ApplyParts(committed.parts);
             });
             connected.PendingResolved += message => Enqueue(() => status = message);
         }
@@ -212,51 +225,135 @@ namespace Protobot {
             }
         }
 
-        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted) { if (instance != null) _ = instance.ReservePoseAsync(bodies, granted); }
-        private async Task ReservePoseAsync(IReadOnlyList<GameObject> bodies, Action granted) {
+        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null) { if (instance != null) _ = instance.ReservePoseAsync(bodies, granted, denied); }
+        private async Task ReservePoseAsync(IReadOnlyList<GameObject> bodies, Action granted, Action denied) {
             if (!CanEdit || lease != null || reserving) return;
             reserving = true; status = "Waiting for edit reservation…";
+            var previousRequest = reservationPending;
+            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            reservationPending = completed.Task;
             var ids = bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
+            var versions = Versions(ids);
+            int request = ++reservationGeneration;
             var connection = client;
             long epoch = connection.ConnectionEpoch;
             try {
+                await previousRequest;
+                await releasePending;
+                if (client != connection || connection.ConnectionEpoch != epoch || request != reservationGeneration) return;
                 var result = await connection.ReserveAsync(ids);
-                if (client != connection || connection.ConnectionEpoch != epoch) { try { await connection.ReleaseAsync(result.token); } catch { } return; }
-                lease = result.token; reserved = ids; nextRenew = Time.realtimeSinceStartup + 3; previewSequence = 0;
+                if (client != connection || connection.ConnectionEpoch != epoch || request != reservationGeneration || bodies.Any(b => b == null || !b.activeInHierarchy)) {
+                    try { await connection.ReleaseAsync(result.token); } catch { } denied?.Invoke(); return;
+                }
+                lease = result.token; reserved = ids; reservedVersions = versions; nextRenew = Time.realtimeSinceStartup + 3; previewSequence = 0;
+                reserving = false;
                 status = "Editing reserved parts"; granted();
             }
-            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
-            finally { if (client == connection && connection.ConnectionEpoch == epoch) reserving = false; }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && request == reservationGeneration) { Report(error); denied?.Invoke(); } }
+            finally { completed.TrySetResult(true); if (client == connection && connection.ConnectionEpoch == epoch && request == reservationGeneration) reserving = false; }
         }
         public static bool HasPoseReservation(IEnumerable<GameObject> bodies) => IsShared && instance.lease != null &&
             bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).OrderBy(x => x).SequenceEqual(instance.reserved.OrderBy(x => x));
         public static void CancelPose() {
             if (!IsShared) return;
-            var token = instance.lease; instance.lease = null; instance.reserved = Array.Empty<string>();
-            if (token != null) _ = instance.Release(token);
+            if (instance.submitting && instance.client.IsConnected) return;
+            instance.reservationGeneration++; instance.reserving = false;
+            var token = instance.lease; instance.lease = null; instance.reserved = Array.Empty<string>(); instance.reservedVersions = Array.Empty<VersionRef>();
+            if (token != null) instance.releasePending = instance.Release(token);
         }
         private async Task Release(string token) { var connection = client; try { if (connection != null) await connection.ReleaseAsync(token); } catch { } }
-        public static void ConfirmPose(IEnumerable<GameObject> bodies) {
+        private void CancelSharedPreview() {
+            CancelTools();
+            FindFirstObjectByType<ConnectTool>()?.CancelPending();
+            CancelPose();
+        }
+        public static VersionRef[] Versions(IEnumerable<string> ids) => instance?.committed == null ? Array.Empty<VersionRef>() :
+            ids.Distinct().Select(id => new VersionRef { id = id, version = instance.committed.parts.FirstOrDefault(p => p.id == id)?.version ??
+                instance.committed.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray();
+        private Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string token = null) {
+            var expected = (dependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
+            foreach (var version in Versions(writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>())))
+                if (!expected.ContainsKey(version.id)) expected.Add(version.id, version);
+            return client.CreateTransaction(kind, writes, deletes, expected.Values.ToArray(), token);
+        }
+        public static void ConfirmPose(IEnumerable<GameObject> bodies, List<GameObject> copies = null, VersionRef[] dependencies = null) {
             if (!IsShared) return;
             var session = instance;
             try {
                 DocumentModel.Require(session.client.IsConnected, "disconnected");
-                var writes = bodies.Select(b => CollaborationScene.Capture(b)).ToArray();
-                var tx = session.client.CreateTransaction("SetPoses", writes, lease: session.lease);
+                var writes = bodies.Concat(copies ?? Enumerable.Empty<GameObject>()).Select(b => CollaborationScene.Capture(b)).ToArray();
+                if ((copies == null || copies.Count == 0) && writes.All(p => DocumentModel.SamePart(p, session.committed.parts.FirstOrDefault(before => before.id == p.id)))) { CancelPose(); return; }
+                var expected = (dependencies ?? Array.Empty<VersionRef>()).Concat(session.reservedVersions).GroupBy(v => v.id).Select(g => g.First()).ToArray();
+                var tx = session.CreateTransaction(copies?.Count > 0 ? "TransformAndCopy" : "SetPoses", writes, dependencies: expected, token: session.lease);
+                if (copies != null) ObjectDuplicator.DiscardCopies(copies);
                 _ = session.Submit(tx);
             }
             catch (CollaborationException error) {
                 CollaborationScene.ApplyParts(session.committed.parts.Where(p => session.reserved.Contains(p.id)));
                 CancelPose(); session.Report(error);
+                if (copies != null) ObjectDuplicator.DiscardCopies(copies);
             }
         }
-        public static void PlaceCatalog(GameObject temporary) {
-            var part = CollaborationScene.Capture(temporary);
-            temporary.SetActive(false); Destroy(temporary);
+        public static void PlaceCatalog(GameObject temporary, VersionRef[] dependencies = null) => PlaceCopies(new List<GameObject> { temporary }, dependencies);
+        public static void PlaceCopies(List<GameObject> temporary, VersionRef[] dependencies = null, SelectionManager selectResult = null) {
+            var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
+            ObjectDuplicator.DiscardCopies(temporary);
             if (IsShared && CanEdit) {
-                try { _ = instance.Submit(instance.client.CreateTransaction("AddParts", new[] { part })); }
+                try {
+                    var tx = instance.CreateTransaction("AddParts", parts, dependencies: dependencies);
+                    if (selectResult != null) instance.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
+                    _ = instance.Submit(tx);
+                }
                 catch (CollaborationException error) { instance.Report(error); }
             }
+        }
+        private static void SelectParts(SelectionManager manager, string[] ids) {
+            if (manager == null) return;
+            var bodies = PartsManager.FindLoadedObjects().Where(b => ids.Contains(b.GetComponent<SavedObject>().ConnectionId)).ToList();
+            manager.ClearCurrent(false, true, true);
+            if (bodies.Count > 0) manager.SetCurrent(bodies.Count == 1 ? new ObjectSelection { gameObject = bodies[0], individual = true } :
+                new MultiSelection(null, bodies) { individual = true }, true, bypassResponseSelectors: true);
+        }
+        public static void Paint(GameObject[] bodies, Color color, bool reset) {
+            if (!IsShared || !CanEdit) return;
+            var writes = bodies.Select(body => {
+                var part = WireJson.Clone(instance.committed.parts.First(p => p.id == body.GetComponent<SavedObject>().ConnectionId));
+                var desired = reset ? OwnedPartMaterials.CaptureDefaults(body).DefaultColors().Select(c => c.color).FirstOrDefault() : color;
+                part.hasPaint = !reset; part.color = new double[] { desired.r, desired.g, desired.b }; return part;
+            }).ToArray();
+            _ = instance.ChangeParts(writes);
+        }
+        public static void ReplacePart(GameObject original, PartGenerator generator, Vector3? anchor, Vector3? localHole) {
+            if (!IsShared || !CanEdit) return;
+            var replacement = PartParameterEditing.Replace(original, generator, anchor, localHole);
+            if (replacement == null) return;
+            var write = CollaborationScene.Capture(replacement);
+            ObjectDuplicator.DiscardCopies(new List<GameObject> { replacement });
+            _ = instance.ChangeParts(new[] { write });
+        }
+        private async Task ChangeParts(Part[] writes) {
+            if (lease != null) return;
+            submitting = true;
+            var connection = client; long epoch = connection.ConnectionEpoch;
+            var expected = Versions(writes.Select(p => p.id));
+            string token = null;
+            try {
+                await reservationPending;
+                await releasePending;
+                token = (await connection.ReserveAsync(writes.Select(p => p.id).ToArray())).token;
+                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                var receipt = await connection.SubmitAsync(CreateTransaction("SetParts", writes, dependencies: expected, token: token));
+                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
+                status = receipt.accepted ? "Accepted revision " + receipt.revision : "Edit rejected: " + receipt.error;
+            }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
+            finally { if (token != null) { try { await connection.ReleaseAsync(token); } catch { } } if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
+        }
+        public static void History(bool redo) {
+            if (!IsShared || !CanEdit) return;
+            instance.CancelSharedPreview();
+            _ = instance.Submit(instance.CreateTransaction(redo ? "Redo" : "Undo", Array.Empty<Part>()));
         }
         public static void Delete(IEnumerable<GameObject> bodies) { if (IsShared && CanEdit) _ = instance.DeleteAsync(bodies.ToArray()); }
         private async Task DeleteAsync(GameObject[] bodies) {
@@ -264,32 +361,39 @@ namespace Protobot {
             submitting = true;
             var connection = client;
             long epoch = connection.ConnectionEpoch;
+            string token = null;
             try {
                 var ids = bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
+                var expected = Versions(ids);
+                await reservationPending;
+                await releasePending;
                 var reservation = await connection.ReserveAsync(ids);
+                token = reservation.token;
                 if (client != connection || connection.ConnectionEpoch != epoch) { try { await connection.ReleaseAsync(reservation.token); } catch { } return; }
-                var tx = connection.CreateTransaction("DeleteParts", Array.Empty<Part>(), ids, lease: reservation.token);
+                var tx = CreateTransaction("DeleteParts", Array.Empty<Part>(), ids, expected, reservation.token);
                 var receipt = await connection.SubmitAsync(tx);
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
                 if (!receipt.accepted) { status = receipt.error; await Release(reservation.token); }
             }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
-            finally { if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
+            finally { if (token != null) { try { await connection.ReleaseAsync(token); } catch { } } if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
         }
         private async Task Submit(Transaction transaction) {
             submitting = true;
             var connection = client;
             long epoch = connection.ConnectionEpoch;
             try {
+                await reservationPending;
+                await releasePending;
                 var receipt = await connection.SubmitAsync(transaction);
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
-                if (!receipt.accepted) { status = "Edit rejected: " + receipt.error; CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id))); }
+                if (!receipt.accepted) { selectAfterApply.Remove(transaction.operationId); status = "Edit rejected: " + receipt.error; CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id))); }
                 else status = "Accepted revision " + receipt.revision;
             }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) { Report(error); CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id))); } }
-            finally { if (client == connection && connection.ConnectionEpoch == epoch) { CancelPose(); submitting = false; } }
+            finally { if (client == connection && connection.ConnectionEpoch == epoch) { submitting = false; CancelPose(); } }
         }
 
         public static async Task<bool> WaitForSaveAsync() {
@@ -304,6 +408,7 @@ namespace Protobot {
         }
         public static void LeaveForFileOpen() { if (IsShared && !IsApplying) instance.Detach(); }
         private void Detach() {
+            submitting = false;
             CancelTools(); CancelPose();
             if (committed != null) CollaborationScene.ApplyParts(committed.parts);
             var previous = client; client = null;
@@ -312,6 +417,7 @@ namespace Protobot {
             committed = null; participants = Array.Empty<Participant>(); ClearGhosts(); status = "Continuing offline.";
             submitting = reserving = sendingPreview = false;
             lastSubmittedRevision = 0;
+            selectAfterApply.Clear();
             StateSystems.StateSystem.instance?.ResetStates();
         }
         private static async Task LeaveAndDispose(CollaborationClient previous) { try { await previous.LeaveAsync(); } catch { } finally { previous.Dispose(); } }
@@ -330,6 +436,11 @@ namespace Protobot {
             finally { busy = false; }
         }
 
+        public static bool CancelWaitingReservation() {
+            if (!IsShared || !instance.reserving) return false;
+            CancelPose(); return true;
+        }
+
         private void Update() {
             int count = 0;
             while (count++ < 128 && TryDequeue(out var action)) action();
@@ -344,7 +455,7 @@ namespace Protobot {
             var connection = client; var renewing = lease;
             long epoch = connection.ConnectionEpoch;
             try { await connection.ReserveAsync(reserved, renewing); }
-            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && lease == renewing) { KeyboardTransformTool.CancelActive(); CancelPose(); Report(error); } }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && lease == renewing && !submitting) { CancelSharedPreview(); Report(error); } }
         }
         private async Task SendPreview() {
             sendingPreview = true;
@@ -352,9 +463,10 @@ namespace Protobot {
             long epoch = connection.ConnectionEpoch;
             try {
                 var bodies = PartsManager.FindLoadedObjects().Where(b => reserved.Contains(b.GetComponent<SavedObject>().ConnectionId)).ToArray();
-                await connection.PreviewAsync(new Preview { lease = sending, sequence = ++previewSequence, parts = bodies.Select(b => CollaborationScene.Capture(b)).ToArray() });
+                var preview = FindFirstObjectByType<Placement>()?.SharedMovePreview() ?? bodies.Select(b => CollaborationScene.Capture(b)).ToArray();
+                await connection.PreviewAsync(new Preview { lease = sending, sequence = ++previewSequence, parts = preview });
             }
-            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && lease == sending) { KeyboardTransformTool.CancelActive(); CancelPose(); Report(error); } }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && lease == sending && !submitting) { CancelSharedPreview(); Report(error); } }
             finally { if (client == connection && connection.ConnectionEpoch == epoch) sendingPreview = false; }
         }
 
