@@ -4,6 +4,9 @@ using System.Runtime.Serialization.Json;
 using System.Text;
 
 namespace Protobot.Collaboration {
+    public static class CollaborationProtocol {
+        public const string Version = "0.2.0-alpha";
+    }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
         public string id;
@@ -53,6 +56,8 @@ namespace Protobot.Collaboration {
         public long sequence;
         public string kind;
         public string lease;
+        // Optional for results whose dependency is the complete mechanism graph.
+        public long? expectedRevision;
         public VersionRef[] expected = Array.Empty<VersionRef>();
         public Part[] writes = Array.Empty<Part>();
         public string[] deletes = Array.Empty<string>();
@@ -71,6 +76,7 @@ namespace Protobot.Collaboration {
     }
     [Serializable] public sealed class JoinRequest {
         public int protocol = 1;
+        public string version = CollaborationProtocol.Version;
         public string catalogHash;
         public string name;
         public string password;
@@ -101,7 +107,7 @@ namespace Protobot.Collaboration {
     }
     [Serializable] public sealed class Capabilities {
         public int protocol = 1;
-        public string version = "0.1.0-alpha";
+        public string version = CollaborationProtocol.Version;
         public string[] transports = new[] { "websocket", "long-polling" };
         public bool durable = false;
     }
@@ -112,7 +118,7 @@ namespace Protobot.Collaboration {
         public CatalogManifest catalog;
         public Document document;
     }
-    [Serializable] public sealed class Ready { public string type = "ready"; public string url, room, version = "0.1.0-alpha"; }
+    [Serializable] public sealed class Ready { public string type = "ready"; public string url, room, version = CollaborationProtocol.Version; }
     [Serializable] public sealed class WireError { public string error; }
 
     public sealed class CollaborationException : Exception {

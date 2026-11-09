@@ -28,6 +28,7 @@ namespace Protobot.Collaboration {
         public static Document Reduce(Document current, Transaction tx, CatalogManifest catalog) {
             Require(tx != null && tx.protocol == 1, "protocol-mismatch");
             Require(tx.generation == current.generation, "generation-mismatch");
+            Require(!tx.expectedRevision.HasValue || tx.expectedRevision.Value == current.revision, "stale-document");
             Require(ValidId(tx.operationId) && tx.sequence > 0, "invalid-operation");
             Require(tx.expected != null && tx.writes != null && tx.deletes != null &&
                 tx.writes.Length + tx.deletes.Length > 0 && tx.writes.Length + tx.deletes.Length <= MaxWriteSet &&

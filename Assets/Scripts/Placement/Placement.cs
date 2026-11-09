@@ -43,6 +43,7 @@ namespace Protobot {
         [CacheComponent] private MeshFilter meshFilter;
         private Mesh previewMesh;
         private MovePreviewVisibility previewVisibility;
+        private readonly Dictionary<GameObject, int> moveLayers = new();
 
         private void SetPreviewMesh(Mesh mesh) {
             ReleasePreviewMesh();
@@ -66,8 +67,10 @@ namespace Protobot {
         }
 
         private void ReleaseMovePreview() {
-            if (currentPlacementData is GameObjectPlacementData moving && moving.GetGameObject() != null)
-                SetPlacementLayer(moving.GetGameObject(), false, !moving.individual);
+            // Restore the frozen scope once. Selection/connection graphs may already have changed or
+            // been destroyed by a remote edit, scene load or application shutdown.
+            foreach (var entry in moveLayers) if (entry.Key != null) entry.Key.layer = entry.Value;
+            moveLayers.Clear();
             previewVisibility?.Dispose();
             previewVisibility = null;
         }
@@ -106,7 +109,7 @@ namespace Protobot {
         public Part[] SharedMovePreview() {
             if (!placing || currentPlacementData is not GameObjectPlacementData moving) return null;
             var source = moving.GetGameObject();
-            var bodies = source.GetConnectedObjects(true, false, !moving.individual);
+            var bodies = CollaborationScene.Bodies(source.GetConnectedObjects(true, false, !moving.individual));
             var delta = currentDisplacement.rotation.Orientation * Quaternion.Inverse(source.transform.rotation);
             var origin = source.transform.position;
             return bodies.Select(body => {
@@ -321,6 +324,7 @@ namespace Protobot {
                 
                 var bodies = objPlaceData.GetGameObject().GetConnectedObjects(true, false, !objPlaceData.individual);
                 previewVisibility = new MovePreviewVisibility(bodies, MeshCombiner.GetRenderers(bodies));
+                foreach (var body in bodies.Where(b => b != null && b.layer == 0)) moveLayers[body] = body.layer;
                 SetPlacementLayer(objPlaceData.GetGameObject(), true, !objPlaceData.individual);
             }
 
@@ -446,7 +450,7 @@ namespace Protobot {
                 if (CollaborationSession.IsShared) {
                     var moving = (GameObjectPlacementData)currentPlacementData;
                     var source = moving.GetGameObject();
-                    var bodies = source.GetConnectedObjects(true, false, !moving.individual);
+                    var bodies = CollaborationScene.Bodies(source.GetConnectedObjects(true, false, !moving.individual));
                     var delta = displaceRot * Quaternion.Inverse(source.transform.rotation);
                     var origin = source.transform.position;
                     var poses = bodies.Select(b => new Pose(displacePos + delta * (b.transform.position - origin), delta * b.transform.rotation)).ToArray();

@@ -8,6 +8,10 @@ using UnityEngine;
 
 namespace Protobot {
     public static class CollaborationScene {
+        // Tool scopes can contain selection/group pivots and hole markers. Only saved bodies own shared identity.
+        public static List<GameObject> Bodies(IEnumerable<GameObject> roots) => roots.Where(root => root != null)
+            .SelectMany(root => root.GetComponentsInChildren<SavedObject>())
+            .Where(saved => saved.id != "Error" && !saved.gameObject.IsDeleted()).Select(saved => saved.gameObject).Distinct().ToList();
         private static Dictionary<string, VersionRef> reads;
         public static void BeginReads() { reads = CollaborationSession.IsShared ? new Dictionary<string, VersionRef>() : null; }
         public static void Read(GameObject target) {
@@ -25,8 +29,11 @@ namespace Protobot {
             }
         }
         public static Part Capture(GameObject body, long version = 0) {
+            return CapturePose(body, Protobot.Simulation.SimulationTool.SavedPose(body), version);
+        }
+        public static Part CaptureLive(GameObject body) => CapturePose(body, new Pose(body.transform.position, body.transform.rotation), 0);
+        private static Part CapturePose(GameObject body, Pose pose, long version) {
             var saved = body.GetComponent<SavedObject>();
-            var pose = Protobot.Simulation.SimulationTool.SavedPose(body);
             var color = PartColors.GetColor(body);
             return new Part { id = saved.ConnectionId, version = version, catalogId = saved.id, state = saved.state,
                 position = new double[] { pose.position.x, pose.position.y, pose.position.z },

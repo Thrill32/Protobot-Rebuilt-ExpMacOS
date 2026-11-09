@@ -52,6 +52,8 @@ namespace Protobot.Collaboration {
         public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false, CancellationToken cancellation = default) {
             DocumentModel.Require(lifetime == null, "already-connected");
             Interlocked.Increment(ref connectionEpoch);
+            var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
+            DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
             var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
                 catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
                 resumeToken = token

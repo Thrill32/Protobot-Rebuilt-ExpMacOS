@@ -90,7 +90,7 @@ namespace Protobot.Simulation {
             if (canvasObject == null) return;
             canvasObject.SetActive(SimulationTool.IsActive);
             if (!canvasObject.activeSelf) return;
-            inputGroup.interactable = !tool.IsTypingRotation;
+            inputGroup.interactable = !tool.IsTypingRotation && !tool.IsCommitting;
             float width = Mathf.Clamp(((RectTransform)canvasObject.transform).rect.width - 150, 260, 730);
             panel.sizeDelta = new Vector2(width, tool.AnimationVisible ? 280 : 64);
             // Scale just the animation interior on narrower windows; the status remains readable.
@@ -100,7 +100,8 @@ namespace Protobot.Simulation {
                 ? $" · {tool.Current.DriverDegrees:0.##}° relative / {tool.Current.GlobalDriverDegrees:0.##}° global" : "");
             help.text = tool.ControlsText;
             var model = tool.Current;
-            play.interactable = reset.interactable = commit.interactable = model != null;
+            play.interactable = reset.interactable = model != null && !tool.IsCommitting;
+            commit.interactable = tool.CanSetPose;
             playLabel.text = tool.IsPlaying ? "Pause" : "Play";
             speedLabel.text = $"{tool.Speed:0.##}×";
             double duration = model?.LoopDuration ?? 4;

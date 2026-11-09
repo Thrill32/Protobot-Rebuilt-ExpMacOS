@@ -58,6 +58,7 @@ namespace Protobot.Collaboration.Server {
             lock (gate) {
                 Expire();
                 DocumentModel.Require(request != null && request.protocol == 1, "protocol-mismatch");
+                DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 Member member;
                 string token = request.resumeToken;
@@ -156,7 +157,8 @@ namespace Protobot.Collaboration.Server {
                             expectedState.FirstOrDefault(p => p.id == id))), "stale-history");
                         DocumentModel.Require(!leases.Values.Any(l => l.ids.Intersect(inverse.ids).Any()), "parts-reserved");
                         var restore = undo ? inverse.before : inverse.after;
-                        command = new Transaction { operationId = transaction.operationId, sequence = transaction.sequence,
+                        command = new Transaction { protocol = transaction.protocol, operationId = transaction.operationId, sequence = transaction.sequence,
+                            expectedRevision = transaction.expectedRevision,
                             generation = transaction.generation, kind = "RestoreParts", writes = WireJson.Clone(restore),
                             deletes = inverse.ids.Where(id => !restore.Any(p => p.id == id)).ToArray(),
                             expected = inverse.ids.Select(id => new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ??

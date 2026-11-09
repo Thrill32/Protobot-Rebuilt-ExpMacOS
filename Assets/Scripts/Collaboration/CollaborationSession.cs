@@ -44,12 +44,15 @@ namespace Protobot {
         private CollaborationTransport transport;
         private Participant[] participants = Array.Empty<Participant>();
         private Rect panelRect;
-        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Delete", "Personal undo / redo" };
+        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Simulation set pose", "Delete", "Personal undo / redo" };
         public static bool IsShared => instance != null && instance.client != null;
         public static bool IsApplying => instance != null && instance.applying;
-        public static bool CanEdit => !IsShared || instance.client.IsConnected && instance.client.Participant.role != "viewer" && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
+        public static bool CanPreview => !IsShared || instance.client.IsConnected && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
+        public static bool CanEdit => CanPreview && (!IsShared || instance.client.Participant.role != "viewer");
         public static bool HasPending => IsShared && (instance.submitting || instance.client.PendingCount > 0);
-        public static bool HasActivePreview => IsShared && (instance.lease != null || instance.reserving);
+        public static bool HasReservation => IsShared && (instance.lease != null || instance.reserving);
+        public static bool HasActivePreview => HasReservation || IsShared && Simulation.SimulationTool.HasPreview;
+        public static long CommittedRevision => IsShared ? instance.committed.revision : 0;
         public static string CommittedHash => IsShared && instance.committed != null ? DocumentModel.Hash(instance.committed) : null;
         public static bool ContainsPointer => instance != null && MouseInput.CurrentMouse != null && instance.panelRect.Contains(new Vector2(MouseInput.Position.x, Screen.height - MouseInput.Position.y));
         public static bool BlocksLegacyMutation => IsShared && !IsApplying;
@@ -104,6 +107,9 @@ namespace Protobot {
                 case "Pointer Select": case "Box Select": case "Select All": case "Multi-Select Button": case "Grouping Bypass":
                 case "Toggle Grid": case "Toggle Holes Only": case "Select Opposite Hole": case "Enable Sidebar":
                 case "Save": case "Stop Placing": case "Snap Bypass": return true;
+                case "Enable Simulation Tool": case "Simulation Animation": case "Simulation Play / Pause": case "Simulation Reset":
+                case "Simulation Faster": case "Simulation Slower": case "Simulation Cancel": return CanPreview && !HasReservation;
+                case "Simulation Commit": return CanEdit && !HasReservation;
                 // A held pointer must survive the asynchronous reservation wait; dragging starts only after the grant.
                 case "Tool Drag": return instance.client.IsConnected && instance.client.Participant.role != "viewer";
                 case "Grab Selection": case "Rotate Placement": case "Delete Selection": case "Place":
@@ -195,6 +201,7 @@ namespace Protobot {
                         // Apply this revision even if the network thread has already received later edits.
                         var next = DocumentModel.Reduce(committed, edit.transaction, catalog);
                         var ids = edit.transaction.writes.Select(p => p.id).Concat(edit.transaction.deletes);
+                        Simulation.SimulationTool.BeforeSharedEdit(edit.author == connected.Participant.id);
                         if (edit.author != connected.Participant.id && reserved.Intersect(ids).Any()) CancelSharedPreview();
                         CollaborationScene.Apply(edit, next); committed = next;
                         if (selectAfterApply.Remove(edit.transaction.operationId, out var result)) SelectParts(result.manager, result.ids);
@@ -225,7 +232,12 @@ namespace Protobot {
             }
         }
 
-        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null) { if (instance != null) _ = instance.ReservePoseAsync(bodies, granted, denied); }
+        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null) {
+            if (instance == null) return;
+            var saved = CollaborationScene.Bodies(bodies);
+            if (saved.Count == 0) { denied?.Invoke(); return; }
+            _ = instance.ReservePoseAsync(saved, granted, denied);
+        }
         private async Task ReservePoseAsync(IReadOnlyList<GameObject> bodies, Action granted, Action denied) {
             if (!CanEdit || lease != null || reserving) return;
             reserving = true; status = "Waiting for edit reservation…";
@@ -249,11 +261,11 @@ namespace Protobot {
                 reserving = false;
                 status = "Editing reserved parts"; granted();
             }
-            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && request == reservationGeneration) { Report(error); denied?.Invoke(); } }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && request == reservationGeneration) { CancelPose(); Report(error); denied?.Invoke(); } }
             finally { completed.TrySetResult(true); if (client == connection && connection.ConnectionEpoch == epoch && request == reservationGeneration) reserving = false; }
         }
         public static bool HasPoseReservation(IEnumerable<GameObject> bodies) => IsShared && instance.lease != null &&
-            bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).OrderBy(x => x).SequenceEqual(instance.reserved.OrderBy(x => x));
+            CollaborationScene.Bodies(bodies).Select(b => b.GetComponent<SavedObject>().ConnectionId).OrderBy(x => x).SequenceEqual(instance.reserved.OrderBy(x => x));
         public static void CancelPose() {
             if (!IsShared) return;
             if (instance.submitting && instance.client.IsConnected) return;
@@ -270,18 +282,20 @@ namespace Protobot {
         public static VersionRef[] Versions(IEnumerable<string> ids) => instance?.committed == null ? Array.Empty<VersionRef>() :
             ids.Distinct().Select(id => new VersionRef { id = id, version = instance.committed.parts.FirstOrDefault(p => p.id == id)?.version ??
                 instance.committed.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray();
-        private Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string token = null) {
+        private Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string token = null, long? expectedRevision = null) {
             var expected = (dependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
             foreach (var version in Versions(writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>())))
                 if (!expected.ContainsKey(version.id)) expected.Add(version.id, version);
-            return client.CreateTransaction(kind, writes, deletes, expected.Values.ToArray(), token);
+            var transaction = client.CreateTransaction(kind, writes, deletes, expected.Values.ToArray(), token);
+            transaction.expectedRevision = expectedRevision;
+            return transaction;
         }
         public static void ConfirmPose(IEnumerable<GameObject> bodies, List<GameObject> copies = null, VersionRef[] dependencies = null) {
             if (!IsShared) return;
             var session = instance;
             try {
                 DocumentModel.Require(session.client.IsConnected, "disconnected");
-                var writes = bodies.Concat(copies ?? Enumerable.Empty<GameObject>()).Select(b => CollaborationScene.Capture(b)).ToArray();
+                var writes = CollaborationScene.Bodies(bodies.Concat(copies ?? Enumerable.Empty<GameObject>())).Select(b => CollaborationScene.Capture(b)).ToArray();
                 if ((copies == null || copies.Count == 0) && writes.All(p => DocumentModel.SamePart(p, session.committed.parts.FirstOrDefault(before => before.id == p.id)))) { CancelPose(); return; }
                 var expected = (dependencies ?? Array.Empty<VersionRef>()).Concat(session.reservedVersions).GroupBy(v => v.id).Select(g => g.First()).ToArray();
                 var tx = session.CreateTransaction(copies?.Count > 0 ? "TransformAndCopy" : "SetPoses", writes, dependencies: expected, token: session.lease);
@@ -331,23 +345,29 @@ namespace Protobot {
             ObjectDuplicator.DiscardCopies(new List<GameObject> { replacement });
             _ = instance.ChangeParts(new[] { write });
         }
-        private async Task ChangeParts(Part[] writes) {
-            if (lease != null) return;
+        // Frozen results from local-only tools use a scoped reservation, without broadcasting their private preview.
+        public static Task<bool> CommitResolvedPosesAsync(Part[] writes, VersionRef[] dependencies, long expectedRevision) {
+            if (!IsShared || !CanEdit || HasReservation) return Task.FromResult(false);
+            return instance.ChangeParts(WireJson.Clone(writes), "SetPoses", dependencies, expectedRevision);
+        }
+        private async Task<bool> ChangeParts(Part[] writes, string kind = "SetParts", VersionRef[] dependencies = null, long? expectedRevision = null) {
+            if (lease != null) return false;
             submitting = true;
             var connection = client; long epoch = connection.ConnectionEpoch;
-            var expected = Versions(writes.Select(p => p.id));
+            var expected = dependencies ?? Versions(writes.Select(p => p.id));
             string token = null;
             try {
                 await reservationPending;
                 await releasePending;
                 token = (await connection.ReserveAsync(writes.Select(p => p.id).ToArray())).token;
-                if (client != connection || connection.ConnectionEpoch != epoch) return;
-                var receipt = await connection.SubmitAsync(CreateTransaction("SetParts", writes, dependencies: expected, token: token));
-                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                if (client != connection || connection.ConnectionEpoch != epoch) return false;
+                var receipt = await connection.SubmitAsync(CreateTransaction(kind, writes, dependencies: expected, token: token, expectedRevision: expectedRevision));
+                if (client != connection || connection.ConnectionEpoch != epoch) return false;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
                 status = receipt.accepted ? "Accepted revision " + receipt.revision : "Edit rejected: " + receipt.error;
+                return receipt.accepted;
             }
-            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); return false; }
             finally { if (token != null) { try { await connection.ReleaseAsync(token); } catch { } } if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
         }
         public static void History(bool redo) {

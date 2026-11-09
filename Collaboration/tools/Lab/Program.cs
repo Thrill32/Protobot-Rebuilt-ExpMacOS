@@ -71,6 +71,10 @@ internal static class Program {
         Check(moved.parts.Single(p => p.id == "a").position[0] == 3 && moved.parts.Single(p => p.id == "b").version == 1, "pose changes one entity");
         var disjoint = Tx(added, "SetPoses", new[] { Cube("b", 7) });
         var both = DocumentModel.Reduce(moved, disjoint, seed.catalog);
+        var mechanismPose = Tx(added, "SetPoses", new[] { Cube("b", 7) });
+        mechanismPose.expectedRevision = added.revision;
+        Check(WireJson.Clone(mechanismPose).expectedRevision == added.revision, "mechanism revision precondition survives wire serialization");
+        Reject(() => DocumentModel.Reduce(moved, mechanismPose, seed.catalog), "stale-document");
         Check(both.parts.Single(p => p.id == "b").position[0] == 7, "old global revision permits disjoint edit");
         var reversed = WireJson.Clone(both); Array.Reverse(reversed.parts);
         reversed.parts[0].rotation = new double[] { 0, 0, 0, -1 };
@@ -91,6 +95,8 @@ internal static class Program {
         seed.document.parts = new[] { Cube("a"), Cube("b") };
         foreach (var part in seed.document.parts) part.version = 1;
         var authority = new Room(seed, () => now);
+        var oldClient = new JoinRequest { catalogHash = seed.catalog.hash, name = "Old client", version = "0.1.0-alpha" };
+        Reject(() => authority.Join(oldClient), "server-version-mismatch");
         JoinRequest Join(string name, bool viewer = false) => new JoinRequest { name = name, catalogHash = seed.catalog.hash, viewer = viewer };
         var alice = authority.Join(Join("Alice"));
         var bob = authority.Join(Join("Bob"));
@@ -247,6 +253,14 @@ internal static class Program {
             var redo = await clients[1].SubmitAsync(clients[1].CreateTransaction("Redo", Array.Empty<Part>()));
             await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(redo.revision)));
             Check(redo.accepted && clients.All(c => c.Snapshot.parts.Single(p => p.id == paint.id).hasPaint) && clients.Select(c => DocumentModel.Hash(c.Snapshot)).Distinct().Count() == 1, transport + " property history converges");
+            var mechanism = clients[1].CreateTransaction("SetPoses", new[] { WireJson.Clone(paint) });
+            mechanism.expectedRevision = clients[1].Snapshot.revision;
+            var mechanismLease = await clients[1].ReserveAsync(new[] { paint.id }); mechanism.lease = mechanismLease.token;
+            await clients[0].SubmitAsync(clients[0].CreateTransaction("AddParts", new[] { Cube("new-mechanism-part", 300) }));
+            Check((await clients[1].SubmitAsync(mechanism)).error == "stale-document", transport + " topology changes fence a privately evaluated mechanism result");
+            await clients[1].ReleaseAsync(mechanismLease.token);
+            var topologyUndo = await clients[0].SubmitAsync(clients[0].CreateTransaction("Undo", Array.Empty<Part>()));
+            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(topologyUndo.revision)));
             File.WriteAllBytes(Path.Combine(directory, transport + "-document.json"), WireJson.Encode(clients[0].Snapshot));
             Console.WriteLine(transport + ": " + count + " clients converged at revision " + clients[0].Snapshot.revision + " (" + DocumentModel.Hash(clients[0].Snapshot) + ")");
         }
@@ -273,6 +287,7 @@ internal static class Program {
             Check(await Task.WhenAny(read, Task.Delay(15000)) == read, "child readiness bounded");
             var ready = WireJson.Decode<Ready>(System.Text.Encoding.UTF8.GetBytes(await read ?? ""));
             Check(ready.type == "ready" && new Uri(ready.url).Port > 0, "CLI readiness reports actual bound port");
+            Check(ready.version == CollaborationProtocol.Version, "CLI readiness reports the required collaboration version");
             child.StandardInput.Close();
             using var timeout = new CancellationTokenSource(10000); await child.WaitForExitAsync(timeout.Token);
             Check(child.ExitCode == 0, "owned helper exits on parent channel EOF");

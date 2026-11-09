@@ -134,7 +134,7 @@ namespace Protobot.Tools {
 
 
         public void SetShaftPosition(bool reverseDir) {
-            if (CollaborationSession.IsShared) { Protobot.UI.InteractionFeedback.Notify("Use the shared Move tool to reposition shafts."); return; }
+            if (CollaborationSession.IsShared) { SetSharedShaftPosition(reverseDir); return; }
             SavedObject savedObj = targetObjLink?.obj?.GetComponent<SavedObject>();
 
             if (savedObj != null && savedObj.nameId == "MOTR") {
@@ -155,6 +155,36 @@ namespace Protobot.Tools {
 
             if (reverseDir)
                 curShaft.transform.forward = -curShaft.transform.forward;
+        }
+        private void SetSharedShaftPosition(bool reverseDir) {
+            if (!CollaborationSession.CanEdit || CollaborationSession.HasActivePreview || curShaft == null) return;
+            var position = curShaft.transform.position;
+            var rotation = curShaft.transform.rotation;
+            var target = targetObjLink?.obj?.GetComponent<SavedObject>();
+            if (target != null && target.nameId == "MOTR") {
+                position = target.transform.position + target.transform.right * -.5f + target.transform.forward * (GetShaftLength() + .85f);
+                rotation = Quaternion.LookRotation(target.transform.forward);
+            }
+            else if (targetHoleFace.gameObject.activeInHierarchy && targetHoleFace.hole?.part != null) {
+                position = targetHoleFace.position;
+                rotation = Quaternion.LookRotation(targetHoleFace.direction);
+                target = targetHoleFace.hole.part.GetComponent<SavedObject>();
+            }
+            else return;
+            if (reverseDir) rotation = Quaternion.LookRotation(-(rotation * Vector3.forward));
+            var bodies = Protobot.Builds.BuildTransfer.SelectedBodies(new Protobot.SelectionSystem.ObjectSelection { gameObject = curShaft, individual = true });
+            if (bodies.Count == 0) return;
+            var origin = curShaft.transform.position;
+            var delta = rotation * Quaternion.Inverse(curShaft.transform.rotation);
+            var writes = bodies.Select(body => {
+                var part = CollaborationScene.Capture(body);
+                var point = position + delta * (body.transform.position - origin);
+                var orientation = delta * body.transform.rotation;
+                part.position = new double[] { point.x, point.y, point.z };
+                part.rotation = new double[] { orientation.x, orientation.y, orientation.z, orientation.w }; return part;
+            }).ToArray();
+            var dependencies = CollaborationSession.Versions(writes.Select(p => p.id).Concat(new[] { target.ConnectionId }));
+            _ = CollaborationSession.CommitResolvedPosesAsync(writes, dependencies, CollaborationSession.CommittedRevision);
         }
     }
 }
