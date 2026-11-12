@@ -176,41 +176,63 @@ namespace Protobot.Collaboration.Server {
                     StoredHistory inverse = null;
                     var command = transaction;
                     if (undo || redo) {
-                        DocumentModel.Require(transaction.writes != null && transaction.deletes != null && transaction.writes.Length == 0 && transaction.deletes.Length == 0, "invalid-history-command");
+                        DocumentModel.Require(transaction.writes != null && transaction.deletes != null && transaction.writes.Length == 0 && transaction.deletes.Length == 0 &&
+                            DocumentModel.ChainWrites(transaction).Length == 0 && DocumentModel.ChainDeletes(transaction).Length == 0, "invalid-history-command");
                         int index = undo ? member.historyCursor - 1 : member.historyCursor;
                         DocumentModel.Require(index >= 0 && index < member.history.Count, undo ? "nothing-to-undo" : "nothing-to-redo");
                         inverse = member.history[index];
+                        inverse.chainIds ??= Array.Empty<string>(); inverse.chainsBefore ??= Array.Empty<ChainRecord>(); inverse.chainsAfter ??= Array.Empty<ChainRecord>();
                         DocumentModel.Require(!inverse.blocked, "history-changed-by-another-participant");
                         var expectedState = undo ? inverse.after : inverse.before;
                         DocumentModel.Require(inverse.ids.All(id => DocumentModel.SamePart(document.parts.FirstOrDefault(p => p.id == id),
                             expectedState.FirstOrDefault(p => p.id == id))), "stale-history");
-                        DocumentModel.Require(!leases.Values.Any(l => l.ids.Intersect(inverse.ids).Any()), "parts-reserved");
+                        var expectedChains = undo ? inverse.chainsAfter : inverse.chainsBefore;
+                        DocumentModel.Require(inverse.chainIds.All(id => DocumentModel.SameChain(DocumentModel.Chains(document).FirstOrDefault(c => c.id == id),
+                            expectedChains.FirstOrDefault(c => c.id == id))), "stale-history");
+                        var inverseLeaseIds = inverse.ids.Concat(inverse.chainsBefore.Concat(inverse.chainsAfter).SelectMany(c => c.members)).Distinct().ToArray();
+                        DocumentModel.Require(!leases.Values.Any(l => l.ids.Intersect(inverseLeaseIds).Any()), "parts-reserved");
                         var restore = undo ? inverse.before : inverse.after;
+                        var restoreChains = undo ? inverse.chainsBefore : inverse.chainsAfter;
                         command = new Transaction { protocol = transaction.protocol, operationId = transaction.operationId, sequence = transaction.sequence,
                             expectedRevision = transaction.expectedRevision,
                             generation = transaction.generation, kind = "RestoreParts", writes = WireJson.Clone(restore),
                             deletes = inverse.ids.Where(id => !restore.Any(p => p.id == id)).ToArray(),
-                            expected = inverse.ids.Select(id => new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ??
-                                document.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray() };
+                            expected = inverse.ids.Concat(inverse.chainsBefore.Concat(inverse.chainsAfter).SelectMany(c => c.members)).Distinct().Select(id =>
+                                new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ??
+                                document.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray(),
+                            chainWrites = WireJson.Clone(restoreChains), chainDeletes = inverse.chainIds.Where(id => !restoreChains.Any(c => c.id == id)).ToArray(),
+                            expectedChains = inverse.chainIds.Select(id => new VersionRef { id = id, version = DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.version ??
+                                DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray() };
                     }
                     else DocumentModel.Require(transaction.kind != "RestoreParts", "authority-only-mutation");
                     var next = DocumentModel.Reduce(document, command, catalog);
-                    var changedIds = command.writes.Select(p => p.id).Concat(command.deletes).ToArray();
-                    var before = document.parts.Where(p => changedIds.Contains(p.id)).ToArray();
-                    var after = next.parts.Where(p => changedIds.Contains(p.id)).ToArray();
-                    int transactionBytes = WireJson.Encode(command).Length + (inverse == null ? WireJson.Encode(before).Length + WireJson.Encode(after).Length : 0);
+                    var changedPartIds = command.writes.Select(p => p.id).Concat(command.deletes).ToArray();
+                    var changedChainIds = DocumentModel.ChainWrites(command).Select(c => c.id).Concat(DocumentModel.ChainDeletes(command)).ToArray();
+                    var changedIds = changedPartIds.Concat(changedChainIds).ToArray();
+                    var before = document.parts.Where(p => changedPartIds.Contains(p.id)).ToArray();
+                    var after = next.parts.Where(p => changedPartIds.Contains(p.id)).ToArray();
+                    var chainsBefore = DocumentModel.Chains(document).Where(c => changedChainIds.Contains(c.id)).ToArray();
+                    var chainsAfter = DocumentModel.Chains(next).Where(c => changedChainIds.Contains(c.id)).ToArray();
+                    int transactionBytes = WireJson.Encode(command).Length + (inverse == null ? WireJson.Encode(before).Length + WireJson.Encode(after).Length +
+                        WireJson.Encode(chainsBefore).Length + WireJson.Encode(chainsAfter).Length : 0);
                     DocumentModel.Require(historyBytes + transactionBytes <= 64 * 1024 * 1024, "alpha-history-limit");
-                    var existing = changedIds.Where(id => document.parts.Any(p => p.id == id)).ToArray();
+                    var existing = changedPartIds.Where(id => document.parts.Any(p => p.id == id));
+                    var chainMembers = DocumentModel.ChainWrites(command).SelectMany(c => c.members)
+                        .Concat(DocumentModel.ChainWrites(command).Where(c => DocumentModel.Chains(document).Any(old => old.id == c.id))
+                            .SelectMany(c => DocumentModel.Chains(document).First(old => old.id == c.id).members))
+                        .Concat(DocumentModel.ChainDeletes(command).SelectMany(id => DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.members ?? Array.Empty<string>()));
+                    var requiredLeaseIds = existing.Concat(chainMembers).Distinct().ToArray();
                     Lease lease = null;
-                    if (existing.Length > 0 && inverse == null) {
+                    if (requiredLeaseIds.Length > 0 && inverse == null) {
                         lease = OwnedLease(member, transaction.lease);
-                        DocumentModel.Require(existing.All(lease.ids.Contains), "lease-set-mismatch");
+                        DocumentModel.Require(requiredLeaseIds.All(lease.ids.Contains), "lease-set-mismatch");
                     }
                     var accepted = WireJson.Clone(command); accepted.lease = null;
                     var edit = new AcceptedEdit { revision = next.revision, author = member.participant.id, transaction = accepted, hash = DocumentModel.Hash(next) };
-                    var entry = inverse == null ? new StoredHistory { ids = changedIds, before = WireJson.Clone(before), after = WireJson.Clone(after) } : null;
+                    var entry = inverse == null ? new StoredHistory { ids = changedPartIds, before = WireJson.Clone(before), after = WireJson.Clone(after),
+                        chainIds = changedChainIds, chainsBefore = WireJson.Clone(chainsBefore), chainsAfter = WireJson.Clone(chainsAfter) } : null;
                     var blocked = members.Values.Where(m => m != member).SelectMany(m => m.history.Select((h, i) => (member: m.participant.id, index: i, entry: h)))
-                        .Where(h => !h.entry.blocked && h.entry.ids.Intersect(changedIds).Any()).Select(h => (h.member, h.index)).ToArray();
+                        .Where(h => !h.entry.blocked && h.entry.ids.Concat(h.entry.chainIds ?? Array.Empty<string>()).Intersect(changedIds).Any()).Select(h => (h.member, h.index)).ToArray();
                     var recorded = member.Record(); recorded.sequence = transaction.sequence;
                     recorded.historyCursor = inverse != null ? member.historyCursor + (undo ? -1 : 1) : member.historyCursor + 1;
                     receipt.accepted = true; receipt.revision = next.revision;
@@ -220,7 +242,7 @@ namespace Protobot.Collaboration.Server {
                     // Only the authority supplies inverse content. Another participant touching any of its
                     // entities permanently fences an older inverse, even if they later restore equal values.
                     foreach (var other in members.Values.Where(m => m != member))
-                        foreach (var item in other.history.Where(h => h.ids.Intersect(changedIds).Any())) item.blocked = true;
+                        foreach (var item in other.history.Where(h => h.ids.Concat(h.chainIds ?? Array.Empty<string>()).Intersect(changedIds).Any())) item.blocked = true;
                     if (inverse != null) member.historyCursor += undo ? -1 : 1;
                     else {
                         member.history.RemoveRange(member.historyCursor, member.history.Count - member.historyCursor);

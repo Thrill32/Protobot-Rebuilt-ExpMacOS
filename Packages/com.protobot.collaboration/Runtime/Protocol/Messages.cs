@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
-        public const string Version = "0.3.0-alpha";
+        public const string Version = "0.4.0-alpha";
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -25,6 +25,13 @@ namespace Protobot.Collaboration {
         public long revision;
         public Part[] parts = Array.Empty<Part>();
         public VersionRef[] tombstones = Array.Empty<VersionRef>();
+        public ChainRecord[] chains = Array.Empty<ChainRecord>();
+        public VersionRef[] chainTombstones = Array.Empty<VersionRef>();
+    }
+    [Serializable] public sealed class ChainRecord {
+        public string id;
+        public long version;
+        public string[] members = Array.Empty<string>();
     }
     [Serializable] public sealed class VersionRef { public string id; public long version; }
     [Serializable] public sealed class ParameterRule {
@@ -61,6 +68,9 @@ namespace Protobot.Collaboration {
         public VersionRef[] expected = Array.Empty<VersionRef>();
         public Part[] writes = Array.Empty<Part>();
         public string[] deletes = Array.Empty<string>();
+        public VersionRef[] expectedChains = Array.Empty<VersionRef>();
+        public ChainRecord[] chainWrites = Array.Empty<ChainRecord>();
+        public string[] chainDeletes = Array.Empty<string>();
     }
     [Serializable] public sealed class Receipt {
         public string operationId;

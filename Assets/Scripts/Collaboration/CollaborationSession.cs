@@ -47,7 +47,7 @@ namespace Protobot {
         private bool lan, panel;
         private CollaborationTransport transport;
         private Participant[] participants = Array.Empty<Participant>();
-        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Simulation set pose", "Delete", "Personal undo / redo" };
+        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Chains", "Simulation set pose", "Delete", "Personal undo / redo" };
         public static bool IsShared => instance != null && instance.client != null;
         public static bool IsApplying => instance != null && instance.applying;
         public static bool CanPreview => !IsShared || instance.client.IsConnected && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
@@ -119,6 +119,7 @@ namespace Protobot {
                 case "Enable Simulation Tool": case "Simulation Animation": case "Simulation Play / Pause": case "Simulation Reset":
                 case "Simulation Faster": case "Simulation Slower": case "Simulation Cancel": return CanPreview && !HasReservation;
                 case "Simulation Commit": return CanEdit && !HasReservation;
+                case "Simulation Chain Selected Sprockets": return CanEdit && !HasReservation;
                 // A held pointer must survive the asynchronous reservation wait; dragging starts only after the grant.
                 case "Tool Drag": return instance.client.IsConnected && instance.client.Participant.role != "viewer";
                 case "Grab Selection": case "Rotate Placement": case "Delete Selection": case "Place":
@@ -335,11 +336,19 @@ namespace Protobot {
         public static VersionRef[] Versions(IEnumerable<string> ids) => instance?.committed == null ? Array.Empty<VersionRef>() :
             ids.Distinct().Select(id => new VersionRef { id = id, version = instance.committed.parts.FirstOrDefault(p => p.id == id)?.version ??
                 instance.committed.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray();
-        private Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string token = null, long? expectedRevision = null) {
+        public static VersionRef[] ChainVersions(IEnumerable<string> ids) => instance?.committed == null ? Array.Empty<VersionRef>() :
+            ids.Distinct().Select(id => new VersionRef { id = id, version = DocumentModel.Chains(instance.committed).FirstOrDefault(c => c.id == id)?.version ??
+                DocumentModel.ChainTombstones(instance.committed).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray();
+        private Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string token = null, long? expectedRevision = null,
+            ChainRecord[] chainWrites = null, string[] chainDeletes = null, VersionRef[] chainDependencies = null) {
             var expected = (dependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
             foreach (var version in Versions(writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>())))
                 if (!expected.ContainsKey(version.id)) expected.Add(version.id, version);
-            var transaction = client.CreateTransaction(kind, writes, deletes, expected.Values.ToArray(), token);
+            var expectedChains = (chainDependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
+            foreach (var version in ChainVersions((chainWrites ?? Array.Empty<ChainRecord>()).Select(c => c.id).Concat(chainDeletes ?? Array.Empty<string>())))
+                if (!expectedChains.ContainsKey(version.id)) expectedChains.Add(version.id, version);
+            var transaction = client.CreateTransaction(kind, writes, deletes, expected.Values.ToArray(), token,
+                chainWrites ?? Array.Empty<ChainRecord>(), chainDeletes ?? Array.Empty<string>(), expectedChains.Values.ToArray());
             transaction.expectedRevision = expectedRevision;
             return transaction;
         }
@@ -428,6 +437,42 @@ namespace Protobot {
             instance.CancelSharedPreview();
             _ = instance.Submit(instance.CreateTransaction(redo ? "Redo" : "Undo", Array.Empty<Part>()));
         }
+        public static void ToggleChain(IEnumerable<Simulation.SimulationPart> parts) {
+            if (!IsShared || !CanEdit) return;
+            var selected = parts?.Distinct().ToList() ?? new List<Simulation.SimulationPart>();
+            if (!Simulation.ChainLoop.Compatible(selected, out var reason)) { InteractionFeedback.Notify(reason); return; }
+            _ = instance.ToggleChainAsync(selected);
+        }
+        private async Task ToggleChainAsync(List<Simulation.SimulationPart> parts) {
+            if (lease != null || submitting) return;
+            submitting = true;
+            var connection = client; long epoch = connection.ConnectionEpoch; string token = null;
+            var memberIds = parts.Select(p => p.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
+            try {
+                var existing = DocumentModel.Chains(committed).FirstOrDefault(c => c.members.ToHashSet().SetEquals(memberIds));
+                var expected = Versions(memberIds);
+                await reservationPending; await releasePending;
+                token = (await connection.ReserveAsync(memberIds)).token;
+                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                ChainRecord[] writes = Array.Empty<ChainRecord>(); string[] deletes = Array.Empty<string>();
+                if (existing == null) {
+                    string id; var used = committed.parts.Select(p => p.id).Concat(committed.tombstones.Select(p => p.id))
+                        .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet();
+                    do id = Guid.NewGuid().ToString("N"); while (used.Contains(id));
+                    writes = new[] { new ChainRecord { id = id, members = memberIds } };
+                }
+                else deletes = new[] { existing.id };
+                var tx = CreateTransaction("SetChains", Array.Empty<Part>(), dependencies: expected, token: token,
+                    chainWrites: writes, chainDeletes: deletes, chainDependencies: ChainVersions(writes.Select(c => c.id).Concat(deletes)));
+                var receipt = await connection.SubmitAsync(tx);
+                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
+                status = receipt.accepted ? (existing == null ? "Chain added" : "Chain removed") + " at revision " + receipt.revision : "Chain edit rejected: " + receipt.error;
+                InteractionFeedback.Notify(status);
+            }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
+            finally { if (token != null) { try { await connection.ReleaseAsync(token); } catch { } } if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
+        }
         public static void Delete(IEnumerable<GameObject> bodies) { if (IsShared && CanEdit) _ = instance.DeleteAsync(bodies.ToArray()); }
         private async Task DeleteAsync(GameObject[] bodies) {
             if (lease != null) return;
@@ -437,13 +482,16 @@ namespace Protobot {
             string token = null;
             try {
                 var ids = bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
-                var expected = Versions(ids);
+                var chains = DocumentModel.Chains(committed).Where(c => c.members.Intersect(ids).Any()).ToArray();
+                var reservationIds = ids.Concat(chains.SelectMany(c => c.members)).Distinct().ToArray();
+                var expected = Versions(reservationIds);
                 await reservationPending;
                 await releasePending;
-                var reservation = await connection.ReserveAsync(ids);
+                var reservation = await connection.ReserveAsync(reservationIds);
                 token = reservation.token;
                 if (client != connection || connection.ConnectionEpoch != epoch) { try { await connection.ReleaseAsync(reservation.token); } catch { } return; }
-                var tx = CreateTransaction("DeleteParts", Array.Empty<Part>(), ids, expected, reservation.token);
+                var tx = CreateTransaction("DeleteParts", Array.Empty<Part>(), ids, expected, reservation.token,
+                    chainDeletes: chains.Select(c => c.id).ToArray(), chainDependencies: ChainVersions(chains.Select(c => c.id)));
                 var receipt = await connection.SubmitAsync(tx);
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);

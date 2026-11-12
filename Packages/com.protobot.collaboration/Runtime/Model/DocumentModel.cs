@@ -8,13 +8,15 @@ using System.Security.Cryptography;
 namespace Protobot.Collaboration {
     public static class DocumentModel {
         public const int MaxParts = 2000;
+        public const int MaxChains = 2000;
         public const int MaxWriteSet = 256;
 
         public static void Validate(Document document, CatalogManifest catalog) {
             Require(document != null && catalog != null && document.schema == 1 && catalog.protocol == 1, "schema-mismatch");
             Require(ValidId(document.generation) && document.revision >= 0, "invalid-document");
             Require(!string.IsNullOrEmpty(catalog.hash) && document.catalogHash == catalog.hash, "catalog-mismatch");
-            Require(document.parts != null && document.parts.Length <= MaxParts && document.tombstones != null, "document-limit");
+            Require(document.parts != null && document.parts.Length <= MaxParts && document.tombstones != null &&
+                Chains(document).Length <= MaxChains, "document-limit");
             var ids = new HashSet<string>(StringComparer.Ordinal);
             foreach (var part in document.parts) {
                 ValidatePart(part, catalog);
@@ -22,6 +24,14 @@ namespace Protobot.Collaboration {
             }
             foreach (var tombstone in document.tombstones)
                 Require(tombstone != null && ValidId(tombstone.id) && tombstone.version > 0 && ids.Add(tombstone.id), "invalid-tombstone");
+            foreach (var chain in Chains(document)) {
+                ValidateChain(chain, document.parts);
+                Require(chain.version > 0 && ids.Add(chain.id), "duplicate-or-invalid-id");
+            }
+            Require(Chains(document).Select(ChainTopology).Distinct(StringComparer.Ordinal).Count() == Chains(document).Length,
+                "duplicate-chain");
+            foreach (var tombstone in ChainTombstones(document))
+                Require(tombstone != null && ValidId(tombstone.id) && tombstone.version > 0 && ids.Add(tombstone.id), "invalid-chain-tombstone");
             Require(WireJson.Encode(document).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
         }
 
@@ -30,13 +40,19 @@ namespace Protobot.Collaboration {
             Require(tx.generation == current.generation, "generation-mismatch");
             Require(!tx.expectedRevision.HasValue || tx.expectedRevision.Value == current.revision, "stale-document");
             Require(ValidId(tx.operationId) && tx.sequence > 0, "invalid-operation");
-            Require(tx.expected != null && tx.writes != null && tx.deletes != null &&
-                tx.writes.Length + tx.deletes.Length > 0 && tx.writes.Length + tx.deletes.Length <= MaxWriteSet &&
-                tx.expected.Length <= MaxWriteSet * 2, "write-set-limit");
+            var chainWrites = ChainWrites(tx); var chainDeletes = ChainDeletes(tx); var expectedChains = ExpectedChains(tx);
+            int mutations = tx.writes?.Length + tx.deletes?.Length + chainWrites.Length + chainDeletes.Length ?? 0;
+            Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxWriteSet &&
+                tx.expected.Length <= MaxWriteSet * 2 && expectedChains.Length <= MaxWriteSet * 2, "write-set-limit");
             Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "DeleteParts" ||
-                tx.kind == "TransformAndCopy" || tx.kind == "RestoreParts", "unsupported-mutation");
+                tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts", "unsupported-mutation");
+            Require(tx.kind == "SetChains" ? tx.writes.Length == 0 && tx.deletes.Length == 0 && chainWrites.Length + chainDeletes.Length > 0 :
+                tx.kind == "RestoreParts" || chainWrites.Length == 0 && chainDeletes.Length == 0 || tx.kind == "DeleteParts" && chainWrites.Length == 0,
+                "invalid-chain-mutation");
             var parts = current.parts.ToDictionary(p => p.id, StringComparer.Ordinal);
             var tombstones = current.tombstones.ToDictionary(p => p.id, p => p.version, StringComparer.Ordinal);
+            var chains = Chains(current).ToDictionary(c => c.id, StringComparer.Ordinal);
+            var chainTombstones = ChainTombstones(current).ToDictionary(c => c.id, c => c.version, StringComparer.Ordinal);
             var expected = new Dictionary<string, long>(StringComparer.Ordinal);
             foreach (var dependency in tx.expected) {
                 Require(dependency != null && ValidId(dependency.id) && !expected.ContainsKey(dependency.id), "invalid-dependency");
@@ -51,13 +67,15 @@ namespace Protobot.Collaboration {
                 Require(changed.Add(write.id) && expected.ContainsKey(write.id), "missing-write-version");
                 bool exists = parts.TryGetValue(write.id, out var before);
                 if (tx.kind == "AddParts") {
-                    Require(!exists && !tombstones.ContainsKey(write.id) && expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
+                    Require(!exists && !tombstones.ContainsKey(write.id) && !chains.ContainsKey(write.id) && !chainTombstones.ContainsKey(write.id) &&
+                        expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
                 }
                 else if (tx.kind == "RestoreParts") {
                     Require(exists || tombstones.ContainsKey(write.id), "missing-entity");
                 }
                 else if (tx.kind == "TransformAndCopy" && !exists) {
-                    Require(!tombstones.ContainsKey(write.id) && expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
+                    Require(!tombstones.ContainsKey(write.id) && !chains.ContainsKey(write.id) && !chainTombstones.ContainsKey(write.id) &&
+                        expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
                 }
                 else {
                     Require(exists && tx.kind != "DeleteParts" && tx.deletes.Length == 0, "missing-entity");
@@ -77,11 +95,45 @@ namespace Protobot.Collaboration {
                 tombstones[id] = parts[id].version + 1;
                 parts.Remove(id);
             }
-            Require(parts.Count <= MaxParts && tombstones.Count <= 20000, "document-limit");
+            var chainExpected = new Dictionary<string, long>(StringComparer.Ordinal);
+            foreach (var dependency in expectedChains) {
+                Require(dependency != null && ValidId(dependency.id) && !chainExpected.ContainsKey(dependency.id), "invalid-chain-dependency");
+                chainExpected.Add(dependency.id, dependency.version);
+                var actual = chains.TryGetValue(dependency.id, out var chain) ? chain.version :
+                    chainTombstones.TryGetValue(dependency.id, out var deleted) ? deleted : 0;
+                Require(actual == dependency.version, "stale-chain");
+            }
+            var chainMemberDependencies = chainWrites.SelectMany(c => c?.members ?? Array.Empty<string>())
+                .Concat(chainWrites.Where(c => c != null && chains.ContainsKey(c.id)).SelectMany(c => chains[c.id].members))
+                .Concat(chainDeletes.Where(chains.ContainsKey).SelectMany(id => chains[id].members)).Distinct(StringComparer.Ordinal).ToArray();
+            Require(chainMemberDependencies.All(expected.ContainsKey), "missing-chain-member-version");
+            var changedChains = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var write in chainWrites) {
+                ValidateChain(write, parts.Values);
+                Require(changedChains.Add(write.id) && chainExpected.ContainsKey(write.id) && !parts.ContainsKey(write.id) && !tombstones.ContainsKey(write.id),
+                    "missing-chain-version");
+                bool exists = chains.TryGetValue(write.id, out var before);
+                if (tx.kind == "RestoreParts") Require(exists || chainTombstones.ContainsKey(write.id), "missing-chain");
+                else if (!exists) Require(!chainTombstones.ContainsKey(write.id) && chainExpected[write.id] == 0, "chain-identity-in-use");
+                var accepted = WireJson.Clone(write);
+                accepted.version = exists ? before.version + 1 : chainTombstones.TryGetValue(write.id, out var dead) ? dead + 1 : 1;
+                accepted.members = accepted.members.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+                chains[accepted.id] = accepted; chainTombstones.Remove(accepted.id);
+            }
+            foreach (var id in chainDeletes) {
+                Require((tx.kind == "RestoreParts" || tx.kind == "SetChains" || tx.kind == "DeleteParts") && ValidId(id) && changedChains.Add(id) &&
+                    chainExpected.ContainsKey(id) && chains.ContainsKey(id), "invalid-chain-delete");
+                chainTombstones[id] = chains[id].version + 1; chains.Remove(id);
+            }
+            Require(chains.Values.All(chain => chain.members.All(parts.ContainsKey)), "missing-chain-member");
+            Require(chains.Values.Select(ChainTopology).Distinct(StringComparer.Ordinal).Count() == chains.Count, "duplicate-chain");
+            Require(parts.Count <= MaxParts && tombstones.Count <= 20000 && chains.Count <= MaxChains && chainTombstones.Count <= 20000, "document-limit");
             var next = new Document {
                 schema = current.schema, generation = current.generation, catalogHash = current.catalogHash,
                 revision = checked(current.revision + 1), parts = parts.Values.OrderBy(p => p.id, StringComparer.Ordinal).ToArray(),
-                tombstones = tombstones.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new VersionRef { id = p.Key, version = p.Value }).ToArray()
+                tombstones = tombstones.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new VersionRef { id = p.Key, version = p.Value }).ToArray(),
+                chains = chains.Values.OrderBy(c => c.id, StringComparer.Ordinal).ToArray(),
+                chainTombstones = chainTombstones.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new VersionRef { id = c.Key, version = c.Value }).ToArray()
             };
             Require(WireJson.Encode(next).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
             return next;
@@ -91,6 +143,21 @@ namespace Protobot.Collaboration {
         public static bool SamePart(Part a, Part b) => a == null || b == null ? a == b :
             a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") && a.hasPaint == b.hasPaint &&
             a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.color.SequenceEqual(b.color);
+
+        public static bool SameChain(ChainRecord a, ChainRecord b) => a == null || b == null ? a == b :
+            a.id == b.id && (a.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal)
+                .SequenceEqual((b.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal));
+
+        private static string ChainTopology(ChainRecord chain) => string.Join("\0",
+            (chain.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal));
+
+        public static void ValidateChain(ChainRecord chain, IEnumerable<Part> parts) {
+            Require(chain != null && ValidId(chain.id) && chain.members != null && chain.members.Length >= 2 &&
+                chain.members.Length <= MaxWriteSet && chain.members.All(ValidId) && chain.members.Distinct(StringComparer.Ordinal).Count() == chain.members.Length,
+                "invalid-chain");
+            var available = new HashSet<string>(parts.Select(p => p.id), StringComparer.Ordinal);
+            Require(chain.members.All(available.Contains), "missing-chain-member");
+        }
 
         public static void ValidatePart(Part part, CatalogManifest catalog) {
             Require(part != null && ValidId(part.id) && part.catalogId != null && part.catalogId.Length <= 200 &&
@@ -120,8 +187,41 @@ namespace Protobot.Collaboration {
             else Require(rule.options.Contains(value, StringComparer.Ordinal), "invalid-parameter");
         }
 
+        public static ChainRecord[] Chains(Document document) => document?.chains ?? Array.Empty<ChainRecord>();
+        public static VersionRef[] ChainTombstones(Document document) => document?.chainTombstones ?? Array.Empty<VersionRef>();
+        public static ChainRecord[] ChainWrites(Transaction transaction) => transaction?.chainWrites ?? Array.Empty<ChainRecord>();
+        public static string[] ChainDeletes(Transaction transaction) => transaction?.chainDeletes ?? Array.Empty<string>();
+        public static VersionRef[] ExpectedChains(Transaction transaction) => transaction?.expectedChains ?? Array.Empty<VersionRef>();
+
         // This hash deliberately includes IDs, versions and tombstones, unlike file-dirty comparison.
         public static string Hash(Document document) {
+            using (var stream = new MemoryStream()) {
+                using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) {
+                    writer.Write(document.schema); writer.Write(document.generation); writer.Write(document.catalogHash);
+                    writer.Write(document.revision); writer.Write(document.parts.Length);
+                    foreach (var part in document.parts.OrderBy(p => p.id, StringComparer.Ordinal)) {
+                        writer.Write(part.id); writer.Write(part.version); writer.Write(part.catalogId);
+                        writer.Write(part.state ?? ""); writer.Write(part.hasPaint);
+                        foreach (var n in part.position.Concat(NormalizeRotation(part.rotation)).Concat(part.color)) writer.Write(n == 0 ? 0.0 : n);
+                    }
+                    writer.Write(document.tombstones.Length);
+                    foreach (var dead in document.tombstones.OrderBy(p => p.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }
+                    writer.Write(Chains(document).Length);
+                    foreach (var chain in Chains(document).OrderBy(c => c.id, StringComparer.Ordinal)) {
+                        writer.Write(chain.id); writer.Write(chain.version);
+                        var members = chain.members.OrderBy(id => id, StringComparer.Ordinal).ToArray(); writer.Write(members.Length);
+                        foreach (var member in members) writer.Write(member);
+                    }
+                    writer.Write(ChainTombstones(document).Length);
+                    foreach (var dead in ChainTombstones(document).OrderBy(c => c.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }
+                }
+                using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(stream.ToArray()));
+            }
+        }
+
+        // 0.3 durable rooms did not have chain fields. RoomStore uses this only
+        // while replaying an old, chain-free checkpoint/journal into 0.4.
+        public static string LegacyHash(Document document) {
             using (var stream = new MemoryStream()) {
                 using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) {
                     writer.Write(document.schema); writer.Write(document.generation); writer.Write(document.catalogHash);

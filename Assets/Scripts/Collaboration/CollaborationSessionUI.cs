@@ -118,7 +118,7 @@ namespace Protobot {
             var saves = UIRow(uiConnected.transform, "Local Save");
             uiSave = UIButton(saves, "Save Local", "Save local file", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().Save(); });
             uiSaveAs = UIButton(saves, "Save Local As", "Save local file as...", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().SaveAs(); });
-            UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom models, mounting edits and chains are not yet shared.", 12);
+            UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom models and mounting edits are not yet shared.", 12);
             uiReconnect = UIButton(uiConnected.transform, "Reconnect", "Reconnect", () => _ = ReconnectAsync(), true);
             uiLeave = UIButton(uiConnected.transform, "Leave", "Leave and continue offline...", () => uiLeaveConfirmation.SetActive(true));
             uiLeaveConfirmation = UIColumn(uiConnected.transform, "Confirm Leave").gameObject;

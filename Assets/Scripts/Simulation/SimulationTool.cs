@@ -77,13 +77,13 @@ namespace Protobot.Simulation {
         }
 
         public void ChainSelected() {
-            if (CollaborationSession.BlocksLegacyMutation) return;
             if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
             var selection = selectionManager.current;
             var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
             var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
                 .Where(p => p.kind == DriveKind.Sprocket).Distinct().ToList();
             ExitForEdit();
+            if (CollaborationSession.IsShared) { CollaborationSession.ToggleChain(sprockets); return; }
             ChainLoop.Toggle(sprockets, out var message);
             Protobot.UI.InteractionFeedback.Notify(message);
         }

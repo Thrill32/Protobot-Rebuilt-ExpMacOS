@@ -130,14 +130,21 @@ namespace Protobot.Collaboration {
             using (var ownership = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) File.Delete(path);
         }
 
-        public Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string lease = null) {
+        public Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string lease = null,
+            ChainRecord[] chainWrites = null, string[] chainDeletes = null, VersionRef[] chainDependencies = null) {
             lock (gate) {
                 DocumentModel.Require(IsConnected && document != null, "disconnected");
                 var ids = (writes ?? Array.Empty<Part>()).Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).ToArray();
                 var expected = (dependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
-                foreach (var id in ids) if (!expected.ContainsKey(id)) expected.Add(id, new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ?? 0 });
+                foreach (var id in ids) if (!expected.ContainsKey(id)) expected.Add(id, new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ??
+                    document.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 });
+                var chainIds = (chainWrites ?? Array.Empty<ChainRecord>()).Select(c => c.id).Concat(chainDeletes ?? Array.Empty<string>()).ToArray();
+                var expectedChains = (chainDependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
+                foreach (var id in chainIds) if (!expectedChains.ContainsKey(id)) expectedChains.Add(id, new VersionRef { id = id,
+                    version = DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.version ?? DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 });
                 return new Transaction { generation = document.generation, kind = kind, sequence = ++sequence,
-                    writes = writes ?? Array.Empty<Part>(), deletes = deletes ?? Array.Empty<string>(), expected = expected.Values.ToArray(), lease = lease };
+                    writes = writes ?? Array.Empty<Part>(), deletes = deletes ?? Array.Empty<string>(), expected = expected.Values.ToArray(), lease = lease,
+                    chainWrites = chainWrites ?? Array.Empty<ChainRecord>(), chainDeletes = chainDeletes ?? Array.Empty<string>(), expectedChains = expectedChains.Values.ToArray() };
             }
         }
 

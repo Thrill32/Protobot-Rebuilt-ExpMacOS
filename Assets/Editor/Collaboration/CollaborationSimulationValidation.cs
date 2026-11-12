@@ -45,7 +45,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration simulation validation passed: rigid-set Move, private mouse/timeline/playback, no preview ghosts or reservations, accepted file saves, mouse and Set pose commits, compound personal undo/redo, remote edit invalidation, stale graph rejection, contention and disconnect recovery.");
+                Debug.Log("Collaboration simulation validation passed: shared chain add/remove and history, rigid-set Move, private mouse/timeline/playback, no preview ghosts or reservations, accepted file saves, mouse and Set pose commits, compound personal undo/redo, remote edit invalidation, stale graph rejection, contention and disconnect recovery.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -74,12 +74,16 @@ namespace ProtobotEditorTools {
             var motor = Part("MOTR-11W", center - axis * 2);
             motor.transform.rotation = Quaternion.FromToRotation(motor.GetComponent<Motor>().ShaftHole.transform.forward, axis) * motor.transform.rotation;
             motor.transform.position += center - axis * 2 - motor.GetComponent<Motor>().ShaftHole.transform.position;
+            var sprocketA = Part("SPKT-Normal-10T", center + rotation * Vector3.right * 20);
+            var sprocketB = Part("SPKT-Normal-40T", center + rotation * Vector3.right * 24);
             Physics.SyncTransforms();
             string shaftId = shaft.GetComponent<SavedObject>().ConnectionId;
             string gearId = gear.GetComponent<SavedObject>().ConnectionId;
             string outputId = output.GetComponent<SavedObject>().ConnectionId;
             string motorId = motor.GetComponent<SavedObject>().ConnectionId;
             string bearingId = bearing.GetComponent<SavedObject>().ConnectionId;
+            string sprocketAId = sprocketA.GetComponent<SavedObject>().ConnectionId;
+            string sprocketBId = sprocketB.GetComponent<SavedObject>().ConnectionId;
             var catalog = CollaborationScene.Catalog;
             CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
@@ -117,6 +121,25 @@ namespace ProtobotEditorTools {
                 }
             }
 
+            // The actual C-key path owns endpoint reservations and publishes the logical connection atomically.
+            selection.SetCurrent(new MultiSelection(null, new List<GameObject> { Body(sprocketAId), Body(sprocketBId) }) { individual = true }, true, true);
+            long next = Document().revision + 1;
+            tool.ChainSelected();
+            await Accepted(next);
+            var chain = DocumentModel.Chains(Document()).Single();
+            Require(chain.members.ToHashSet().SetEquals(new[] { sprocketAId, sprocketBId }) &&
+                Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Single().ConnectionId == chain.id, "Shared chain did not materialize with its accepted identity.");
+            await History();
+            Require(DocumentModel.Chains(Document()).Length == 0 && Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Length == 0, "Chain undo left a live connection.");
+            await History(true);
+            Require(DocumentModel.Chains(Document()).Single().id == chain.id && Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Single().ConnectionId == chain.id,
+                "Chain redo did not restore its stable identity.");
+            selection.SetCurrent(new MultiSelection(null, new List<GameObject> { Body(sprocketAId), Body(sprocketBId) }) { individual = true }, true, true);
+            next = Document().revision + 1; tool.ChainSelected(); await Accepted(next);
+            Require(DocumentModel.Chains(Document()).Length == 0 && Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Length == 0, "Shared C-key did not remove an existing chain.");
+            await History();
+            Require(DocumentModel.Chains(Document()).Single().id == chain.id, "Undoing chain removal did not restore the accepted connection.");
+
             // Existing Move math publishes a selected rigid set as one edit, without moving the motor.
             var start = WireJson.Clone(Document());
             selection.SetCurrent(new MultiSelection(null, new List<GameObject> { Body(shaftId), Body(gearId) }) { individual = true }, true, true);
@@ -128,7 +151,7 @@ namespace ProtobotEditorTools {
             var pivotPosition = source.position;
             var turn = Quaternion.AngleAxis(90, Vector3.forward);
             Set(placement, "currentDisplacement", new Protobot.Transformations.Displacement(pivotPosition + Vector3.up * 3, turn * source.rotation));
-            long next = Document().revision + 1;
+            next = Document().revision + 1;
             Invoke(placement, "Place");
             await Accepted(next);
             foreach (var id in new[] { shaftId, gearId }) {
@@ -183,6 +206,7 @@ namespace ProtobotEditorTools {
             var saved = BuildsManager.ParsePath(savedPath);
             Require(Quaternion.Angle(saved.parts.Single(p => p.connectionId == shaftId).GetRot(), Rotation(baseline.parts.Single(p => p.id == shaftId))) < .001f,
                 "File save included a private animation pose.");
+            Require(saved.chains.Single().members.ToHashSet().SetEquals(chain.members), "Accepted chain was omitted from the local file snapshot.");
             await Task.Delay(350);
             Require(peer.Snapshot.revision == baseline.revision && DocumentModel.Hash(peer.Snapshot) == DocumentModel.Hash(baseline) && ghostFrames == 0,
                 "Animation preview was published before confirmation.");

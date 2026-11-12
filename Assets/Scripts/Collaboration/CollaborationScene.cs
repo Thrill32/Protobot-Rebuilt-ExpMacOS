@@ -42,8 +42,12 @@ namespace Protobot {
         }
         public static Document CaptureDocument(CatalogManifest catalog) {
             var bodies = PartsManager.FindLoadedObjects();
-            if (bodies.Any(b => b.GetComponent<CustomModel>() != null) || Simulation.ChainLoop.SaveAll().Any())
-                throw new InvalidOperationException("This collaboration alpha supports catalog builds without chains or custom models.");
+            if (bodies.Any(b => b.GetComponent<CustomModel>() != null))
+                throw new InvalidOperationException("This collaboration alpha supports catalog builds and chains without custom models.");
+            var loops = UnityEngine.Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsSortMode.None);
+            var chainParts = loops.ToDictionary(loop => loop, loop => loop.ResolveParts());
+            if (chainParts.Values.Any(parts => !Simulation.ChainLoop.Compatible(parts, out _)))
+                throw new InvalidOperationException("Remove or repair invalid chains before hosting.");
             var used = new HashSet<string>(StringComparer.Ordinal);
             foreach (var body in bodies) {
                 var saved = body.GetComponent<SavedObject>();
@@ -51,7 +55,12 @@ namespace Protobot {
                     saved.ConnectionId = Guid.NewGuid().ToString("N"); used.Add(saved.ConnectionId);
                 }
             }
-            var document = new Document { catalogHash = catalog.hash, parts = bodies.Select(b => Capture(b, 1)).ToArray() };
+            var chains = new List<ChainRecord>();
+            foreach (var loop in loops) {
+                if (!used.Add(loop.ConnectionId)) { do loop.SetConnectionId(Guid.NewGuid().ToString("N")); while (!used.Add(loop.ConnectionId)); }
+                chains.Add(loop.Capture(chainParts[loop], 1));
+            }
+            var document = new Document { catalogHash = catalog.hash, parts = bodies.Select(b => Capture(b, 1)).ToArray(), chains = chains.ToArray() };
             DocumentModel.Validate(document, catalog); return document;
         }
         public static ObjectData ToObjectData(Part part) {
@@ -63,10 +72,12 @@ namespace Protobot {
         }
         public static BuildData ToBuild(Document document) {
             var local = SceneBuild.ToBuildData();
-            local.parts = document.parts.Select(ToObjectData).ToArray(); local.chains = Array.Empty<ChainData>(); return local;
+            local.parts = document.parts.Select(ToObjectData).ToArray();
+            local.chains = DocumentModel.Chains(document).Select(c => new ChainData { members = c.members.ToArray() }).ToArray(); return local;
         }
         public static void Load(Document document) {
             SceneBuild.GenerateBuild(ToBuild(document));
+            Simulation.ChainLoop.ApplyRecords(DocumentModel.Chains(document));
             // The file adapter uses Euler angles; restore the accepted quaternion without a round trip.
             ApplyParts(document.parts);
             StateSystems.StateSystem.instance?.ResetStates();
@@ -111,6 +122,8 @@ namespace Protobot {
                     .Any(b => edit.transaction.writes.Any(p => p.id == b.GetComponent<SavedObject>().ConnectionId))) multi.pivot.Center();
             foreach (var outlines in UnityEngine.Object.FindObjectsByType<GroupOutlineSelectionResponse>(FindObjectsSortMode.None)) { outlines.ClearDisplay(); outlines.SetSelectionDisplay(); }
             UnityEngine.Object.FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
+            if (DocumentModel.ChainWrites(edit.transaction).Length > 0 || DocumentModel.ChainDeletes(edit.transaction).Length > 0)
+                Simulation.ChainLoop.ApplyRecords(DocumentModel.Chains(accepted));
         }
         public static void ApplyParts(IEnumerable<Part> parts) {
             var bodies = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);

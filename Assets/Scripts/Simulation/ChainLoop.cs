@@ -11,6 +11,7 @@ namespace Protobot.Simulation {
     public sealed class ChainLoop : MonoBehaviour {
         private const float LineWidth = .045f;
         private const float ArcStep = 8;
+        [SerializeField] private string chainId;
         [SerializeField] private string[] memberIds;
         public static Material MaterialTemplate;
         private LineRenderer line;
@@ -19,6 +20,13 @@ namespace Protobot.Simulation {
         private float travel;
         private float pitch = .1475f;
         public string[] MemberIds => memberIds;
+        public string ConnectionId {
+            get {
+                if (!Protobot.Collaboration.DocumentModel.ValidId(chainId)) chainId = Guid.NewGuid().ToString("N");
+                return chainId;
+            }
+        }
+        internal void SetConnectionId(string value) { chainId = value; }
 
         public List<SimulationPart> ResolveParts() {
             var objects = UnityEngine.Object.FindObjectsByType<SavedObject>(FindObjectsSortMode.None)
@@ -68,10 +76,20 @@ namespace Protobot.Simulation {
             if (!Compatible(list, out _)) return null;
             return FromData(new ChainData { members = list.Select(p => p.GetComponent<SavedObject>().ConnectionId).ToArray() });
         }
-        public static ChainLoop FromData(ChainData data) {
+        public static ChainLoop FromData(ChainData data, string connectionId = null) {
             if (data?.members == null || data.members.Length < 2 || data.members.Any(string.IsNullOrEmpty) || data.members.Distinct().Count() < 2) return null;
             var obj = new GameObject("Sprocket Chain") { layer = LayerMask.NameToLayer("Ignore Raycast") };
-            var chain = obj.AddComponent<ChainLoop>(); chain.memberIds = data.members.Distinct().ToArray(); return chain;
+            var chain = obj.AddComponent<ChainLoop>(); chain.memberIds = data.members.Distinct().ToArray(); chain.chainId = connectionId; _ = chain.ConnectionId; return chain;
+        }
+        public Protobot.Collaboration.ChainRecord Capture(IEnumerable<SimulationPart> parts = null, long version = 0) {
+            var ids = parts == null ? memberIds : parts.Distinct().Select(p => p.GetComponent<SavedObject>().ConnectionId).ToArray();
+            memberIds = ids.Distinct().ToArray();
+            return new Protobot.Collaboration.ChainRecord { id = ConnectionId, version = version, members = memberIds.ToArray() };
+        }
+        public static void ApplyRecords(IEnumerable<Protobot.Collaboration.ChainRecord> records) {
+            ClearAll();
+            foreach (var record in records ?? Array.Empty<Protobot.Collaboration.ChainRecord>())
+                FromData(new ChainData { members = record.members.ToArray() }, record.id);
         }
         public static ChainData[] SaveAll() => UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None)
             .Where(c => Compatible(c.ResolveParts(), out _)).Select(c => new ChainData { members = c.memberIds.ToArray() }).ToArray();

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 
 namespace Protobot.Collaboration.Server {
@@ -22,6 +24,8 @@ namespace Protobot.Collaboration.Server {
     [Serializable] internal sealed class StoredHistory {
         public string[] ids;
         public Part[] before, after;
+        public string[] chainIds;
+        public ChainRecord[] chainsBefore, chainsAfter;
         public bool blocked;
     }
     internal sealed class LoadedMember {
@@ -106,17 +110,24 @@ namespace Protobot.Collaboration.Server {
                 info.salt?.Length == 32 && info.passwordHash?.Length == 32 && info.catalog?.protocol == 1, "room-storage-corrupt");
             var state = Query("SELECT checkpoint_revision,history_bytes FROM state WHERE id=1", r => (revision: r.GetInt64(0), bytes: r.GetInt64(1))).Single();
             checkpointRevision = state.revision;
-            var checkpoint = Query("SELECT document,hash FROM checkpoints WHERE revision=" + checkpointRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                r => (document: Decode<Document>(r, 0), hash: r.GetString(1))).Single();
+            var checkpoint = Query("SELECT document,hash FROM checkpoints WHERE revision=" + checkpointRevision.ToString(System.Globalization.CultureInfo.InvariantCulture), r => {
+                var data = ReadBytes(r, 0); bool legacy = !HasField(data, "chains") && !HasField(data, "chainTombstones");
+                return (document: DecodeDocument(data, legacy), hash: r.GetString(1), legacyChains: legacy);
+            }).Single();
             var document = checkpoint.document; DocumentModel.Validate(document, info.catalog);
-            DocumentModel.Require(document.revision == checkpointRevision && document.generation == info.generation && DocumentModel.Hash(document) == checkpoint.hash, "room-storage-corrupt");
-            var journal = Query("SELECT data,cost FROM journal ORDER BY revision", r => (edit: Decode<AcceptedEdit>(r, 0), cost: r.GetInt64(1)));
+            DocumentModel.Require(document.revision == checkpointRevision && document.generation == info.generation &&
+                (DocumentModel.Hash(document) == checkpoint.hash || checkpoint.legacyChains && DocumentModel.LegacyHash(document) == checkpoint.hash), "room-storage-corrupt");
+            var journal = Query("SELECT data,cost FROM journal ORDER BY revision", r => {
+                var data = ReadBytes(r, 0); bool legacy = !HasField(data, "chainWrites") && !HasField(data, "chainDeletes") && !HasField(data, "expectedChains");
+                return (edit: DecodeEdit(data, legacy), cost: r.GetInt64(1), legacyChains: legacy);
+            });
             long revision = info.initialRevision;
             foreach (var item in journal) {
                 DocumentModel.Require(item.edit.revision == ++revision && DocumentModel.ValidId(item.edit.author) && item.cost > 0, "room-storage-corrupt");
                 if (item.edit.revision <= checkpointRevision) continue;
                 document = DocumentModel.Reduce(document, item.edit.transaction, info.catalog);
-                DocumentModel.Require(document.revision == item.edit.revision && DocumentModel.Hash(document) == item.edit.hash, "room-storage-corrupt");
+                DocumentModel.Require(document.revision == item.edit.revision && (DocumentModel.Hash(document) == item.edit.hash ||
+                    item.legacyChains && DocumentModel.Chains(document).Length == 0 && DocumentModel.LegacyHash(document) == item.edit.hash), "room-storage-corrupt");
             }
             DocumentModel.Require(document.revision == revision && state.bytes == journal.Sum(j => j.cost) && state.bytes <= 64 * 1024 * 1024, "room-storage-corrupt");
             checkpointBytes = journal.Where(j => j.edit.revision > checkpointRevision).Sum(j => j.cost);
@@ -133,12 +144,19 @@ namespace Protobot.Collaboration.Server {
                 members[receipt.id].receipts.Add(receipt.receipt);
             }
             foreach (var history in Query("SELECT member,position,blocked,data FROM history ORDER BY member,position", r =>
-                (id: r.GetString(0), index: r.GetInt32(1), blocked: r.GetBoolean(2), entry: Decode<StoredHistory>(r, 3)))) {
+                (id: r.GetString(0), index: r.GetInt32(1), blocked: r.GetBoolean(2), entry: DecodeHistory(ReadBytes(r, 3))))) {
                 var list = members[history.id].history;
-                DocumentModel.Require(history.index == list.Count && history.entry.ids != null && history.entry.ids.Length > 0 &&
+                DocumentModel.Require(history.index == list.Count && history.entry.ids != null &&
                     history.entry.ids.Length <= DocumentModel.MaxWriteSet && history.entry.ids.Distinct().Count() == history.entry.ids.Length &&
                     history.entry.before != null && history.entry.after != null, "room-storage-corrupt");
                 foreach (var part in history.entry.before.Concat(history.entry.after)) DocumentModel.ValidatePart(part, info.catalog);
+                history.entry.chainIds ??= Array.Empty<string>(); history.entry.chainsBefore ??= Array.Empty<ChainRecord>(); history.entry.chainsAfter ??= Array.Empty<ChainRecord>();
+                DocumentModel.Require(history.entry.ids.Length + history.entry.chainIds.Length > 0 &&
+                    history.entry.chainIds.Length <= DocumentModel.MaxWriteSet && history.entry.chainIds.Distinct().Count() == history.entry.chainIds.Length &&
+                    history.entry.chainIds.All(DocumentModel.ValidId), "room-storage-corrupt");
+                foreach (var chain in history.entry.chainsBefore.Concat(history.entry.chainsAfter))
+                    DocumentModel.Require(chain != null && DocumentModel.ValidId(chain.id) && chain.members != null && chain.members.Length >= 2 &&
+                        chain.members.Length <= DocumentModel.MaxWriteSet && chain.members.All(DocumentModel.ValidId), "room-storage-corrupt");
                 history.entry.blocked = history.blocked; list.Add(history.entry);
             }
             DocumentModel.Require(members.Values.All(m => m.member.historyCursor <= m.history.Count) && journal.All(j => members.ContainsKey(j.edit.author)), "room-storage-corrupt");
@@ -186,9 +204,30 @@ namespace Protobot.Collaboration.Server {
             ("$member", member), ("$operation", receipt.operationId), ("$data", WireJson.Encode(receipt)));
         private void Finish(SqliteTransaction transaction, string stage) { BeforeCommit?.Invoke(stage); transaction.Commit(); }
         private void RequireCount(string table, int maximum) => DocumentModel.Require(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM " + table)) <= maximum, "room-storage-limit");
-        private static T Decode<T>(SqliteDataReader reader, int column) {
+        private static byte[] ReadBytes(SqliteDataReader reader, int column) {
             DocumentModel.Require(reader.GetBytes(column, 0, null, 0, 0) <= WireJson.MaxMessageBytes, "room-storage-limit");
-            return WireJson.Decode<T>((byte[])reader.GetValue(column));
+            return (byte[])reader.GetValue(column);
+        }
+        private static T Decode<T>(SqliteDataReader reader, int column) => WireJson.Decode<T>(ReadBytes(reader, column));
+        private static bool HasField(byte[] data, string field) => System.Text.Encoding.UTF8.GetString(data).Contains("\"" + field + "\":", StringComparison.Ordinal);
+        private static byte[] JsonBytes(JsonNode value) => Encoding.UTF8.GetBytes(value.ToJsonString());
+        private static Document DecodeDocument(byte[] data, bool legacy) {
+            if (!legacy) return WireJson.Decode<Document>(data);
+            var value = JsonNode.Parse(data).AsObject(); value["chains"] = new JsonArray(); value["chainTombstones"] = new JsonArray();
+            return WireJson.Decode<Document>(JsonBytes(value));
+        }
+        private static AcceptedEdit DecodeEdit(byte[] data, bool legacy) {
+            if (!legacy) return WireJson.Decode<AcceptedEdit>(data);
+            var value = JsonNode.Parse(data).AsObject(); var transaction = value["transaction"].AsObject();
+            transaction["chainWrites"] = new JsonArray(); transaction["chainDeletes"] = new JsonArray(); transaction["expectedChains"] = new JsonArray();
+            return WireJson.Decode<AcceptedEdit>(JsonBytes(value));
+        }
+        private static StoredHistory DecodeHistory(byte[] data) {
+            bool ids = HasField(data, "chainIds"), before = HasField(data, "chainsBefore"), after = HasField(data, "chainsAfter");
+            if (ids && before && after) return WireJson.Decode<StoredHistory>(data);
+            DocumentModel.Require(!ids && !before && !after, "room-storage-corrupt");
+            var value = JsonNode.Parse(data).AsObject(); value["chainIds"] = new JsonArray(); value["chainsBefore"] = new JsonArray(); value["chainsAfter"] = new JsonArray();
+            return WireJson.Decode<StoredHistory>(JsonBytes(value));
         }
         private object Scalar(string sql) { using var command = Command(sql); return command.ExecuteScalar(); }
         private List<T> Query<T>(string sql, Func<SqliteDataReader, T> read) {

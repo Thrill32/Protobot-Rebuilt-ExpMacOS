@@ -46,9 +46,18 @@ internal static partial class Program {
         document = new Document { generation = "fixture-generation", catalogHash = "catalog-small-v1" }
     };
     private static Part Cube(string id, double x = 0) => new Part { id = id, catalogId = "CUBE", position = new[] { x, 0.0, 0.0 } };
-    private static Transaction Tx(Document document, string kind, Part[] parts, string[] deletes = null, string lease = null, long sequence = 1) => new Transaction {
+    private static ChainRecord Chain(string id, params string[] members) => new ChainRecord { id = id, members = members };
+    private static Transaction Tx(Document document, string kind, Part[] parts, string[] deletes = null, string lease = null, long sequence = 1,
+        ChainRecord[] chains = null, string[] chainDeletes = null) => new Transaction {
         generation = document.generation, sequence = sequence, kind = kind, writes = parts, deletes = deletes ?? Array.Empty<string>(), lease = lease,
-        expected = parts.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Select(id => new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray()
+        chainWrites = chains ?? Array.Empty<ChainRecord>(), chainDeletes = chainDeletes ?? Array.Empty<string>(),
+        expected = parts.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Concat((chains ?? Array.Empty<ChainRecord>()).SelectMany(c => c.members))
+            .Concat((chainDeletes ?? Array.Empty<string>()).SelectMany(id => DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.members ?? Array.Empty<string>()))
+            .Distinct().Select(id => new VersionRef { id = id, version = document.parts.FirstOrDefault(p => p.id == id)?.version ??
+                document.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray(),
+        expectedChains = (chains ?? Array.Empty<ChainRecord>()).Select(c => c.id).Concat(chainDeletes ?? Array.Empty<string>()).Distinct()
+            .Select(id => new VersionRef { id = id, version = DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.version ??
+                DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray()
     };
     private static void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception("Assertion failed: " + message); }
     private static void Reject(Action action, string code) {
@@ -83,6 +92,22 @@ internal static partial class Program {
         Check(DocumentModel.Hash(reversed) == DocumentModel.Hash(both), "canonical order and quaternion sign");
         reversed.parts[0].state = "changed";
         Check(DocumentModel.Hash(reversed) != DocumentModel.Hash(both), "saved state included in hash");
+        var chained = DocumentModel.Reduce(both, Tx(both, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("chain-ab", "b", "a") }), seed.catalog);
+        Check(chained.chains.Single().version == 1 && chained.chains.Single().members.SequenceEqual(new[] { "a", "b" }), "chain create is versioned and canonical");
+        Reject(() => DocumentModel.Reduce(chained, Tx(chained, "TransformAndCopy", new[] { Cube("chain-ab") }), seed.catalog), "identity-in-use");
+        Reject(() => DocumentModel.Reduce(chained, Tx(chained, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("duplicate-ab", "a", "b") }), seed.catalog),
+            "duplicate-chain");
+        var withThird = DocumentModel.Reduce(chained, Tx(chained, "AddParts", new[] { Cube("c", 8) }), seed.catalog);
+        Reject(() => DocumentModel.Reduce(withThird, Tx(withThird, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("chain-ab", "b", "c") }), seed.catalog),
+            "missing-chain-member-version");
+        var reorderedChain = WireJson.Clone(chained); Array.Reverse(reorderedChain.chains[0].members);
+        Check(DocumentModel.Hash(reorderedChain) == DocumentModel.Hash(chained), "chain member order is canonical in document hash");
+        var staleChain = Tx(chained, "SetChains", Array.Empty<Part>(), chainDeletes: new[] { "chain-ab" }); staleChain.expectedChains[0].version--;
+        Reject(() => DocumentModel.Reduce(chained, staleChain, seed.catalog), "stale-chain");
+        Reject(() => DocumentModel.Reduce(chained, Tx(chained, "DeleteParts", Array.Empty<Part>(), new[] { "a" }), seed.catalog), "missing-chain-member");
+        var cascade = DocumentModel.Reduce(chained, Tx(chained, "DeleteParts", Array.Empty<Part>(), new[] { "a" },
+            chainDeletes: new[] { "chain-ab" }), seed.catalog);
+        Check(cascade.chains.Length == 0 && cascade.chainTombstones.Single().version == 2, "part and dependent chain delete atomically");
         var deleted = DocumentModel.Reduce(both, Tx(both, "DeleteParts", Array.Empty<Part>(), new[] { "a" }), seed.catalog);
         Check(deleted.parts.Length == 1 && deleted.tombstones.Single().version == 3, "delete tombstone has next version");
         var reuse = Tx(deleted, "AddParts", new[] { Cube("a") }); reuse.expected[0].version = 3;
@@ -147,10 +172,13 @@ internal static partial class Program {
         var bob = room.Join(new JoinRequest { name = "Bob", catalogHash = seed.catalog.hash });
         var document = seed.document;
         long aliceSequence = 0, bobSequence = 0;
-        Receipt Commit(JoinResponse author, string kind, Part[] writes, string[] deletes = null) {
-            var ids = writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Where(id => document.parts.Any(p => p.id == id)).ToArray();
+        Receipt Commit(JoinResponse author, string kind, Part[] writes, string[] deletes = null, ChainRecord[] chains = null, string[] chainDeletes = null) {
+            var ids = writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Where(id => document.parts.Any(p => p.id == id))
+                .Concat((chains ?? Array.Empty<ChainRecord>()).SelectMany(c => c.members))
+                .Concat((chainDeletes ?? Array.Empty<string>()).SelectMany(id => DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.members ?? Array.Empty<string>()))
+                .Distinct().ToArray();
             string lease = ids.Length == 0 || kind == "Undo" || kind == "Redo" ? null : room.Reserve(author.token, new LeaseRequest { ids = ids }).token;
-            var tx = Tx(document, kind, writes, deletes, lease, author == alice ? ++aliceSequence : ++bobSequence);
+            var tx = Tx(document, kind, writes, deletes, lease, author == alice ? ++aliceSequence : ++bobSequence, chains, chainDeletes);
             var receipt = room.Commit(author.token, tx);
             if (receipt.accepted) {
                 var edit = room.ReadAsync(author.token, document.revision, -1, CancellationToken.None).GetAwaiter().GetResult().edits.Single();
@@ -165,6 +193,17 @@ internal static partial class Program {
         Part Part(string id) => WireJson.Clone(document.parts.Single(p => p.id == id));
         Check(Commit(alice, "AddParts", new[] { Cube("a"), Cube("b", 10) }).accepted, "history fixture create");
         Check(Commit(bob, "AddParts", new[] { Cube("c", 20) }).accepted, "other participant create");
+        Check(Commit(alice, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("chain-ab", "a", "b") }).accepted, "chain create accepted");
+        Check(History(alice).accepted && DocumentModel.Chains(document).Length == 0, "personal undo removes own chain");
+        Check(History(alice, true).accepted && DocumentModel.Chains(document).Single().id == "chain-ab", "personal redo restores chain identity with newer version");
+        var bobEndpoint = room.Reserve(bob.token, new LeaseRequest { ids = new[] { "a" } });
+        var rewriteLease = room.Reserve(alice.token, new LeaseRequest { ids = new[] { "b", "c" } });
+        var rewrite = Tx(document, "SetChains", Array.Empty<Part>(), lease: rewriteLease.token, sequence: ++aliceSequence,
+            chains: new[] { Chain("chain-ab", "b", "c") });
+        rewrite.expected = rewrite.expected.Concat(new[] { new VersionRef { id = "a", version = Part("a").version } }).ToArray();
+        Check(room.Commit(alice.token, rewrite).error == "lease-set-mismatch", "chain topology replacement requires old and new endpoint leases");
+        room.Release(alice.token, rewriteLease.token); room.Release(bob.token, bobEndpoint.token);
+        Check(Commit(alice, "SetChains", Array.Empty<Part>(), chainDeletes: new[] { "chain-ab" }).accepted, "chain removal accepted");
         var paint = Part("a"); paint.hasPaint = true; paint.color = new double[] { .2, .3, .4 };
         Check(Commit(alice, "SetParts", new[] { paint }).accepted, "leased painting accepted");
         var replacement = Part("a"); replacement.catalogId = "PLATE";
@@ -220,6 +259,16 @@ internal static partial class Program {
             await Task.WhenAll(clients.Select((c, i) => c.SubmitAsync(moves[i])));
             await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(2 * count)));
             Check(clients.Select(c => DocumentModel.Hash(c.Snapshot)).Distinct().Count() == 1, transport + " disjoint moves converge");
+            var chainMembers = new[] { "part0", "part1" };
+            var chainSnapshot = clients[0].Snapshot;
+            var chainLease = await clients[0].ReserveAsync(chainMembers);
+            var chainTx = clients[0].CreateTransaction("SetChains", Array.Empty<Part>(), dependencies: chainMembers.Select(id => new VersionRef {
+                id = id, version = chainSnapshot.parts.Single(p => p.id == id).version
+            }).ToArray(), lease: chainLease.token, chainWrites: new[] { Chain("network-chain", chainMembers) });
+            var chainReceipt = await clients[0].SubmitAsync(chainTx);
+            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(chainReceipt.revision)));
+            Check(chainReceipt.accepted && clients.All(c => DocumentModel.Chains(c.Snapshot).Single().id == "network-chain") &&
+                clients.Select(c => DocumentModel.Hash(c.Snapshot)).Distinct().Count() == 1, transport + " chain create converges");
             var one = await clients[0].ReserveAsync(new[] { "part0" });
             try { await clients[1].ReserveAsync(new[] { "part0" }); throw new Exception("Expected contention"); }
             catch (CollaborationException error) { Check(error.Code == "parts-reserved", transport + " contention denied"); }
@@ -242,11 +291,26 @@ internal static partial class Program {
             await clients[0].PrepareReconnectAsync();
             await clients[0].JoinAsync("same identity");
             Check(DocumentModel.Hash(clients[0].Snapshot) == DocumentModel.Hash(clients[1].Snapshot), "explicit reconnect snapshot converges");
-            var deleteLease = await clients[0].ReserveAsync(new[] { "part0" });
-            var deletion = clients[0].CreateTransaction("DeleteParts", Array.Empty<Part>(), new[] { "part0" }, lease: deleteLease.token);
-            Check((await clients[0].SubmitAsync(deletion)).accepted, "network delete accepted");
-            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(2 * count + 1)));
-            Check(clients.All(c => c.Snapshot.parts.Length == count - 1 && c.Snapshot.tombstones.Length == 1), "delete propagates to every client");
+            var deleteSnapshot = clients[0].Snapshot;
+            var deleteLease = await clients[0].ReserveAsync(chainMembers);
+            var deletion = clients[0].CreateTransaction("DeleteParts", Array.Empty<Part>(), new[] { "part0" },
+                dependencies: chainMembers.Select(id => new VersionRef { id = id, version = deleteSnapshot.parts.Single(p => p.id == id).version }).ToArray(),
+                lease: deleteLease.token, chainDeletes: new[] { "network-chain" }, chainDependencies: new[] {
+                    new VersionRef { id = "network-chain", version = DocumentModel.Chains(deleteSnapshot).Single().version }
+                });
+            var deleteReceipt = await clients[0].SubmitAsync(deletion);
+            Check(deleteReceipt.accepted, "network part and chain delete accepted");
+            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(deleteReceipt.revision)));
+            Check(clients.All(c => c.Snapshot.parts.Length == count - 1 && c.Snapshot.tombstones.Length == 1 &&
+                DocumentModel.Chains(c.Snapshot).Length == 0 && DocumentModel.ChainTombstones(c.Snapshot).Length == 1), "part and chain delete propagate to every client");
+            var restoreTopology = await clients[0].SubmitAsync(clients[0].CreateTransaction("Undo", Array.Empty<Part>()));
+            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(restoreTopology.revision)));
+            Check(restoreTopology.accepted && clients.All(c => c.Snapshot.parts.Any(p => p.id == "part0") && DocumentModel.Chains(c.Snapshot).Single().id == "network-chain"),
+                transport + " undo restores deleted part and chain atomically");
+            var removeTopology = await clients[0].SubmitAsync(clients[0].CreateTransaction("Redo", Array.Empty<Part>()));
+            await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(removeTopology.revision)));
+            Check(removeTopology.accepted && clients.All(c => !c.Snapshot.parts.Any(p => p.id == "part0") && DocumentModel.Chains(c.Snapshot).Length == 0),
+                transport + " redo removes part and chain atomically");
             var paint = WireJson.Clone(clients[1].Snapshot.parts.Single(p => p.id == "part1"));
             paint.hasPaint = true; paint.color = new double[] { .2, .4, .6 };
             var paintLease = await clients[1].ReserveAsync(new[] { paint.id });
