@@ -137,6 +137,20 @@ internal static partial class Program {
         var custom = DocumentModel.Reduce(both, Tx(both, "AddParts", new[] { Custom("custom-a", asset, 30) }, assets: new[] { asset }), seed.catalog);
         Check(DocumentModel.Assets(custom).Single().hash == asset.hash && DocumentModel.Mounts(custom.parts.Single(p => p.id == "custom-a")).Single().threaded,
             "custom geometry and ordered mounts create atomically");
+        var mountWrite = WireJson.Clone(custom.parts.Single(p => p.id == "custom-a"));
+        mountWrite.mounts = mountWrite.mounts.Concat(new[] { new CustomMount { position = new[] { .75, .5, 0.0 },
+            rotation = new[] { 0.0, 0.0, 0.0, 1.0 }, diameter = .25, depth = .125, threaded = false } }).ToArray();
+        var customMounts = DocumentModel.Reduce(custom, Tx(custom, "SetCustomMounts", new[] { mountWrite }), seed.catalog);
+        Check(DocumentModel.Mounts(customMounts.parts.Single(p => p.id == "custom-a")).Length == 2 &&
+            customMounts.parts.Single(p => p.id == "custom-a").assetHash == asset.hash && DocumentModel.Assets(customMounts).Single().hash == asset.hash,
+            "whole-instance mounting layout changes without mutating geometry");
+        var forgedMountPose = WireJson.Clone(mountWrite); forgedMountPose.position[1] = 4;
+        Reject(() => DocumentModel.Reduce(custom, Tx(custom, "SetCustomMounts", new[] { forgedMountPose }), seed.catalog), "mounts-only");
+        Reject(() => DocumentModel.Reduce(custom, Tx(custom, "SetParts", new[] { mountWrite }), seed.catalog), "custom-content-immutable");
+        var alternateAsset = Asset("Alternate immutable triangle");
+        var twoAssets = WireJson.Clone(custom); twoAssets.assets = twoAssets.assets.Concat(new[] { alternateAsset }).ToArray();
+        var forgedGeometry = WireJson.Clone(twoAssets.parts.Single(p => p.id == "custom-a")); forgedGeometry.assetHash = alternateAsset.hash;
+        Reject(() => DocumentModel.Reduce(twoAssets, Tx(twoAssets, "SetCustomMounts", new[] { forgedGeometry }), seed.catalog), "mounts-only");
         var customMove = Custom("custom-a", asset, 31);
         customMove.mounts = WireJson.Clone(custom.parts.Single(p => p.id == "custom-a").mounts);
         var customMoved = DocumentModel.Reduce(custom, Tx(custom, "SetPoses", new[] { customMove }), seed.catalog);
@@ -242,7 +256,16 @@ internal static partial class Program {
         Check(History(alice).accepted && document.parts.Length == 0 && DocumentModel.Assets(document).Single().hash == customAsset.hash,
             "custom undo retains immutable geometry for redo");
         Check(History(alice, true).accepted && document.parts.Single().assetHash == customAsset.hash, "custom redo restores the same geometry reference");
-        Check(History(alice).accepted, "custom history fixture reset");
+        var mountLayout = Part("history-custom");
+        mountLayout.mounts = mountLayout.mounts.Concat(new[] { new CustomMount { position = new[] { 1.0, 0.0, 0.0 },
+            rotation = new[] { 0.0, 0.0, 0.0, 1.0 }, diameter = .2, depth = .1 } }).ToArray();
+        Check(Commit(alice, "SetCustomMounts", new[] { mountLayout }).accepted && DocumentModel.Mounts(Part("history-custom")).Length == 2,
+            "mount layout history commit accepted");
+        Check(History(alice).accepted && DocumentModel.Mounts(Part("history-custom")).Length == 1 && Part("history-custom").assetHash == customAsset.hash,
+            "mount layout undo restores order without changing geometry");
+        Check(History(alice, true).accepted && DocumentModel.Mounts(Part("history-custom")).Length == 2,
+            "mount layout redo restores confirmed component");
+        Check(History(alice).accepted && History(alice).accepted && document.parts.Length == 0, "custom history fixture reset");
         Check(Commit(alice, "AddParts", new[] { Cube("paste-a", -10), Cube("paste-b", -6) },
             chains: new[] { Chain("paste-chain", "paste-a", "paste-b") }).accepted && DocumentModel.Chains(document).Single().id == "paste-chain",
             "compound part/chain import needs no lease for fresh endpoints");

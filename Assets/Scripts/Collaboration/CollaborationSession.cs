@@ -31,6 +31,7 @@ namespace Protobot {
         private readonly Dictionary<string, GameObject> ghosts = new Dictionary<string, GameObject>();
         private Document committed;
         private bool busy, applying, reserving, submitting, sendingPreview;
+        private bool broadcastReservationPreview;
         private string lease;
         private string[] reserved = Array.Empty<string>();
         private VersionRef[] reservedVersions = Array.Empty<VersionRef>();
@@ -47,7 +48,7 @@ namespace Protobot {
         private bool lan, panel;
         private CollaborationTransport transport;
         private Participant[] participants = Array.Empty<Participant>();
-        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Custom model import", "Chains", "Simulation set pose", "Delete", "Personal undo / redo" };
+        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Custom models / mounts", "Chains", "Simulation set pose", "Delete", "Personal undo / redo" };
         public static bool IsShared => instance != null && instance.client != null;
         public static bool IsApplying => instance != null && instance.applying;
         public static bool CanPreview => !IsShared || instance.client.IsConnected && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
@@ -125,7 +126,8 @@ namespace Protobot {
                 case "Grab Selection": case "Rotate Placement": case "Delete Selection": case "Place":
                 case "Grab Hole Snap": case "Duplicate": case "Pick Part": case "Copy Selection": case "Paste Selection":
                 case "Undo": case "Redo": case "Enable Transform Tool": case "Enable Move Tool": case "Enable Color Tool": case "Enable Connect Tool":
-                case "Place Selection": case "Import Build": case "Save Selected Parts As": return CanEdit;
+                case "Place Selection": case "Import Build": case "Save Selected Parts As": case "Import Custom Model":
+                case "Add Custom Mounting Points": case "Change Mounting Depth": case "Recalibrate Mounting Grid": return CanEdit;
                 case "Increase First Property": case "Decrease First Property": case "Increase Second Property": case "Decrease Second Property":
                     return CanEdit;
                 default: return false;
@@ -290,9 +292,15 @@ namespace Protobot {
             if (instance == null) return;
             var saved = CollaborationScene.Bodies(bodies);
             if (saved.Count == 0) { denied?.Invoke(); return; }
-            _ = instance.ReservePoseAsync(saved, granted, denied);
+            _ = instance.ReservePartsAsync(saved, true, granted, denied);
         }
-        private async Task ReservePoseAsync(IReadOnlyList<GameObject> bodies, Action granted, Action denied) {
+        public static void ReserveCustomMounts(IReadOnlyList<CustomModel> models, Action granted, Action denied = null) {
+            if (instance == null) return;
+            var saved = CollaborationScene.Bodies((models ?? Array.Empty<CustomModel>()).Where(model => model != null).Select(model => model.gameObject));
+            if (saved.Count == 0) { denied?.Invoke(); return; }
+            _ = instance.ReservePartsAsync(saved, false, granted, denied);
+        }
+        private async Task ReservePartsAsync(IReadOnlyList<GameObject> bodies, bool sendPreviews, Action granted, Action denied) {
             if (!CanEdit || lease != null || reserving) return;
             reserving = true; status = "Waiting for edit reservation…";
             var previousRequest = reservationPending;
@@ -311,7 +319,8 @@ namespace Protobot {
                 if (client != connection || connection.ConnectionEpoch != epoch || request != reservationGeneration || bodies.Any(b => b == null || !b.activeInHierarchy)) {
                     try { await connection.ReleaseAsync(result.token); } catch { } denied?.Invoke(); return;
                 }
-                lease = result.token; reserved = ids; reservedVersions = versions; nextRenew = Time.realtimeSinceStartup + 3; previewSequence = 0;
+                lease = result.token; reserved = ids; reservedVersions = versions; broadcastReservationPreview = sendPreviews;
+                nextRenew = Time.realtimeSinceStartup + 3; previewSequence = 0;
                 reserving = false;
                 status = "Editing reserved parts"; granted();
             }
@@ -325,6 +334,7 @@ namespace Protobot {
             if (instance.submitting && instance.client.IsConnected) return;
             instance.reservationGeneration++; instance.reserving = false;
             var token = instance.lease; instance.lease = null; instance.reserved = Array.Empty<string>(); instance.reservedVersions = Array.Empty<VersionRef>();
+            instance.broadcastReservationPreview = false;
             if (token != null) instance.releasePending = instance.Release(token);
         }
         private async Task Release(string token) { var connection = client; try { if (connection != null) await connection.ReleaseAsync(token); } catch { } }
@@ -374,6 +384,28 @@ namespace Protobot {
                 if (copies != null) ObjectDuplicator.DiscardCopies(copies);
             }
         }
+        public static void ConfirmCustomMounts(IEnumerable<CustomModel> models) {
+            if (!IsShared) return;
+            var session = instance;
+            var layouts = (models ?? Enumerable.Empty<CustomModel>()).Where(model => model != null)
+                .GroupBy(model => model.GetComponent<SavedObject>().ConnectionId).Select(group => group.First()).ToArray();
+            var ids = layouts.Select(model => model.GetComponent<SavedObject>().ConnectionId).ToArray();
+            try {
+                DocumentModel.Require(session.client.IsConnected && session.lease != null, "lease-expired");
+                DocumentModel.Require(ids.Length > 0 && ids.OrderBy(id => id).SequenceEqual(session.reserved.OrderBy(id => id)), "lease-set-mismatch");
+                var writes = layouts.Select(CollaborationScene.CaptureCustomMounts).ToArray();
+                if (writes.All(write => DocumentModel.SamePart(write, session.committed.parts.FirstOrDefault(part => part.id == write.id)))) {
+                    CancelPose(); return;
+                }
+                var tx = session.CreateTransaction("SetCustomMounts", writes, dependencies: session.reservedVersions, token: session.lease);
+                _ = session.Submit(tx, () => CollaborationScene.ApplyCustomMounts(session.committed.parts.Where(part => ids.Contains(part.id)).ToArray()));
+            }
+            catch (Exception error) {
+                CollaborationScene.ApplyCustomMounts(session.committed.parts.Where(part => ids.Contains(part.id)).ToArray());
+                CancelPose(); session.Report(error);
+            }
+        }
+        public static void CancelCustomMounts() => CancelPose();
         private ChainRecord[] CaptureCopiedChains(List<GameObject> sourceBodies, List<GameObject> copies) {
             if (copies == null || copies.Count == 0) return Array.Empty<ChainRecord>();
             var sourceParts = sourceBodies.Where(body => body != null).SelectMany(body => body.GetComponentsInChildren<SavedObject>(true))
@@ -532,7 +564,7 @@ namespace Protobot {
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
             finally { if (token != null) { try { await connection.ReleaseAsync(token); } catch { } } if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
         }
-        private async Task Submit(Transaction transaction) {
+        private async Task Submit(Transaction transaction, Action rejected = null) {
             submitting = true;
             var connection = client;
             long epoch = connection.ConnectionEpoch;
@@ -542,10 +574,15 @@ namespace Protobot {
                 var receipt = await connection.SubmitAsync(transaction);
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
-                if (!receipt.accepted) { selectAfterApply.Remove(transaction.operationId); status = "Edit rejected: " + receipt.error; CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id))); }
+                if (!receipt.accepted) {
+                    selectAfterApply.Remove(transaction.operationId); status = "Edit rejected: " + receipt.error;
+                    rejected?.Invoke(); CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id)));
+                }
                 else status = "Accepted revision " + receipt.revision;
             }
-            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) { Report(error); CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id))); } }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) {
+                Report(error); rejected?.Invoke(); CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id)));
+            } }
             finally { if (client == connection && connection.ConnectionEpoch == epoch) { submitting = false; CancelPose(); } }
         }
 
@@ -609,7 +646,9 @@ namespace Protobot {
             if (source == client && client?.IsConnected == true && presence != null) { participants = presence.participants; DrawGhosts(presence.previews); }
             if (lease == null || !client.IsConnected || submitting) return;
             if (Time.realtimeSinceStartup >= nextRenew) { nextRenew = Time.realtimeSinceStartup + 3; _ = Renew(); }
-            if (!sendingPreview && Time.realtimeSinceStartup >= nextPreview) { nextPreview = Time.realtimeSinceStartup + .1f; _ = SendPreview(); }
+            if (broadcastReservationPreview && !sendingPreview && Time.realtimeSinceStartup >= nextPreview) {
+                nextPreview = Time.realtimeSinceStartup + .1f; _ = SendPreview();
+            }
         }
         private async Task Renew() {
             var connection = client; var renewing = lease;

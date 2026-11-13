@@ -45,6 +45,19 @@ namespace Protobot {
             mounts = GetComponentsInChildren<CustomMountPoint>().Where(p => p.Owner == this && p.gameObject.activeSelf && !p.IsPreview).Select(p => p.Snapshot()).ToArray()
         };
 
+        internal void ApplyMountLayout(CustomMountData[] mounts) {
+            mounts ??= Array.Empty<CustomMountData>();
+            Validate(new CustomModelData { name = geometry.name, vertices = geometry.vertices, triangles = geometry.triangles, mounts = mounts });
+            // Mount state is per instance. Rebuild only the ordered point children;
+            // the content-addressed geometry, mesh and material stay untouched.
+            foreach (var point in GetComponentsInChildren<CustomMountPoint>(true).Where(point => point.Owner == this).ToArray()) {
+                point.SetSelected(false);
+                point.gameObject.SetActive(false);
+                if (Application.isPlaying) Destroy(point.gameObject); else DestroyImmediate(point.gameObject);
+            }
+            foreach (var mount in mounts) CreateMount(mount);
+        }
+
         public CustomMountPoint AddMount(Vector3 surface, Vector3 outwardNormal, float diameter, float depth, bool threaded) =>
             AddMount(new Pose(surface, Quaternion.LookRotation(outwardNormal)), diameter, depth, threaded);
 

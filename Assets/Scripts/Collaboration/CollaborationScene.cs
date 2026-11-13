@@ -58,6 +58,15 @@ namespace Protobot {
             position = new double[] { mount.x, mount.y, mount.z }, rotation = new double[] { mount.qx, mount.qy, mount.qz, mount.qw },
             diameter = mount.diameter, depth = mount.depth, threaded = mount.threaded
         };
+        public static Part CaptureCustomMounts(CustomModel model) {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            var id = model.GetComponent<SavedObject>().ConnectionId;
+            var accepted = CollaborationSession.AcceptedPart(id);
+            if (accepted == null || accepted.catalogId != CustomModel.PartId) throw new InvalidOperationException("The custom model is not in the accepted room document.");
+            var write = WireJson.Clone(accepted);
+            write.mounts = model.Snapshot().mounts.Select(CaptureMount).ToArray();
+            return write;
+        }
         public static Document CaptureDocument(CatalogManifest catalog) {
             var bodies = PartsManager.FindLoadedObjects();
             var loops = UnityEngine.Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsSortMode.None);
@@ -131,6 +140,7 @@ namespace Protobot {
                 bodies.TryGetValue(part.id, out var body);
                 if (body != null && replacements.Contains(part.id)) { body.SetActive(false); UnityEngine.Object.Destroy(body); body = null; }
                 if (body == null) body = SceneBuild.GenerateObject(ToObjectData(part, DocumentModel.Assets(accepted)), ToBuild(accepted));
+                else ApplyMountLayout(body, part);
                 ApplyAppearance(body, part);
                 SetPose(body, part);
             }
@@ -158,6 +168,16 @@ namespace Protobot {
             foreach (var part in parts) if (bodies.TryGetValue(part.id, out var body)) SetPose(body, part);
             Physics.SyncTransforms();
         }
+        public static void ApplyCustomMounts(IEnumerable<Part> parts) {
+            var layouts = (parts ?? Enumerable.Empty<Part>()).ToArray();
+            var bodies = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
+            var changed = layouts.Where(part => bodies.ContainsKey(part.id)).Select(part => bodies[part.id]).Distinct().ToArray();
+            var detectors = HoleDetector.GetAffectedDetectors(changed);
+            foreach (var part in layouts) if (bodies.TryGetValue(part.id, out var body)) ApplyMountLayout(body, part);
+            Physics.SyncTransforms();
+            foreach (var body in changed) HoleDetector.RefreshPart(body, detectors);
+            foreach (var detector in detectors) if (detector != null && detector.isActiveAndEnabled) detector.RefreshOverlaps();
+        }
         private static void SetPose(GameObject body, Part part) {
             // Work in world space; selection and connection pivots remain temporary, local objects.
             body.transform.SetPositionAndRotation(new Vector3((float)part.position[0], (float)part.position[1], (float)part.position[2]), Rotation(part));
@@ -175,9 +195,19 @@ namespace Protobot {
         private static bool RequiresReplacement(GameObject body, Part part) {
             if (body.GetComponent<SavedObject>().id != part.catalogId) return true;
             if (part.catalogId != CustomModel.PartId) return false;
-            var captured = Capture(body);
-            return captured.assetHash != part.assetHash || DocumentModel.Mounts(captured).Length != DocumentModel.Mounts(part).Length ||
-                !DocumentModel.Mounts(captured).Zip(DocumentModel.Mounts(part), SameMount).All(equal => equal);
+            return CaptureAsset(body.GetComponent<CustomModel>().Snapshot()).hash != part.assetHash;
+        }
+        private static void ApplyMountLayout(GameObject body, Part part) {
+            var model = body.GetComponent<CustomModel>();
+            if (model == null || part.catalogId != CustomModel.PartId) return;
+            var current = model.Snapshot().mounts.Select(CaptureMount).ToArray();
+            var accepted = DocumentModel.Mounts(part);
+            if (current.Length == accepted.Length && current.Zip(accepted, SameMount).All(equal => equal)) return;
+            model.ApplyMountLayout(accepted.Select(mount => new CustomMountData {
+                x = (float)mount.position[0], y = (float)mount.position[1], z = (float)mount.position[2],
+                qx = (float)mount.rotation[0], qy = (float)mount.rotation[1], qz = (float)mount.rotation[2], qw = (float)mount.rotation[3],
+                diameter = (float)mount.diameter, depth = (float)mount.depth, threaded = mount.threaded
+            }).ToArray());
         }
         private static bool SameMount(CustomMount a, CustomMount b) {
             if (a == null || b == null || a.position?.Length != 3 || b.position?.Length != 3 || a.rotation?.Length != 4 || b.rotation?.Length != 4) return false;

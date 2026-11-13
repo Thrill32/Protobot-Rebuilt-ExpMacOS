@@ -124,7 +124,7 @@ namespace Protobot {
             if (CollaborationSession.IsShared) {
                 CollaborationSession.PlaceCopies(new List<GameObject> { obj }, selectResult: selectionManager);
                 LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
-                InteractionFeedback.Notify($"Submitted {data.name} to the shared room. Mount editing remains unavailable while connected.");
+                InteractionFeedback.Notify($"Submitted {data.name} to the shared room.");
                 return null;
             }
             StateSystem.AddElement(new ObjectElement(obj) { existing = false });
@@ -143,11 +143,11 @@ namespace Protobot {
         }
 
         public void ToggleMounts() {
-            if (CollaborationSession.BlocksLegacyMutation) {
-                InteractionFeedback.Notify("Shared custom models can be moved, copied, painted and saved; mounting-point editing is not shared yet.");
+            if (placingMounts) { CancelMode(); return; }
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) {
+                InteractionFeedback.Notify("Reconnect or join as an editor to change shared mounting points.");
                 return;
             }
-            if (placingMounts) { CancelMode(); return; }
             if (!CanStart || options) return;
             Simulation.SimulationTool.ExitForEdit();
             selectionManager.ClearCurrent(false, true, true);
@@ -198,7 +198,8 @@ namespace Protobot {
             bool pointerPaused = !mountEditor.IsEditing && Mouse.current != null && (MouseInput.overUI || !MouseInput.withinScreen);
             bool pause = RebindAction.Rebinding || Mouse.current == null || !focused ||
                 KeyboardTransformTool.IsEditingText() || pointerPaused || InputEvent.IsNoclipMovementCaptured ||
-                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed;
+                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed ||
+                CollaborationSession.IsShared && !CollaborationSession.CanEdit;
             movePointButton.interactable = mountEditor.Selected != null && !mountEditor.IsEditing;
             movePointButton.GetComponentInChildren<Text>().text = mountEditor.SelectedPoints.Count > 1 ? "Move selected points" : "Move selected point";
             if (mountEditor.Tick(pause) || pause) return;
@@ -233,6 +234,24 @@ namespace Protobot {
                 return;
             }
             if (Time.frameCount == startFrame || !Mouse.current.leftButton.wasPressedThisFrame) return;
+            if (CollaborationSession.IsShared) {
+                if (!CollaborationSession.CanEdit || CollaborationSession.HasReservation) return;
+                var capturedModel = model; var capturedFace = face; bool capturedThreaded = threaded;
+                CollaborationSession.ReserveCustomMounts(new[] { capturedModel }, () => {
+                    if (!placingMounts || capturedModel == null || !capturedModel.gameObject.activeInHierarchy || capturedModel.gameObject.IsDeleted()) {
+                        CollaborationSession.CancelCustomMounts(); return;
+                    }
+                    var sharedPoint = capturedModel.AddMount(capturedFace, diameter, depth, capturedThreaded);
+                    if (sharedPoint == null) {
+                        CollaborationSession.CancelCustomMounts();
+                        InteractionFeedback.Notify("A mounting point already exists here.");
+                        return;
+                    }
+                    mountEditor.Select(sharedPoint);
+                    CollaborationSession.ConfirmCustomMounts(new[] { capturedModel });
+                });
+                return;
+            }
             var point = model.AddMount(face, diameter, depth, threaded);
             if (point != null) { point.RecordAdded(); mountEditor.Select(point); }
             else InteractionFeedback.Notify("A mounting point already exists here.");

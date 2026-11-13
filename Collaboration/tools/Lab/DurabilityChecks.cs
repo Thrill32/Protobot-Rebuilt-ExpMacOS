@@ -224,21 +224,29 @@ internal static partial class Program {
             owner = room.Join(new JoinRequest { name = "Custom owner", catalogHash = seed.catalog.hash, ownerCredential = seed.ownerCredential });
             Check(room.Commit(owner.token, Tx(room.Snapshot, "AddParts", new[] { Custom("durable-custom", asset) }, sequence: 1, assets: new[] { asset })).accepted,
                 "durable custom geometry transaction accepted");
+            var layout = WireJson.Clone(room.Snapshot.parts.Single());
+            layout.mounts = layout.mounts.Concat(new[] { new CustomMount { position = new[] { .75, 0.0, 0.0 },
+                rotation = new[] { 0.0, 0.0, 0.0, 1.0 }, diameter = .25, depth = .125 } }).ToArray();
+            var held = room.Reserve(owner.token, new LeaseRequest { ids = new[] { layout.id } });
+            Check(room.Commit(owner.token, Tx(room.Snapshot, "SetCustomMounts", new[] { layout }, lease: held.token, sequence: 2)).accepted,
+                "durable custom mounting layout transaction accepted");
         }
         using (var store = new RoomStore(directory, checkpointEvery: 1)) {
             var room = new Room(null, storage: store);
             var resumed = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = owner.resumeToken });
-            Check(room.Snapshot.parts.Single().assetHash == asset.hash && DocumentModel.Assets(room.Snapshot).Single().hash == asset.hash,
-                "custom geometry checkpoint recovers content reference");
-            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Undo", Array.Empty<Part>(), sequence: 2)).accepted && room.Snapshot.parts.Length == 0 &&
-                DocumentModel.Assets(room.Snapshot).Single().hash == asset.hash, "custom undo retains geometry required by redo");
-            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Redo", Array.Empty<Part>(), sequence: 3)).accepted &&
-                room.Snapshot.parts.Single().assetHash == asset.hash, "custom redo restores geometry reference after restart");
+            Check(room.Snapshot.parts.Single().assetHash == asset.hash && DocumentModel.Assets(room.Snapshot).Single().hash == asset.hash &&
+                DocumentModel.Mounts(room.Snapshot.parts.Single()).Length == 2, "custom geometry and mounting layout checkpoint recover together");
+            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Undo", Array.Empty<Part>(), sequence: 3)).accepted &&
+                DocumentModel.Mounts(room.Snapshot.parts.Single()).Length == 1 && room.Snapshot.parts.Single().assetHash == asset.hash,
+                "custom mount undo after restart preserves geometry");
+            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Redo", Array.Empty<Part>(), sequence: 4)).accepted &&
+                DocumentModel.Mounts(room.Snapshot.parts.Single()).Length == 2 && room.Snapshot.parts.Single().assetHash == asset.hash,
+                "custom mount redo restores layout after restart");
         }
         using (var store = new RoomStore(directory)) {
             var room = new Room(null, storage: store);
-            Check(room.Snapshot.parts.Single().assetHash == asset.hash && room.Snapshot.revision == 3,
-                "custom geometry undo/redo journal survives second restart");
+            Check(room.Snapshot.parts.Single().assetHash == asset.hash && DocumentModel.Mounts(room.Snapshot.parts.Single()).Length == 2 && room.Snapshot.revision == 4,
+                "custom geometry and mount undo/redo journal survive second restart");
         }
     }
 

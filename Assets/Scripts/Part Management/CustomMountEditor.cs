@@ -111,6 +111,21 @@ namespace Protobot {
                 if (changingDepth && !IsTyping) { Finish(true); DepthCalibrated?.Invoke(Selected); }
                 return;
             }
+            if (CollaborationSession.IsShared) {
+                if (!CollaborationSession.CanEdit || CollaborationSession.HasReservation) return;
+                var point = Selected; var owner = point.Owner;
+                CollaborationSession.ReserveCustomMounts(new[] { owner }, () => {
+                    if (!Enabled || point == null || point.Owner != owner || !point.gameObject.activeInHierarchy || point.gameObject.IsDeleted()) {
+                        CollaborationSession.CancelCustomMounts(); return;
+                    }
+                    bool acceptedChange = CustomMountGrid.Recalibrate(point, false);
+                    if (acceptedChange) CollaborationSession.ConfirmCustomMounts(new[] { owner });
+                    else CollaborationSession.CancelCustomMounts();
+                    InteractionFeedback.Notify(acceptedChange ? "Grid recalibrated from the last-selected hole; existing holes stay in place."
+                        : "This hole already anchors its plane's grid.");
+                });
+                return;
+            }
             bool changed = CustomMountGrid.Recalibrate(Selected);
             InteractionFeedback.Notify(changed ? "Grid recalibrated from the last-selected hole; existing holes stay in place."
                 : "This hole already anchors its plane's grid.");
@@ -119,6 +134,26 @@ namespace Protobot {
         public void BeginDepth() => Begin(false, true);
         private void Begin(bool rotatePoint, bool editDepth) {
             if (!Enabled || Selected == null || IsEditing || KeyboardTransformTool.IsEditingText()) return;
+            if (CollaborationSession.IsShared) {
+                if (!CollaborationSession.CanEdit || CollaborationSession.HasReservation) return;
+                var selected = selection.ToArray();
+                var owners = selected.Select(point => point.Owner).Where(owner => owner != null).Distinct().ToArray();
+                CollaborationSession.ReserveCustomMounts(owners, () => {
+                    if (!Enabled || IsEditing || !selection.SequenceEqual(selected) || selected.Any(point => point == null || point.Owner == null ||
+                        !point.gameObject.activeInHierarchy || point.gameObject.IsDeleted())) {
+                        CollaborationSession.CancelCustomMounts(); return;
+                    }
+                    BeginReserved(rotatePoint, editDepth);
+                });
+                return;
+            }
+            BeginReserved(rotatePoint, editDepth);
+        }
+        private void BeginReserved(bool rotatePoint, bool editDepth) {
+            if (!Enabled || Selected == null || IsEditing || KeyboardTransformTool.IsEditingText()) {
+                if (CollaborationSession.IsShared) CollaborationSession.CancelCustomMounts();
+                return;
+            }
             EventSystem.current?.SetSelectedGameObject(null);
             originals = selection.ToArray();
             affected = HoleDetector.GetAffectedDetectors(originals.Select(p => p.Owner.gameObject).Distinct().ToArray());
@@ -257,20 +292,24 @@ namespace Protobot {
         public void Finish(bool confirm) {
             if (!IsEditing) return;
             var valid = edits.Where(e => e.point != null && e.point.Owner != null).ToArray();
+            var owners = valid.Select(edit => edit.point.Owner).Distinct().ToArray();
             if (changingDepth) {
                 IsEditing = false; numeric.Close(); finishedFrame = Time.frameCount;
                 var after = new List<IElement>();
                 bool changed = confirm && valid.Any(e => e.depth != e.point.Depth);
                 foreach (var edit in valid) {
-                    if (changed) {
+                    if (changed && !CollaborationSession.IsShared) {
                         StateSystem.AddElement(edit.point.DepthState(edit.before, edit.depth));
                         after.Add(edit.point.DepthState(edit.point.LocalPose, edit.point.Depth));
                     }
                     if (!confirm) edit.point.SetDepth(edit.depth);
                     edit.point.ApplyLocalPose(confirm && edit.point.Depth != edit.depth ? edit.point.LocalPose : edit.before, affected);
                 }
-                if (changed) StateSystem.AddState(new State(after));
+                if (changed && !CollaborationSession.IsShared) StateSystem.AddState(new State(after));
                 changingDepth = false; edits.Clear(); originals = null;
+                if (CollaborationSession.IsShared) {
+                    if (changed) CollaborationSession.ConfirmCustomMounts(owners); else CollaborationSession.CancelCustomMounts();
+                }
                 return;
             }
             var existingCopies = new List<CustomMountPoint>();
@@ -310,8 +349,9 @@ namespace Protobot {
                     if (duplicating) valid[i].point.SetPreview(false);
                     valid[i].point.ApplyLocalPose(confirm ? after[i] : valid[i].before, affected);
                 }
-                if (confirm && valid.Length > 0 && (duplicating || valid.Where((e, i) => Vector3.Distance(e.before.position, after[i].position) > .000001f ||
-                    Quaternion.Angle(e.before.rotation, after[i].rotation) > .0001f).Any())) {
+                bool changed = confirm && valid.Length > 0 && (duplicating || valid.Where((e, i) => Vector3.Distance(e.before.position, after[i].position) > .000001f ||
+                    Quaternion.Angle(e.before.rotation, after[i].rotation) > .0001f).Any());
+                if (changed && !CollaborationSession.IsShared) {
                     var result = new List<IElement>();
                     for (int i = 0; i < valid.Length; i++) {
                         StateSystem.AddElement(duplicating ? valid[i].point.ExistenceState(false) : valid[i].point.PoseState(valid[i].before));
@@ -319,8 +359,14 @@ namespace Protobot {
                     }
                     StateSystem.AddState(new State(result));
                 }
+                if (CollaborationSession.IsShared) {
+                    duplicating = false; edits.Clear(); originals = null;
+                    if (changed) CollaborationSession.ConfirmCustomMounts(owners); else CollaborationSession.CancelCustomMounts();
+                    return;
+                }
             }
             duplicating = false; edits.Clear(); originals = null;
+            if (CollaborationSession.IsShared) CollaborationSession.CancelCustomMounts();
         }
         private static void Discard(IEnumerable<CustomMountPoint> points) {
             foreach (var point in points) {
@@ -331,7 +377,21 @@ namespace Protobot {
         }
         private void Delete() {
             if (!Enabled || IsEditing || Selected == null || KeyboardTransformTool.IsEditingText()) return;
-            var points = selection.ToArray(); Select(null);
+            var points = selection.ToArray();
+            if (CollaborationSession.IsShared) {
+                if (!CollaborationSession.CanEdit || CollaborationSession.HasReservation) return;
+                var owners = points.Select(point => point.Owner).Where(owner => owner != null).Distinct().ToArray();
+                CollaborationSession.ReserveCustomMounts(owners, () => {
+                    if (!Enabled || points.Any(point => point == null || point.Owner == null || !point.gameObject.activeInHierarchy || point.gameObject.IsDeleted())) {
+                        CollaborationSession.CancelCustomMounts(); return;
+                    }
+                    Select(null);
+                    foreach (var point in points) point.SetExists(false);
+                    CollaborationSession.ConfirmCustomMounts(owners);
+                });
+                return;
+            }
+            Select(null);
             var after = new List<IElement>();
             foreach (var point in points) {
                 StateSystem.AddElement(point.ExistenceState(true)); point.SetExists(false);

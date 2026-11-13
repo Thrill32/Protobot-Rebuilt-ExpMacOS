@@ -52,8 +52,9 @@ namespace Protobot.Collaboration {
             int mutations = tx.writes?.Length + tx.deletes?.Length + chainWrites.Length + chainDeletes.Length + assetWrites.Length ?? 0;
             Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxWriteSet &&
                 tx.expected.Length <= MaxWriteSet * 2 && expectedChains.Length <= MaxWriteSet * 2, "write-set-limit");
-            Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "DeleteParts" ||
-                tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts", "unsupported-mutation");
+            Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "SetCustomMounts" ||
+                tx.kind == "DeleteParts" || tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts",
+                "unsupported-mutation");
             bool createsPartsAndChains = (tx.kind == "AddParts" || tx.kind == "TransformAndCopy") && tx.writes.Length > 0 && tx.deletes.Length == 0 &&
                 chainWrites.Length > 0 && chainDeletes.Length == 0;
             Require(tx.kind == "SetChains" ? tx.writes.Length == 0 && tx.deletes.Length == 0 && chainWrites.Length + chainDeletes.Length > 0 :
@@ -101,7 +102,11 @@ namespace Protobot.Collaboration {
                 }
                 else {
                     Require(exists && tx.kind != "DeleteParts" && tx.deletes.Length == 0, "missing-entity");
-                    if (tx.kind != "SetParts") Require(before.catalogId == write.catalogId && before.state == write.state && before.hasPaint == write.hasPaint &&
+                    if (tx.kind == "SetCustomMounts")
+                        Require(IsCustom(before) && IsCustom(write) && SameExceptMounts(before, write), "mounts-only");
+                    else if (tx.kind == "SetParts")
+                        Require(IsCustom(before) == IsCustom(write) && (!IsCustom(before) || SameCustom(before, write)), "custom-content-immutable");
+                    else Require(before.catalogId == write.catalogId && before.state == write.state && before.hasPaint == write.hasPaint &&
                         before.color.SequenceEqual(write.color) && SameCustom(before, write), "pose-only");
                 }
                 var accepted = WireJson.Clone(write);
@@ -250,6 +255,9 @@ namespace Protobot.Collaboration {
 
         private static bool SameCustom(Part a, Part b) => (a.assetHash ?? "") == (b.assetHash ?? "") && Mounts(a).Length == Mounts(b).Length &&
             Mounts(a).Zip(Mounts(b), SameMount).All(equal => equal);
+        private static bool SameExceptMounts(Part a, Part b) => a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") &&
+            a.hasPaint == b.hasPaint && a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) &&
+            a.color.SequenceEqual(b.color) && (a.assetHash ?? "") == (b.assetHash ?? "");
         private static bool SameMount(CustomMount a, CustomMount b) => a != null && b != null && a.position.SequenceEqual(b.position) &&
             NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.diameter == b.diameter && a.depth == b.depth && a.threaded == b.threaded;
         private static CustomMount NormalizeMount(CustomMount mount) { var copy = WireJson.Clone(mount); copy.rotation = NormalizeRotation(copy.rotation); return copy; }

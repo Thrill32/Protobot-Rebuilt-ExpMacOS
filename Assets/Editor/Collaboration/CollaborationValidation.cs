@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration validation passed: actual managed helper launch, Unity shared-client WebSocket/HTTPS-request transports, catalog/custom materialization and import, reservation/ghost/cancel, exact G/R confirmation, preview-safe snapshots, remote delete, path isolation and helper shutdown.");
+                Debug.Log("Collaboration validation passed: actual managed helper launch, Unity shared-client WebSocket/HTTPS-request transports, catalog/custom materialization and import, silent custom-mount leases/confirmation/history, reservation/ghost/cancel, exact G/R confirmation, preview-safe snapshots, remote delete, path isolation and helper shutdown.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -301,7 +301,52 @@ namespace ProtobotEditorTools {
             Require(customBody != null && Math.Abs(customBody.transform.position.y - 2) < .001f && customBody.GetComponentsInChildren<CustomMountPoint>().Length == 1,
                 "Custom G movement changed or regenerated immutable geometry/mounts.");
             var customTool = Object.FindFirstObjectByType<CustomModelTool>(); customTool.ToggleMounts();
-            Require(!CustomModelTool.IsEditingMounts, "Connected mode exposed unsynchronized mounting edits.");
+            Require(CustomModelTool.IsEditingMounts, "Connected mode did not expose shared mounting edits.");
+            var customModel = customBody.GetComponent<CustomModel>();
+            bool mountReserved = false;
+            long mountRevision = Document().revision;
+            CollaborationSession.ReserveCustomMounts(new[] { customModel }, () => mountReserved = true);
+            await Until(() => mountReserved);
+            await Task.Delay(175);
+            Require(CollaborationSession.HasReservation && Get<System.Collections.Generic.Dictionary<string, GameObject>>(session, "ghosts").Count == 0 &&
+                peer.Snapshot.revision == mountRevision, "A canceled mount reservation broadcast a ghost or document edit.");
+            CollaborationSession.CancelCustomMounts();
+            await Until(() => !CollaborationSession.HasReservation);
+
+            mountReserved = false;
+            CollaborationSession.ReserveCustomMounts(new[] { customModel }, () => mountReserved = true);
+            await Until(() => mountReserved);
+            var localMount = customModel.AddMount(new Pose(customBody.transform.TransformPoint(new Vector3(.5f, 0, 0)), customBody.transform.rotation), .2f, .08f, false);
+            Require(localMount != null, "Shared mount fixture could not create its local confirmed point.");
+            await Task.Delay(175);
+            Require(CollaborationSession.SaveSnapshot().parts.Single(p => p.connectionId == customId).customModel.mounts.Length == 1 &&
+                DocumentModel.Mounts(peer.Snapshot.parts.Single(p => p.id == customId)).Length == 1 &&
+                Get<System.Collections.Generic.Dictionary<string, GameObject>>(session, "ghosts").Count == 0,
+                "Unconfirmed mounting layout entered a save, remote document or ghost preview.");
+            mountRevision = Document().revision;
+            CollaborationSession.ConfirmCustomMounts(new[] { customModel });
+            await Changed(mountRevision);
+            await Until(() => DocumentModel.Mounts(peer.Snapshot.parts.Single(p => p.id == customId)).Length == 2);
+            Require(customBody.GetComponentsInChildren<CustomMountPoint>().Length == 2 && DocumentModel.Assets(Document()).Single().hash == asset.hash,
+                "Confirmed mounting layout did not materialize without changing immutable geometry.");
+            await History();
+            Require(customBody.GetComponentsInChildren<CustomMountPoint>().Length == 1 && Document().parts.Single(p => p.id == customId).assetHash == asset.hash,
+                "Mount layout undo changed geometry or failed to restore the prior component.");
+            await History(true);
+            Require(customBody.GetComponentsInChildren<CustomMountPoint>().Length == 2, "Mount layout redo did not restore the confirmed component.");
+
+            var remoteMounts = WireJson.Clone(peer.Snapshot.parts.Single(p => p.id == customId));
+            Array.Reverse(remoteMounts.mounts); remoteMounts.mounts[0].depth = .12;
+            var remoteMountLease = await peer.ReserveAsync(new[] { customId });
+            mountRevision = Document().revision;
+            Require((await peer.SubmitAsync(peer.CreateTransaction("SetCustomMounts", new[] { remoteMounts }, lease: remoteMountLease.token))).accepted,
+                "Remote mounting layout edit rejected.");
+            await Changed(mountRevision);
+            Require(customModel.Snapshot().mounts.Length == 2 && Math.Abs(customModel.Snapshot().mounts[0].depth - .12f) < .001f &&
+                CollaborationSession.SaveSnapshot().parts.Single(p => p.connectionId == customId).customModel.mounts.Length == 2,
+                "Remote ordered mounting layout did not materialize or persist locally.");
+            if (CustomModelTool.IsEditingMounts) customTool.ToggleMounts();
+            Require(!CustomModelTool.IsEditingMounts, "Mounting mode did not close after shared edits.");
             rev = Document().revision; CollaborationSession.Paint(new[] { customBody }, new Color(.15f, .45f, .75f), false); await Changed(rev);
             Require(customBody.GetComponent<SavedObject>().hasPaint && Math.Abs(PartColors.GetColor(customBody).b - .75f) < .001f,
                 "Shared custom-model paint did not apply.");
