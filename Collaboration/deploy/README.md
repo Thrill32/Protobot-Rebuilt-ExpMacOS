@@ -1,6 +1,6 @@
 # Dedicated Debian room
 
-This is the single-room deployment path for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Multi-room administration, backup/restore commands and custom models/mounting remain unfinished; catalog sprocket chains are part of accepted room content.
+This is the single-room deployment path for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Bounded custom geometry, existing mounting layouts and sprocket chains are accepted room content. Live mounting-point editing, a separate large-asset service, multi-room administration and backup/restore commands remain unfinished.
 
 Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux-arm64` for `aarch64`/`arm64` systems such as a 64-bit Raspberry Pi 4. These self-contained .NET 10 publishes include the managed runtime, but still require the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. A 32-bit `armv7l` operating system is not supported by the supplied artifacts.
 

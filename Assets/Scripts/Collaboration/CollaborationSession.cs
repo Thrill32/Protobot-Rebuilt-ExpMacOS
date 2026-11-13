@@ -47,7 +47,7 @@ namespace Protobot {
         private bool lan, panel;
         private CollaborationTransport transport;
         private Participant[] participants = Array.Empty<Participant>();
-        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Chains", "Simulation set pose", "Delete", "Personal undo / redo" };
+        private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Custom model import", "Chains", "Simulation set pose", "Delete", "Personal undo / redo" };
         public static bool IsShared => instance != null && instance.client != null;
         public static bool IsApplying => instance != null && instance.applying;
         public static bool CanPreview => !IsShared || instance.client.IsConnected && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
@@ -336,11 +336,12 @@ namespace Protobot {
         public static VersionRef[] Versions(IEnumerable<string> ids) => instance?.committed == null ? Array.Empty<VersionRef>() :
             ids.Distinct().Select(id => new VersionRef { id = id, version = instance.committed.parts.FirstOrDefault(p => p.id == id)?.version ??
                 instance.committed.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray();
+        public static Part AcceptedPart(string id) => IsShared ? instance.committed?.parts.FirstOrDefault(part => part.id == id) : null;
         public static VersionRef[] ChainVersions(IEnumerable<string> ids) => instance?.committed == null ? Array.Empty<VersionRef>() :
             ids.Distinct().Select(id => new VersionRef { id = id, version = DocumentModel.Chains(instance.committed).FirstOrDefault(c => c.id == id)?.version ??
                 DocumentModel.ChainTombstones(instance.committed).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray();
         private Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string token = null, long? expectedRevision = null,
-            ChainRecord[] chainWrites = null, string[] chainDeletes = null, VersionRef[] chainDependencies = null) {
+            ChainRecord[] chainWrites = null, string[] chainDeletes = null, VersionRef[] chainDependencies = null, GeometryAsset[] assetWrites = null) {
             var expected = (dependencies ?? Array.Empty<VersionRef>()).ToDictionary(v => v.id);
             foreach (var version in Versions(writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>())))
                 if (!expected.ContainsKey(version.id)) expected.Add(version.id, version);
@@ -348,7 +349,7 @@ namespace Protobot {
             foreach (var version in ChainVersions((chainWrites ?? Array.Empty<ChainRecord>()).Select(c => c.id).Concat(chainDeletes ?? Array.Empty<string>())))
                 if (!expectedChains.ContainsKey(version.id)) expectedChains.Add(version.id, version);
             var transaction = client.CreateTransaction(kind, writes, deletes, expected.Values.ToArray(), token,
-                chainWrites ?? Array.Empty<ChainRecord>(), chainDeletes ?? Array.Empty<string>(), expectedChains.Values.ToArray());
+                chainWrites ?? Array.Empty<ChainRecord>(), chainDeletes ?? Array.Empty<string>(), expectedChains.Values.ToArray(), assetWrites ?? Array.Empty<GeometryAsset>());
             transaction.expectedRevision = expectedRevision;
             return transaction;
         }
@@ -397,6 +398,9 @@ namespace Protobot {
         public static void PlaceCopies(List<GameObject> temporary, VersionRef[] dependencies = null, SelectionManager selectResult = null,
             List<GameObject> temporaryChains = null) {
             var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
+            var existingAssets = instance?.committed == null ? new HashSet<string>(StringComparer.Ordinal) :
+                DocumentModel.Assets(instance.committed).Select(asset => asset.hash).ToHashSet(StringComparer.Ordinal);
+            var assets = CollaborationScene.CaptureAssets(temporary).Where(asset => !existingAssets.Contains(asset.hash)).ToArray();
             var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj => obj.GetComponent<Simulation.ChainLoop>())
                 .Where(loop => loop != null).Select(loop => loop.Capture()).ToArray();
             ObjectDuplicator.DiscardCopies(temporary);
@@ -404,7 +408,7 @@ namespace Protobot {
             if (IsShared && CanEdit) {
                 try {
                     var tx = instance.CreateTransaction("AddParts", parts, dependencies: dependencies,
-                        chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)));
+                        chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)), assetWrites: assets);
                     if (selectResult != null) instance.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
                     _ = instance.Submit(tx);
                 }

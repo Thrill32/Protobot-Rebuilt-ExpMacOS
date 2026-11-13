@@ -131,7 +131,7 @@ namespace Protobot.Collaboration {
         }
 
         public Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string lease = null,
-            ChainRecord[] chainWrites = null, string[] chainDeletes = null, VersionRef[] chainDependencies = null) {
+            ChainRecord[] chainWrites = null, string[] chainDeletes = null, VersionRef[] chainDependencies = null, GeometryAsset[] assetWrites = null) {
             lock (gate) {
                 DocumentModel.Require(IsConnected && document != null, "disconnected");
                 var ids = (writes ?? Array.Empty<Part>()).Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).ToArray();
@@ -144,7 +144,8 @@ namespace Protobot.Collaboration {
                     version = DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.version ?? DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 });
                 return new Transaction { generation = document.generation, kind = kind, sequence = ++sequence,
                     writes = writes ?? Array.Empty<Part>(), deletes = deletes ?? Array.Empty<string>(), expected = expected.Values.ToArray(), lease = lease,
-                    chainWrites = chainWrites ?? Array.Empty<ChainRecord>(), chainDeletes = chainDeletes ?? Array.Empty<string>(), expectedChains = expectedChains.Values.ToArray() };
+                    chainWrites = chainWrites ?? Array.Empty<ChainRecord>(), chainDeletes = chainDeletes ?? Array.Empty<string>(), expectedChains = expectedChains.Values.ToArray(),
+                    assetWrites = assetWrites ?? Array.Empty<GeometryAsset>() };
             }
         }
 

@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
-        public const string Version = "0.4.1-alpha";
+        public const string Version = "0.5.0-alpha";
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -17,6 +17,10 @@ namespace Protobot.Collaboration {
         public double[] rotation = new double[] { 0, 0, 0, 1 };
         public bool hasPaint;
         public double[] color = new double[] { 1, 1, 1 };
+        // CUSTOM parts reference immutable document geometry and own an ordered
+        // mounting layout. Catalog parts leave both fields empty.
+        public string assetHash;
+        public CustomMount[] mounts = Array.Empty<CustomMount>();
     }
     [Serializable] public sealed class Document {
         public int schema = 1;
@@ -27,6 +31,19 @@ namespace Protobot.Collaboration {
         public VersionRef[] tombstones = Array.Empty<VersionRef>();
         public ChainRecord[] chains = Array.Empty<ChainRecord>();
         public VersionRef[] chainTombstones = Array.Empty<VersionRef>();
+        public GeometryAsset[] assets = Array.Empty<GeometryAsset>();
+    }
+    [Serializable] public sealed class GeometryAsset {
+        public string hash;
+        public string name;
+        public double[] vertices = Array.Empty<double>();
+        public int[] triangles = Array.Empty<int>();
+    }
+    [Serializable] public sealed class CustomMount {
+        public double[] position = new double[3];
+        public double[] rotation = new double[] { 0, 0, 0, 1 };
+        public double diameter, depth;
+        public bool threaded;
     }
     [Serializable] public sealed class ChainRecord {
         public string id;
@@ -71,6 +88,7 @@ namespace Protobot.Collaboration {
         public VersionRef[] expectedChains = Array.Empty<VersionRef>();
         public ChainRecord[] chainWrites = Array.Empty<ChainRecord>();
         public string[] chainDeletes = Array.Empty<string>();
+        public GeometryAsset[] assetWrites = Array.Empty<GeometryAsset>();
     }
     [Serializable] public sealed class Receipt {
         public string operationId;

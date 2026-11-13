@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration validation passed: actual managed helper launch, Unity shared-client WebSocket/HTTPS-request transports, join/remote materialization, reservation/ghost/cancel, exact G/R confirmation, preview-safe snapshots, remote delete, path isolation and helper shutdown.");
+                Debug.Log("Collaboration validation passed: actual managed helper launch, Unity shared-client WebSocket/HTTPS-request transports, catalog/custom materialization and import, reservation/ghost/cancel, exact G/R confirmation, preview-safe snapshots, remote delete, path isolation and helper shutdown.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -280,6 +280,64 @@ namespace ProtobotEditorTools {
             Require(PartsManager.FindLoadedObjects().Count == count + 3 && BuildTransfer.SelectedBodies(selection.current).Count == 3, "Imported set was not accepted/selected atomically.");
             await History();
 
+            var asset = new GeometryAsset { name = "Shared custom triangle", vertices = new[] { -1.0, -1.0, 0.0, 1.0, -1.0, 0.0, 0.0, 1.0, 0.0 },
+                triangles = new[] { 0, 1, 2 } };
+            asset.hash = DocumentModel.GeometryHash(asset);
+            string customId = Guid.NewGuid().ToString("N");
+            var customPart = new Part { id = customId, catalogId = CustomModel.PartId, assetHash = asset.hash,
+                position = new[] { 70.0, 0.0, 0.0 }, mounts = new[] { new CustomMount { position = new[] { 0.0, 0.0, -.05 },
+                    rotation = new[] { 0.0, 0.0, 0.0, 1.0 }, diameter = .169, depth = .1, threaded = true } } };
+            rev = Document().revision;
+            Require((await peer.SubmitAsync(peer.CreateTransaction("AddParts", new[] { customPart }, assetWrites: new[] { asset }))).accepted,
+                "Remote custom geometry add rejected.");
+            await Changed(rev);
+            var customBody = PartsManager.FindLoadedObjects().Single(part => part.GetComponent<SavedObject>().ConnectionId == customId);
+            Require(customBody.GetComponent<CustomModel>() != null && customBody.GetComponent<MeshFilter>().sharedMesh.vertexCount == 3 &&
+                customBody.GetComponentsInChildren<CustomMountPoint>().Length == 1 && CollaborationSession.SaveSnapshot().parts.Single(p => p.connectionId == customId).customModel.mounts.Length == 1,
+                "Shared custom geometry or mounting layout did not materialize/save.");
+            selection.SetCurrent(new ObjectSelection { gameObject = customBody, individual = true }, true, true);
+            Invoke(keyboard, "BeginSelection", false); await Until(() => Get<bool>(keyboard, "active"));
+            rev = Document().revision; Invoke(keyboard, "SetTarget", Vector3.up * 2, Quaternion.identity); Invoke(keyboard, "CompleteConfirmation"); await Changed(rev);
+            Require(customBody != null && Math.Abs(customBody.transform.position.y - 2) < .001f && customBody.GetComponentsInChildren<CustomMountPoint>().Length == 1,
+                "Custom G movement changed or regenerated immutable geometry/mounts.");
+            var customTool = Object.FindFirstObjectByType<CustomModelTool>(); customTool.ToggleMounts();
+            Require(!CustomModelTool.IsEditingMounts, "Connected mode exposed unsynchronized mounting edits.");
+            rev = Document().revision; CollaborationSession.Paint(new[] { customBody }, new Color(.15f, .45f, .75f), false); await Changed(rev);
+            Require(customBody.GetComponent<SavedObject>().hasPaint && Math.Abs(PartColors.GetColor(customBody).b - .75f) < .001f,
+                "Shared custom-model paint did not apply.");
+            selection.SetCurrent(new ObjectSelection { gameObject = customBody, individual = true }, true, true);
+            string customClipboard = GUIUtility.systemCopyBuffer;
+            try {
+                Require(await transfer.CopySelectedAsync() && await transfer.PasteAsync(), "Shared custom-model clipboard workflow did not start.");
+                rev = Document().revision; Invoke(placement, "Place"); await Changed(rev);
+                Require(PartsManager.FindLoadedObjects().Count(part => part.GetComponent<CustomModel>() != null) == 2 && DocumentModel.Assets(Document()).Length == 1,
+                    "Custom paste duplicated or lost immutable geometry.");
+                await History();
+            }
+            finally { GUIUtility.systemCopyBuffer = customClipboard; }
+            rev = Document().revision; CollaborationSession.Delete(new[] { customBody }); await Changed(rev);
+            Require(PartsManager.FindLoadedObjects().All(part => part.GetComponent<SavedObject>().ConnectionId != customId), "Shared custom delete did not materialize.");
+            await History(); Require(PartsManager.FindLoadedObjects().Any(part => part.GetComponent<SavedObject>().ConnectionId == customId), "Custom delete undo lost geometry.");
+            await History(true); Require(PartsManager.FindLoadedObjects().Count == count && DocumentModel.Assets(Document()).Length == 1,
+                "Custom delete redo did not restore the custom-free scene while retaining immutable geometry.");
+
+            string modelPath = Path.Combine(LocalPreferences.ProfileDirectory ?? Path.GetTempPath(), "shared-import-" + Guid.NewGuid().ToString("N") + ".obj");
+            try {
+                File.WriteAllText(modelPath, "v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n");
+                rev = Document().revision;
+                Require(await customTool.ImportPathAsync(modelPath, 1) == null, "Connected custom import must submit rather than retain a private object.");
+                await Changed(rev);
+                var importedCustom = PartsManager.FindLoadedObjects().Single(part => part.GetComponent<CustomModel>() != null);
+                Require(DocumentModel.Assets(Document()).Length == 2 && importedCustom.GetComponent<MeshFilter>().sharedMesh.vertexCount == 3,
+                    "Custom import did not publish its immutable geometry.");
+                rev = Document().revision; CollaborationSession.Delete(new[] { importedCustom }); await Changed(rev);
+                Require(PartsManager.FindLoadedObjects().Count == count, "Custom import cleanup did not return to the accepted catalog scene.");
+            }
+            finally { if (File.Exists(modelPath)) File.Delete(modelPath); }
+
+            // Leave an operation on the catalog body at the tip of this participant's
+            // history so the following remote edit specifically fences that inverse.
+            rev = Document().revision; CollaborationSession.Paint(new[] { Body() }, new Color(.31f, .41f, .51f), false); await Changed(rev);
             var staleTarget = CollaborationSession.Versions(new[] { id });
             var remote = WireJson.Clone(peer.Snapshot.parts.Single(p => p.id == id)); remote.position[1] += 1;
             var reserved = await peer.ReserveAsync(new[] { id });
@@ -292,7 +350,7 @@ namespace ProtobotEditorTools {
             await Until(() => !CollaborationSession.HasPending && Get<string>(session, "status").Contains("history-changed-by-another-participant"));
             Require(Document().revision == accepted.revision && Math.Abs(Body().transform.position.y - remote.position[1]) < .001, "Personal undo overwrote a remote edit.");
             selection.SetCurrent(new ObjectSelection { gameObject = Body(), individual = true }, true, true);
-            Debug.Log("Collaboration tool validation passed: paint/Default, parameter replacement/selection, personal history, G-to-H, Move, pointer handle/early release, Connect, Alt copies, P, clipboard paste, build import, stale target and stale inverse refusal.");
+            Debug.Log("Collaboration tool validation passed: paint/Default, parameter replacement/selection, personal history, G-to-H, Move, pointer handle/early release, Connect, Alt copies, P, clipboard/build import, custom geometry/import/dedup/history and stale conflict refusal.");
         }
         private static async Task CheckJoinAsync(CatalogManifest catalog, Document initial, CollaborationSession session, BuildsManager manager) {
             using var host = new CollaborationHost();

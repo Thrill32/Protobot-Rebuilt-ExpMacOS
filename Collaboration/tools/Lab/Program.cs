@@ -47,8 +47,15 @@ internal static partial class Program {
     };
     private static Part Cube(string id, double x = 0) => new Part { id = id, catalogId = "CUBE", position = new[] { x, 0.0, 0.0 } };
     private static ChainRecord Chain(string id, params string[] members) => new ChainRecord { id = id, members = members };
+    private static GeometryAsset Asset(string name = "Lab custom triangle") {
+        var asset = new GeometryAsset { name = name, vertices = new[] { 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0 }, triangles = new[] { 0, 1, 2 } };
+        asset.hash = DocumentModel.GeometryHash(asset); return asset;
+    }
+    private static Part Custom(string id, GeometryAsset asset, double x = 0) => new Part { id = id, catalogId = "CUSTOM", assetHash = asset.hash,
+        position = new[] { x, 0.0, 0.0 }, mounts = new[] { new CustomMount { position = new[] { .25, .5, 0.0 },
+            rotation = new[] { 0.0, 0.0, 0.0, 1.0 }, diameter = .169, depth = .046, threaded = true } } };
     private static Transaction Tx(Document document, string kind, Part[] parts, string[] deletes = null, string lease = null, long sequence = 1,
-        ChainRecord[] chains = null, string[] chainDeletes = null) => new Transaction {
+        ChainRecord[] chains = null, string[] chainDeletes = null, GeometryAsset[] assets = null) => new Transaction {
         generation = document.generation, sequence = sequence, kind = kind, writes = parts, deletes = deletes ?? Array.Empty<string>(), lease = lease,
         chainWrites = chains ?? Array.Empty<ChainRecord>(), chainDeletes = chainDeletes ?? Array.Empty<string>(),
         expected = parts.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Concat((chains ?? Array.Empty<ChainRecord>()).SelectMany(c => c.members))
@@ -57,7 +64,8 @@ internal static partial class Program {
                 document.tombstones.FirstOrDefault(p => p.id == id)?.version ?? 0 }).ToArray(),
         expectedChains = (chains ?? Array.Empty<ChainRecord>()).Select(c => c.id).Concat(chainDeletes ?? Array.Empty<string>()).Distinct()
             .Select(id => new VersionRef { id = id, version = DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.version ??
-                DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray()
+                DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray(),
+        assetWrites = assets ?? Array.Empty<GeometryAsset>()
     };
     private static void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception("Assertion failed: " + message); }
     private static void Reject(Action action, string code) {
@@ -124,6 +132,32 @@ internal static partial class Program {
         Reject(() => DocumentModel.Reduce(deleted, reuse, seed.catalog), "identity-in-use");
         var unknown = Tx(both, "ReplaceDocument", new[] { Cube("a") });
         Reject(() => DocumentModel.Reduce(both, unknown, seed.catalog), "unsupported-mutation");
+
+        var asset = Asset();
+        var custom = DocumentModel.Reduce(both, Tx(both, "AddParts", new[] { Custom("custom-a", asset, 30) }, assets: new[] { asset }), seed.catalog);
+        Check(DocumentModel.Assets(custom).Single().hash == asset.hash && DocumentModel.Mounts(custom.parts.Single(p => p.id == "custom-a")).Single().threaded,
+            "custom geometry and ordered mounts create atomically");
+        var customMove = Custom("custom-a", asset, 31);
+        customMove.mounts = WireJson.Clone(custom.parts.Single(p => p.id == "custom-a").mounts);
+        var customMoved = DocumentModel.Reduce(custom, Tx(custom, "SetPoses", new[] { customMove }), seed.catalog);
+        Check(customMoved.parts.Single(p => p.id == "custom-a").position[0] == 31 && DocumentModel.Assets(customMoved).Length == 1,
+            "custom pose reuses immutable geometry");
+        var customCopy = DocumentModel.Reduce(customMoved, Tx(customMoved, "AddParts", new[] { Custom("custom-copy", asset, 40) }), seed.catalog);
+        Check(customCopy.parts.Count(p => p.catalogId == "CUSTOM") == 2 && DocumentModel.Assets(customCopy).Length == 1,
+            "custom copies deduplicate document geometry");
+        Reject(() => DocumentModel.Reduce(both, Tx(both, "AddParts", new[] { Custom("missing-asset", asset) }), seed.catalog), "missing-asset");
+        var corruptAsset = WireJson.Clone(asset); corruptAsset.vertices[0] = 2;
+        Reject(() => DocumentModel.Reduce(both, Tx(both, "AddParts", new[] { Custom("bad-asset", corruptAsset) }, assets: new[] { corruptAsset }), seed.catalog), "asset-hash-mismatch");
+        Reject(() => DocumentModel.Reduce(custom, Tx(custom, "AddParts", new[] { Custom("duplicate-asset", asset) }, assets: new[] { asset }), seed.catalog),
+            "asset-already-exists");
+        var reorderedAssets = WireJson.Clone(customCopy); Array.Reverse(reorderedAssets.parts); Array.Reverse(reorderedAssets.assets);
+        Check(DocumentModel.Hash(reorderedAssets) == DocumentModel.Hash(customCopy), "custom assets participate canonically in document hash");
+        var atAssetCapacity = WireJson.Clone(both);
+        atAssetCapacity.assets = Enumerable.Range(0, DocumentModel.MaxAssets).Select(index => Asset("Capacity asset " + index)).ToArray();
+        DocumentModel.Validate(atAssetCapacity, seed.catalog);
+        var overflowAsset = Asset("Capacity overflow");
+        Reject(() => DocumentModel.Reduce(atAssetCapacity, Tx(atAssetCapacity, "AddParts", new[] { Custom("asset-overflow", overflowAsset) },
+            assets: new[] { overflowAsset }), seed.catalog), "document-limit");
     }
 
     private static void RoomChecks() {
@@ -182,13 +216,14 @@ internal static partial class Program {
         var bob = room.Join(new JoinRequest { name = "Bob", catalogHash = seed.catalog.hash });
         var document = seed.document;
         long aliceSequence = 0, bobSequence = 0;
-        Receipt Commit(JoinResponse author, string kind, Part[] writes, string[] deletes = null, ChainRecord[] chains = null, string[] chainDeletes = null) {
+        Receipt Commit(JoinResponse author, string kind, Part[] writes, string[] deletes = null, ChainRecord[] chains = null, string[] chainDeletes = null,
+            GeometryAsset[] assets = null) {
             var ids = writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Where(id => document.parts.Any(p => p.id == id))
                 .Concat((chains ?? Array.Empty<ChainRecord>()).SelectMany(c => c.members).Where(id => document.parts.Any(p => p.id == id)))
                 .Concat((chainDeletes ?? Array.Empty<string>()).SelectMany(id => DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.members ?? Array.Empty<string>()))
                 .Distinct().ToArray();
             string lease = ids.Length == 0 || kind == "Undo" || kind == "Redo" ? null : room.Reserve(author.token, new LeaseRequest { ids = ids }).token;
-            var tx = Tx(document, kind, writes, deletes, lease, author == alice ? ++aliceSequence : ++bobSequence, chains, chainDeletes);
+            var tx = Tx(document, kind, writes, deletes, lease, author == alice ? ++aliceSequence : ++bobSequence, chains, chainDeletes, assets);
             var receipt = room.Commit(author.token, tx);
             if (receipt.accepted) {
                 var edit = room.ReadAsync(author.token, document.revision, -1, CancellationToken.None).GetAwaiter().GetResult().edits.Single();
@@ -201,6 +236,13 @@ internal static partial class Program {
         }
         Receipt History(JoinResponse author, bool redo = false) => Commit(author, redo ? "Redo" : "Undo", Array.Empty<Part>());
         Part Part(string id) => WireJson.Clone(document.parts.Single(p => p.id == id));
+        var customAsset = Asset("History custom triangle");
+        Check(Commit(alice, "AddParts", new[] { Custom("history-custom", customAsset) }, assets: new[] { customAsset }).accepted,
+            "custom part and geometry history create");
+        Check(History(alice).accepted && document.parts.Length == 0 && DocumentModel.Assets(document).Single().hash == customAsset.hash,
+            "custom undo retains immutable geometry for redo");
+        Check(History(alice, true).accepted && document.parts.Single().assetHash == customAsset.hash, "custom redo restores the same geometry reference");
+        Check(History(alice).accepted, "custom history fixture reset");
         Check(Commit(alice, "AddParts", new[] { Cube("paste-a", -10), Cube("paste-b", -6) },
             chains: new[] { Chain("paste-chain", "paste-a", "paste-b") }).accepted && DocumentModel.Chains(document).Single().id == "paste-chain",
             "compound part/chain import needs no lease for fresh endpoints");

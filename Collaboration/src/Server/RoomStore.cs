@@ -111,15 +111,18 @@ namespace Protobot.Collaboration.Server {
             var state = Query("SELECT checkpoint_revision,history_bytes FROM state WHERE id=1", r => (revision: r.GetInt64(0), bytes: r.GetInt64(1))).Single();
             checkpointRevision = state.revision;
             var checkpoint = Query("SELECT document,hash FROM checkpoints WHERE revision=" + checkpointRevision.ToString(System.Globalization.CultureInfo.InvariantCulture), r => {
-                var data = ReadBytes(r, 0); bool legacy = !HasField(data, "chains") && !HasField(data, "chainTombstones");
-                return (document: DecodeDocument(data, legacy), hash: r.GetString(1), legacyChains: legacy);
+                var data = ReadBytes(r, 0); bool legacyChains = !HasField(data, "chains") && !HasField(data, "chainTombstones");
+                bool legacyAssets = !HasField(data, "assets");
+                return (document: DecodeDocument(data, legacyChains, legacyAssets), hash: r.GetString(1), legacyChains, legacyAssets);
             }).Single();
             var document = checkpoint.document; DocumentModel.Validate(document, info.catalog);
             DocumentModel.Require(document.revision == checkpointRevision && document.generation == info.generation &&
-                (DocumentModel.Hash(document) == checkpoint.hash || checkpoint.legacyChains && DocumentModel.LegacyHash(document) == checkpoint.hash), "room-storage-corrupt");
+                (DocumentModel.Hash(document) == checkpoint.hash || checkpoint.legacyAssets && DocumentModel.LegacyAssetHash(document) == checkpoint.hash ||
+                    checkpoint.legacyChains && DocumentModel.LegacyHash(document) == checkpoint.hash), "room-storage-corrupt");
             var journal = Query("SELECT data,cost FROM journal ORDER BY revision", r => {
-                var data = ReadBytes(r, 0); bool legacy = !HasField(data, "chainWrites") && !HasField(data, "chainDeletes") && !HasField(data, "expectedChains");
-                return (edit: DecodeEdit(data, legacy), cost: r.GetInt64(1), legacyChains: legacy);
+                var data = ReadBytes(r, 0); bool legacyChains = !HasField(data, "chainWrites") && !HasField(data, "chainDeletes") && !HasField(data, "expectedChains");
+                bool legacyAssets = !HasField(data, "assetWrites");
+                return (edit: DecodeEdit(data, legacyChains, legacyAssets), cost: r.GetInt64(1), legacyChains, legacyAssets);
             });
             long revision = info.initialRevision;
             foreach (var item in journal) {
@@ -127,6 +130,7 @@ namespace Protobot.Collaboration.Server {
                 if (item.edit.revision <= checkpointRevision) continue;
                 document = DocumentModel.Reduce(document, item.edit.transaction, info.catalog);
                 DocumentModel.Require(document.revision == item.edit.revision && (DocumentModel.Hash(document) == item.edit.hash ||
+                    item.legacyAssets && DocumentModel.LegacyAssetHash(document) == item.edit.hash ||
                     item.legacyChains && DocumentModel.Chains(document).Length == 0 && DocumentModel.LegacyHash(document) == item.edit.hash), "room-storage-corrupt");
             }
             DocumentModel.Require(document.revision == revision && state.bytes == journal.Sum(j => j.cost) && state.bytes <= 64 * 1024 * 1024, "room-storage-corrupt");
@@ -211,15 +215,18 @@ namespace Protobot.Collaboration.Server {
         private static T Decode<T>(SqliteDataReader reader, int column) => WireJson.Decode<T>(ReadBytes(reader, column));
         private static bool HasField(byte[] data, string field) => System.Text.Encoding.UTF8.GetString(data).Contains("\"" + field + "\":", StringComparison.Ordinal);
         private static byte[] JsonBytes(JsonNode value) => Encoding.UTF8.GetBytes(value.ToJsonString());
-        private static Document DecodeDocument(byte[] data, bool legacy) {
-            if (!legacy) return WireJson.Decode<Document>(data);
-            var value = JsonNode.Parse(data).AsObject(); value["chains"] = new JsonArray(); value["chainTombstones"] = new JsonArray();
+        private static Document DecodeDocument(byte[] data, bool legacyChains, bool legacyAssets) {
+            if (!legacyChains && !legacyAssets) return WireJson.Decode<Document>(data);
+            var value = JsonNode.Parse(data).AsObject();
+            if (legacyChains) { value["chains"] = new JsonArray(); value["chainTombstones"] = new JsonArray(); }
+            if (legacyAssets) value["assets"] = new JsonArray();
             return WireJson.Decode<Document>(JsonBytes(value));
         }
-        private static AcceptedEdit DecodeEdit(byte[] data, bool legacy) {
-            if (!legacy) return WireJson.Decode<AcceptedEdit>(data);
+        private static AcceptedEdit DecodeEdit(byte[] data, bool legacyChains, bool legacyAssets) {
+            if (!legacyChains && !legacyAssets) return WireJson.Decode<AcceptedEdit>(data);
             var value = JsonNode.Parse(data).AsObject(); var transaction = value["transaction"].AsObject();
-            transaction["chainWrites"] = new JsonArray(); transaction["chainDeletes"] = new JsonArray(); transaction["expectedChains"] = new JsonArray();
+            if (legacyChains) { transaction["chainWrites"] = new JsonArray(); transaction["chainDeletes"] = new JsonArray(); transaction["expectedChains"] = new JsonArray(); }
+            if (legacyAssets) transaction["assetWrites"] = new JsonArray();
             return WireJson.Decode<AcceptedEdit>(JsonBytes(value));
         }
         private static StoredHistory DecodeHistory(byte[] data) {

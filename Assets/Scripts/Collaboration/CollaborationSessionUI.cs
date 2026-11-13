@@ -48,7 +48,7 @@ namespace Protobot {
             uiCard = UIRect("Window", uiModal.transform); uiCard.anchorMin = uiCard.anchorMax = uiCard.pivot = new Vector2(.5f, .5f);
             UIImage(uiCard, new Color(.055f, .065f, .08f, 1));
             var title = UIText(uiCard, "Title", "Collaboration", 23); UIPlace(title.rectTransform, 22, 12, -90, 34, true);
-            var subtitle = UIText(uiCard, "Subtitle", "Development alpha  |  Shared catalog editing", 13); UIPlace(subtitle.rectTransform, 22, 49, -44, 26, true);
+            var subtitle = UIText(uiCard, "Subtitle", "Development alpha  |  Shared build editing", 13); UIPlace(subtitle.rectTransform, 22, 49, -44, 26, true);
             var close = UIButton(uiCard, "Close", "Close", ClosePanel); UIPlace((RectTransform)close.transform, -86, 14, 66, 32);
             ((RectTransform)close.transform).anchorMin = ((RectTransform)close.transform).anchorMax = Vector2.one;
 
@@ -118,7 +118,7 @@ namespace Protobot {
             var saves = UIRow(uiConnected.transform, "Local Save");
             uiSave = UIButton(saves, "Save Local", "Save local file", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().Save(); });
             uiSaveAs = UIButton(saves, "Save Local As", "Save local file as...", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().SaveAs(); });
-            UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom models and mounting edits are not yet shared.", 12);
+            UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom geometry and existing mounting points are shared; live mounting-point edits are not yet shared.", 12);
             uiReconnect = UIButton(uiConnected.transform, "Reconnect", "Reconnect", () => _ = ReconnectAsync(), true);
             uiLeave = UIButton(uiConnected.transform, "Leave", "Leave and continue offline...", () => uiLeaveConfirmation.SetActive(true));
             uiLeaveConfirmation = UIColumn(uiConnected.transform, "Confirm Leave").gameObject;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
@@ -65,7 +66,7 @@ namespace Protobot {
             FindFirstObjectByType<BuildsManager>()?.IsFileOperationInProgress != true;
 
         public void OpenImportSettings() {
-            if (CollaborationSession.BlocksLegacyMutation) return;
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return;
             if (!CanStart) return;
             CancelMode();
             Simulation.SimulationTool.ExitForEdit();
@@ -102,7 +103,7 @@ namespace Protobot {
 
         // Also used by validation and integrations that already have a file path.
         public async Task<GameObject> ImportPathAsync(string path, float inchesPerUnit) {
-            if (CollaborationSession.BlocksLegacyMutation) return null;
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return null;
             if (!CanStart) return null;
             Simulation.SimulationTool.ExitForEdit();
             CancelMode();
@@ -120,6 +121,12 @@ namespace Protobot {
             var data = await Task.Run(() => CustomModelImporter.Read(path, inchesPerUnit));
             if (this == null || request != generation || !isActiveAndEnabled) return null;
             var obj = CustomModel.Create(data, PivotCamera.Main.focusPosition, Quaternion.identity);
+            if (CollaborationSession.IsShared) {
+                CollaborationSession.PlaceCopies(new List<GameObject> { obj }, selectResult: selectionManager);
+                LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
+                InteractionFeedback.Notify($"Submitted {data.name} to the shared room. Mount editing remains unavailable while connected.");
+                return null;
+            }
             StateSystem.AddElement(new ObjectElement(obj) { existing = false });
             selectionManager.ClearCurrent(false, true, true);
             selectionManager.SetCurrent(new ObjectSelection { gameObject = obj, individual = true }, true);
@@ -136,7 +143,10 @@ namespace Protobot {
         }
 
         public void ToggleMounts() {
-            if (CollaborationSession.BlocksLegacyMutation) return;
+            if (CollaborationSession.BlocksLegacyMutation) {
+                InteractionFeedback.Notify("Shared custom models can be moved, copied, painted and saved; mounting-point editing is not shared yet.");
+                return;
+            }
             if (placingMounts) { CancelMode(); return; }
             if (!CanStart || options) return;
             Simulation.SimulationTool.ExitForEdit();

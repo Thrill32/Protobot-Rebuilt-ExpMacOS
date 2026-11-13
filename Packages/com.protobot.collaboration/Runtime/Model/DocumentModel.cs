@@ -9,6 +9,8 @@ namespace Protobot.Collaboration {
     public static class DocumentModel {
         public const int MaxParts = 2000;
         public const int MaxChains = 2000;
+        public const int MaxAssets = 256;
+        public const int MaxMountsPerPart = 4096;
         public const int MaxWriteSet = 256;
 
         public static void Validate(Document document, CatalogManifest catalog) {
@@ -16,10 +18,16 @@ namespace Protobot.Collaboration {
             Require(ValidId(document.generation) && document.revision >= 0, "invalid-document");
             Require(!string.IsNullOrEmpty(catalog.hash) && document.catalogHash == catalog.hash, "catalog-mismatch");
             Require(document.parts != null && document.parts.Length <= MaxParts && document.tombstones != null &&
-                Chains(document).Length <= MaxChains, "document-limit");
+                Chains(document).Length <= MaxChains && Assets(document).Length <= MaxAssets, "document-limit");
+            var assets = new Dictionary<string, GeometryAsset>(StringComparer.Ordinal);
+            foreach (var asset in Assets(document)) {
+                ValidateAsset(asset);
+                Require(assets.TryAdd(asset.hash, asset), "duplicate-asset");
+            }
             var ids = new HashSet<string>(StringComparer.Ordinal);
             foreach (var part in document.parts) {
                 ValidatePart(part, catalog);
+                Require(!IsCustom(part) || assets.ContainsKey(part.assetHash), "missing-asset");
                 Require(part.version > 0 && ids.Add(part.id), "duplicate-or-invalid-id");
             }
             foreach (var tombstone in document.tombstones)
@@ -40,8 +48,8 @@ namespace Protobot.Collaboration {
             Require(tx.generation == current.generation, "generation-mismatch");
             Require(!tx.expectedRevision.HasValue || tx.expectedRevision.Value == current.revision, "stale-document");
             Require(ValidId(tx.operationId) && tx.sequence > 0, "invalid-operation");
-            var chainWrites = ChainWrites(tx); var chainDeletes = ChainDeletes(tx); var expectedChains = ExpectedChains(tx);
-            int mutations = tx.writes?.Length + tx.deletes?.Length + chainWrites.Length + chainDeletes.Length ?? 0;
+            var chainWrites = ChainWrites(tx); var chainDeletes = ChainDeletes(tx); var expectedChains = ExpectedChains(tx); var assetWrites = AssetWrites(tx);
+            int mutations = tx.writes?.Length + tx.deletes?.Length + chainWrites.Length + chainDeletes.Length + assetWrites.Length ?? 0;
             Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxWriteSet &&
                 tx.expected.Length <= MaxWriteSet * 2 && expectedChains.Length <= MaxWriteSet * 2, "write-set-limit");
             Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "DeleteParts" ||
@@ -52,10 +60,19 @@ namespace Protobot.Collaboration {
                 tx.kind == "RestoreParts" || createsPartsAndChains || chainWrites.Length == 0 && chainDeletes.Length == 0 ||
                 tx.kind == "DeleteParts" && chainWrites.Length == 0,
                 "invalid-chain-mutation");
+            Require(assetWrites.Length == 0 || (tx.kind == "AddParts" || tx.kind == "TransformAndCopy") && tx.writes.Length > 0 && tx.deletes.Length == 0,
+                "invalid-asset-mutation");
+            Require(assetWrites.All(asset => asset != null && tx.writes.Any(part => part?.assetHash == asset.hash)), "unreferenced-asset");
             var parts = current.parts.ToDictionary(p => p.id, StringComparer.Ordinal);
             var tombstones = current.tombstones.ToDictionary(p => p.id, p => p.version, StringComparer.Ordinal);
             var chains = Chains(current).ToDictionary(c => c.id, StringComparer.Ordinal);
             var chainTombstones = ChainTombstones(current).ToDictionary(c => c.id, c => c.version, StringComparer.Ordinal);
+            var assets = Assets(current).ToDictionary(a => a.hash, StringComparer.Ordinal);
+            foreach (var write in assetWrites) {
+                ValidateAsset(write);
+                Require(!assets.ContainsKey(write.hash), "asset-already-exists");
+                assets.Add(write.hash, WireJson.Clone(write));
+            }
             var expected = new Dictionary<string, long>(StringComparer.Ordinal);
             foreach (var dependency in tx.expected) {
                 Require(dependency != null && ValidId(dependency.id) && !expected.ContainsKey(dependency.id), "invalid-dependency");
@@ -68,6 +85,7 @@ namespace Protobot.Collaboration {
             var created = new HashSet<string>(StringComparer.Ordinal);
             foreach (var write in tx.writes) {
                 ValidatePart(write, catalog);
+                Require(!IsCustom(write) || assets.ContainsKey(write.assetHash), "missing-asset");
                 Require(changed.Add(write.id) && expected.ContainsKey(write.id), "missing-write-version");
                 bool exists = parts.TryGetValue(write.id, out var before);
                 if (tx.kind == "AddParts") {
@@ -84,12 +102,13 @@ namespace Protobot.Collaboration {
                 else {
                     Require(exists && tx.kind != "DeleteParts" && tx.deletes.Length == 0, "missing-entity");
                     if (tx.kind != "SetParts") Require(before.catalogId == write.catalogId && before.state == write.state && before.hasPaint == write.hasPaint &&
-                        before.color.SequenceEqual(write.color), "pose-only");
+                        before.color.SequenceEqual(write.color) && SameCustom(before, write), "pose-only");
                 }
                 var accepted = WireJson.Clone(write);
                 accepted.version = exists ? before.version + 1 : tombstones.TryGetValue(write.id, out var dead) ? dead + 1 : 1;
                 // Canonical signs and negative zero are normalized by the authority.
                 accepted.rotation = NormalizeRotation(accepted.rotation);
+                accepted.mounts = Mounts(accepted).Select(NormalizeMount).ToArray();
                 parts[accepted.id] = accepted;
                 tombstones.Remove(accepted.id);
                 if (!exists) created.Add(accepted.id);
@@ -134,13 +153,15 @@ namespace Protobot.Collaboration {
             }
             Require(chains.Values.All(chain => chain.members.All(parts.ContainsKey)), "missing-chain-member");
             Require(chains.Values.Select(ChainTopology).Distinct(StringComparer.Ordinal).Count() == chains.Count, "duplicate-chain");
-            Require(parts.Count <= MaxParts && tombstones.Count <= 20000 && chains.Count <= MaxChains && chainTombstones.Count <= 20000, "document-limit");
+            Require(parts.Count <= MaxParts && tombstones.Count <= 20000 && chains.Count <= MaxChains && chainTombstones.Count <= 20000 &&
+                assets.Count <= MaxAssets, "document-limit");
             var next = new Document {
                 schema = current.schema, generation = current.generation, catalogHash = current.catalogHash,
                 revision = checked(current.revision + 1), parts = parts.Values.OrderBy(p => p.id, StringComparer.Ordinal).ToArray(),
                 tombstones = tombstones.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new VersionRef { id = p.Key, version = p.Value }).ToArray(),
                 chains = chains.Values.OrderBy(c => c.id, StringComparer.Ordinal).ToArray(),
-                chainTombstones = chainTombstones.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new VersionRef { id = c.Key, version = c.Value }).ToArray()
+                chainTombstones = chainTombstones.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new VersionRef { id = c.Key, version = c.Value }).ToArray(),
+                assets = assets.Values.OrderBy(a => a.hash, StringComparer.Ordinal).ToArray()
             };
             Require(WireJson.Encode(next).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
             return next;
@@ -149,7 +170,8 @@ namespace Protobot.Collaboration {
         // History compares logical content; accepted entity versions always increase, including resurrection.
         public static bool SamePart(Part a, Part b) => a == null || b == null ? a == b :
             a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") && a.hasPaint == b.hasPaint &&
-            a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.color.SequenceEqual(b.color);
+            a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.color.SequenceEqual(b.color) &&
+            SameCustom(a, b);
 
         public static bool SameChain(ChainRecord a, ChainRecord b) => a == null || b == null ? a == b :
             a.id == b.id && (a.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal)
@@ -173,6 +195,12 @@ namespace Protobot.Collaboration {
             Require(part.rotation != null && part.rotation.Length == 4 && part.rotation.All(Finite) &&
                 Math.Abs(part.rotation.Sum(v => v * v) - 1) < 0.0001, "invalid-rotation");
             Require(part.color != null && part.color.Length == 3 && part.color.All(v => Finite(v) && v >= 0 && v <= 1), "invalid-color");
+            if (IsCustom(part)) {
+                Require(ValidAssetHash(part.assetHash) && Mounts(part).Length <= MaxMountsPerPart, "invalid-custom-part");
+                foreach (var mount in Mounts(part)) ValidateMount(mount);
+                return;
+            }
+            Require(string.IsNullOrEmpty(part.assetHash) && Mounts(part).Length == 0, "invalid-catalog-part");
             var values = part.catalogId.Split('-');
             var entry = catalog.entries.FirstOrDefault(e => e.id == values[0]);
             Require(entry != null, "unknown-part");
@@ -185,6 +213,48 @@ namespace Protobot.Collaboration {
                 }
             }
         }
+
+        public static void ValidateAsset(GeometryAsset asset) {
+            Require(asset != null && ValidAssetHash(asset.hash) && asset.name != null && asset.name.Length >= 1 && asset.name.Length <= 200 &&
+                asset.vertices != null && asset.vertices.Length >= 9 && asset.vertices.Length % 3 == 0 && asset.vertices.Length / 3 <= 1500000 &&
+                asset.triangles != null && asset.triangles.Length >= 3 && asset.triangles.Length % 3 == 0 && asset.triangles.Length / 3 <= 500000,
+                "invalid-asset");
+            Require(asset.vertices.All(v => Finite(v) && Math.Abs(v) <= 1000000) &&
+                asset.triangles.All(i => i >= 0 && i < asset.vertices.Length / 3), "invalid-asset");
+            Require(GeometryHash(asset) == asset.hash, "asset-hash-mismatch");
+            // Geometry is currently carried once in the bounded document snapshot.
+            // A later asset endpoint can raise this without changing part references.
+            Require(WireJson.Encode(asset).Length <= 1536 * 1024, "asset-byte-limit");
+        }
+
+        public static void ValidateMount(CustomMount mount) {
+            Require(mount != null && mount.position != null && mount.position.Length == 3 &&
+                mount.position.All(v => Finite(v) && Math.Abs(v) <= 1000000) && mount.rotation != null && mount.rotation.Length == 4 &&
+                mount.rotation.All(Finite) && Math.Abs(mount.rotation.Sum(v => v * v) - 1) < 0.0001 &&
+                Finite(mount.diameter) && Finite(mount.depth) && mount.diameter > 0 && mount.diameter <= 100 && mount.depth > 0 && mount.depth <= 100,
+                "invalid-custom-mount");
+        }
+
+        public static string GeometryHash(GeometryAsset asset) {
+            using (var stream = new MemoryStream()) {
+                using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) {
+                    writer.Write(asset?.name ?? "");
+                    var vertices = asset?.vertices ?? Array.Empty<double>(); writer.Write(vertices.Length);
+                    foreach (var value in vertices) writer.Write(value == 0 ? 0f : (float)value);
+                    var triangles = asset?.triangles ?? Array.Empty<int>(); writer.Write(triangles.Length);
+                    foreach (var value in triangles) writer.Write(value);
+                }
+                using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(stream.ToArray()));
+            }
+        }
+
+        private static bool SameCustom(Part a, Part b) => (a.assetHash ?? "") == (b.assetHash ?? "") && Mounts(a).Length == Mounts(b).Length &&
+            Mounts(a).Zip(Mounts(b), SameMount).All(equal => equal);
+        private static bool SameMount(CustomMount a, CustomMount b) => a != null && b != null && a.position.SequenceEqual(b.position) &&
+            NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.diameter == b.diameter && a.depth == b.depth && a.threaded == b.threaded;
+        private static CustomMount NormalizeMount(CustomMount mount) { var copy = WireJson.Clone(mount); copy.rotation = NormalizeRotation(copy.rotation); return copy; }
+        private static bool IsCustom(Part part) => part?.catalogId == "CUSTOM";
+        private static bool ValidAssetHash(string hash) => hash != null && hash.Length == 64 && hash.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f');
 
         private static void ValidateParameter(ParameterRule rule, string value) {
             if (rule.custom) {
@@ -199,9 +269,49 @@ namespace Protobot.Collaboration {
         public static ChainRecord[] ChainWrites(Transaction transaction) => transaction?.chainWrites ?? Array.Empty<ChainRecord>();
         public static string[] ChainDeletes(Transaction transaction) => transaction?.chainDeletes ?? Array.Empty<string>();
         public static VersionRef[] ExpectedChains(Transaction transaction) => transaction?.expectedChains ?? Array.Empty<VersionRef>();
+        public static GeometryAsset[] Assets(Document document) => document?.assets ?? Array.Empty<GeometryAsset>();
+        public static GeometryAsset[] AssetWrites(Transaction transaction) => transaction?.assetWrites ?? Array.Empty<GeometryAsset>();
+        public static CustomMount[] Mounts(Part part) => part?.mounts ?? Array.Empty<CustomMount>();
 
         // This hash deliberately includes IDs, versions and tombstones, unlike file-dirty comparison.
         public static string Hash(Document document) {
+            using (var stream = new MemoryStream()) {
+                using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) {
+                    writer.Write(document.schema); writer.Write(document.generation); writer.Write(document.catalogHash);
+                    writer.Write(document.revision); writer.Write(document.parts.Length);
+                    foreach (var part in document.parts.OrderBy(p => p.id, StringComparer.Ordinal)) {
+                        writer.Write(part.id); writer.Write(part.version); writer.Write(part.catalogId);
+                        writer.Write(part.state ?? ""); writer.Write(part.hasPaint);
+                        foreach (var n in part.position.Concat(NormalizeRotation(part.rotation)).Concat(part.color)) writer.Write(n == 0 ? 0.0 : n);
+                        writer.Write(part.assetHash ?? ""); writer.Write(Mounts(part).Length);
+                        foreach (var mount in Mounts(part)) {
+                            foreach (var n in mount.position.Concat(NormalizeRotation(mount.rotation))) writer.Write(n == 0 ? 0.0 : n);
+                            writer.Write(mount.diameter == 0 ? 0.0 : mount.diameter); writer.Write(mount.depth == 0 ? 0.0 : mount.depth); writer.Write(mount.threaded);
+                        }
+                    }
+                    writer.Write(document.tombstones.Length);
+                    foreach (var dead in document.tombstones.OrderBy(p => p.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }
+                    writer.Write(Chains(document).Length);
+                    foreach (var chain in Chains(document).OrderBy(c => c.id, StringComparer.Ordinal)) {
+                        writer.Write(chain.id); writer.Write(chain.version);
+                        var members = chain.members.OrderBy(id => id, StringComparer.Ordinal).ToArray(); writer.Write(members.Length);
+                        foreach (var member in members) writer.Write(member);
+                    }
+                    writer.Write(ChainTombstones(document).Length);
+                    foreach (var dead in ChainTombstones(document).OrderBy(c => c.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }
+                    writer.Write(Assets(document).Length);
+                    foreach (var asset in Assets(document).OrderBy(a => a.hash, StringComparer.Ordinal)) {
+                        writer.Write(asset.hash); writer.Write(asset.name); writer.Write(asset.vertices.Length);
+                        foreach (var n in asset.vertices) writer.Write(n == 0 ? 0.0 : n);
+                        writer.Write(asset.triangles.Length); foreach (var index in asset.triangles) writer.Write(index);
+                    }
+                }
+                using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(stream.ToArray()));
+            }
+        }
+
+        // 0.4 durable rooms included chains but predated document geometry.
+        public static string LegacyAssetHash(Document document) {
             using (var stream = new MemoryStream()) {
                 using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) {
                     writer.Write(document.schema); writer.Write(document.generation); writer.Write(document.catalogHash);

@@ -115,11 +115,10 @@ namespace Protobot.Builds {
 
         private bool BeginPlacement(BuildData data) {
             if (placement.placing || !isActiveAndEnabled) return false;
-            if (CollaborationSession.IsShared && System.Array.Exists(data.parts, p => p.IsCustomModel)) {
-                InteractionFeedback.Notify("Shared import currently supports catalog parts and their chains, but not custom models."); return false;
-            }
-            if (CollaborationSession.IsShared && data.parts.Count(p => p.partId != "Error") + (data.chains?.Length ?? 0) > DocumentModel.MaxWriteSet) {
-                InteractionFeedback.Notify($"A shared paste or import may change at most {DocumentModel.MaxWriteSet} parts and chains at once."); return false;
+            int partCount = data.parts.Count(p => p.partId != "Error");
+            int customAssetUpperBound = data.parts.Count(p => p.IsCustomModel);
+            if (CollaborationSession.IsShared && partCount + (data.chains?.Length ?? 0) + customAssetUpperBound > DocumentModel.MaxWriteSet) {
+                InteractionFeedback.Notify($"A shared paste or import may change at most {DocumentModel.MaxWriteSet} parts, chains and new custom assets at once."); return false;
             }
             var copied = SelectionPlacementData.FromBuild(data, placement.transform, duplicator, selectionManager, CollaborationSession.IsShared);
             placement.StartPlacing(copied);

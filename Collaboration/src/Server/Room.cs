@@ -156,7 +156,10 @@ namespace Protobot.Collaboration.Server {
                 if (lease.preview != null && preview.sequence <= lease.preview.sequence) return;
                 DocumentModel.Require(preview.parts != null && preview.parts.Length == lease.ids.Length &&
                     preview.parts.Select(p => p?.id).OrderBy(x => x).SequenceEqual(lease.ids.OrderBy(x => x)), "preview-set-mismatch");
-                foreach (var part in preview.parts) DocumentModel.ValidatePart(part, catalog);
+                foreach (var part in preview.parts) {
+                    DocumentModel.ValidatePart(part, catalog);
+                    DocumentModel.Require(part.catalogId != "CUSTOM" || DocumentModel.Assets(document).Any(asset => asset.hash == part.assetHash), "missing-asset");
+                }
                 var copy = WireJson.Clone(preview); copy.author = member.participant.id;
                 copy.parts = copy.parts.Select(p => new Part { id = p.id, position = p.position, rotation = p.rotation }).ToArray();
                 lease.preview = copy; Pulse();
@@ -177,7 +180,8 @@ namespace Protobot.Collaboration.Server {
                     var command = transaction;
                     if (undo || redo) {
                         DocumentModel.Require(transaction.writes != null && transaction.deletes != null && transaction.writes.Length == 0 && transaction.deletes.Length == 0 &&
-                            DocumentModel.ChainWrites(transaction).Length == 0 && DocumentModel.ChainDeletes(transaction).Length == 0, "invalid-history-command");
+                            DocumentModel.ChainWrites(transaction).Length == 0 && DocumentModel.ChainDeletes(transaction).Length == 0 &&
+                            DocumentModel.AssetWrites(transaction).Length == 0, "invalid-history-command");
                         int index = undo ? member.historyCursor - 1 : member.historyCursor;
                         DocumentModel.Require(index >= 0 && index < member.history.Count, undo ? "nothing-to-undo" : "nothing-to-redo");
                         inverse = member.history[index];

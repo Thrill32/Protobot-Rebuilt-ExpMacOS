@@ -102,8 +102,45 @@ internal static partial class Program {
         }
         using (var store = new RoomStore(failureRoot)) Reject(() => new Room(null, storage: store), "room-storage-corrupt");
         LegacyChainFreeChecks(Path.Combine(directory, "legacy chain-free recovery"));
+        LegacyAssetFreeChecks(Path.Combine(directory, "legacy asset-free recovery"));
         DurableChainChecks(Path.Combine(directory, "durable chain recovery"));
+        DurableCustomChecks(Path.Combine(directory, "durable custom recovery"));
         await CrashRecoveryChecks(Path.Combine(directory, "process crash recovery"));
+    }
+
+    private static void LegacyAssetFreeChecks(string directory) {
+        var seed = Fixture(); JoinResponse owner; Document accepted;
+        using (var store = new RoomStore(directory)) {
+            var room = new Room(seed, storage: store);
+            owner = room.Join(new JoinRequest { name = "0.4 owner", catalogHash = seed.catalog.hash, ownerCredential = seed.ownerCredential });
+            Check(room.Commit(owner.token, Tx(room.Snapshot, "AddParts", new[] { Cube("v04-part") }, sequence: 1)).accepted,
+                "0.4 asset-free fixture edit accepted");
+            accepted = room.Snapshot;
+        }
+        using (var db = new SqliteConnection("Data Source=" + Path.Combine(directory, "room.sqlite") + ";Pooling=False")) {
+            db.Open();
+            byte[] Read(string sql) { using var command = db.CreateCommand(); command.CommandText = sql; return (byte[])command.ExecuteScalar(); }
+            using (var command = db.CreateCommand()) {
+                var checkpoint = JsonNode.Parse(Read("SELECT document FROM checkpoints")).AsObject(); checkpoint.Remove("assets");
+                command.CommandText = "UPDATE checkpoints SET document=$document,hash=$hash";
+                command.Parameters.AddWithValue("$document", Encoding.UTF8.GetBytes(checkpoint.ToJsonString()));
+                command.Parameters.AddWithValue("$hash", DocumentModel.LegacyAssetHash(seed.document)); command.ExecuteNonQuery();
+            }
+            using (var command = db.CreateCommand()) {
+                var journal = JsonNode.Parse(Read("SELECT data FROM journal")).AsObject(); journal["transaction"].AsObject().Remove("assetWrites");
+                journal["hash"] = DocumentModel.LegacyAssetHash(accepted);
+                command.CommandText = "UPDATE journal SET data=$data";
+                command.Parameters.AddWithValue("$data", Encoding.UTF8.GetBytes(journal.ToJsonString())); command.ExecuteNonQuery();
+            }
+        }
+        using (var store = new RoomStore(directory)) {
+            var room = new Room(null, storage: store);
+            Check(room.Recovered && room.Snapshot.parts.Single().id == "v04-part" && DocumentModel.Assets(room.Snapshot).Length == 0,
+                "0.4 asset-free checkpoint and journal recover under 0.5");
+            var resumed = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = owner.resumeToken });
+            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Undo", Array.Empty<Part>(), sequence: 2)).accepted && room.Snapshot.parts.Length == 0,
+                "0.4 asset-free history remains undoable under 0.5");
+        }
     }
 
     private static void LegacyChainFreeChecks(string directory) {
@@ -177,6 +214,31 @@ internal static partial class Program {
             var room = new Room(null, storage: store);
             Check(DocumentModel.Chains(room.Snapshot).Single().id == "durable-chain" && room.Snapshot.revision == 3,
                 "chain undo/redo journal survives second restart");
+        }
+    }
+
+    private static void DurableCustomChecks(string directory) {
+        var seed = Fixture(); var asset = Asset("Durable custom triangle"); JoinResponse owner;
+        using (var store = new RoomStore(directory, checkpointEvery: 1)) {
+            var room = new Room(seed, storage: store);
+            owner = room.Join(new JoinRequest { name = "Custom owner", catalogHash = seed.catalog.hash, ownerCredential = seed.ownerCredential });
+            Check(room.Commit(owner.token, Tx(room.Snapshot, "AddParts", new[] { Custom("durable-custom", asset) }, sequence: 1, assets: new[] { asset })).accepted,
+                "durable custom geometry transaction accepted");
+        }
+        using (var store = new RoomStore(directory, checkpointEvery: 1)) {
+            var room = new Room(null, storage: store);
+            var resumed = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = owner.resumeToken });
+            Check(room.Snapshot.parts.Single().assetHash == asset.hash && DocumentModel.Assets(room.Snapshot).Single().hash == asset.hash,
+                "custom geometry checkpoint recovers content reference");
+            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Undo", Array.Empty<Part>(), sequence: 2)).accepted && room.Snapshot.parts.Length == 0 &&
+                DocumentModel.Assets(room.Snapshot).Single().hash == asset.hash, "custom undo retains geometry required by redo");
+            Check(room.Commit(resumed.token, Tx(room.Snapshot, "Redo", Array.Empty<Part>(), sequence: 3)).accepted &&
+                room.Snapshot.parts.Single().assetHash == asset.hash, "custom redo restores geometry reference after restart");
+        }
+        using (var store = new RoomStore(directory)) {
+            var room = new Room(null, storage: store);
+            Check(room.Snapshot.parts.Single().assetHash == asset.hash && room.Snapshot.revision == 3,
+                "custom geometry undo/redo journal survives second restart");
         }
     }
 

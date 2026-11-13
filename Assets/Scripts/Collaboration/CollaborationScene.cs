@@ -35,15 +35,31 @@ namespace Protobot {
         private static Part CapturePose(GameObject body, Pose pose, long version) {
             var saved = body.GetComponent<SavedObject>();
             var color = PartColors.GetColor(body);
+            var custom = body.GetComponent<CustomModel>();
+            var customData = custom != null ? custom.Snapshot() : null;
+            var acceptedCustom = customData != null ? CollaborationSession.AcceptedPart(saved.ConnectionId) : null;
+            var asset = customData != null && acceptedCustom == null ? CaptureAsset(customData) : null;
             return new Part { id = saved.ConnectionId, version = version, catalogId = saved.id, state = saved.state,
                 position = new double[] { pose.position.x, pose.position.y, pose.position.z },
                 rotation = new double[] { pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w },
-                hasPaint = saved.hasPaint, color = new double[] { color.r, color.g, color.b } };
+                hasPaint = saved.hasPaint, color = new double[] { color.r, color.g, color.b }, assetHash = acceptedCustom?.assetHash ?? asset?.hash,
+                mounts = acceptedCustom != null ? WireJson.Clone(DocumentModel.Mounts(acceptedCustom)) :
+                    customData?.mounts?.Select(CaptureMount).ToArray() ?? Array.Empty<CustomMount>() };
         }
+        public static GeometryAsset[] CaptureAssets(IEnumerable<GameObject> bodies) => Bodies(bodies)
+            .Select(body => body.GetComponent<CustomModel>()).Where(model => model != null).Select(model => CaptureAsset(model.Snapshot()))
+            .GroupBy(asset => asset.hash, StringComparer.Ordinal).Select(group => group.First()).ToArray();
+        private static GeometryAsset CaptureAsset(CustomModelData data) {
+            var asset = new GeometryAsset { name = data.name,
+                vertices = data.vertices.Select(value => (double)value).ToArray(), triangles = data.triangles.ToArray() };
+            asset.hash = DocumentModel.GeometryHash(asset); return asset;
+        }
+        private static CustomMount CaptureMount(CustomMountData mount) => new CustomMount {
+            position = new double[] { mount.x, mount.y, mount.z }, rotation = new double[] { mount.qx, mount.qy, mount.qz, mount.qw },
+            diameter = mount.diameter, depth = mount.depth, threaded = mount.threaded
+        };
         public static Document CaptureDocument(CatalogManifest catalog) {
             var bodies = PartsManager.FindLoadedObjects();
-            if (bodies.Any(b => b.GetComponent<CustomModel>() != null))
-                throw new InvalidOperationException("This collaboration alpha supports catalog builds and chains without custom models.");
             var loops = UnityEngine.Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsSortMode.None);
             var chainParts = loops.ToDictionary(loop => loop, loop => loop.ResolveParts());
             if (chainParts.Values.Any(parts => !Simulation.ChainLoop.Compatible(parts, out _)))
@@ -60,19 +76,31 @@ namespace Protobot {
                 if (!used.Add(loop.ConnectionId)) { do loop.SetConnectionId(Guid.NewGuid().ToString("N")); while (!used.Add(loop.ConnectionId)); }
                 chains.Add(loop.Capture(chainParts[loop], 1));
             }
-            var document = new Document { catalogHash = catalog.hash, parts = bodies.Select(b => Capture(b, 1)).ToArray(), chains = chains.ToArray() };
+            var document = new Document { catalogHash = catalog.hash, parts = bodies.Select(b => Capture(b, 1)).ToArray(), chains = chains.ToArray(),
+                assets = CaptureAssets(bodies) };
             DocumentModel.Validate(document, catalog); return document;
         }
-        public static ObjectData ToObjectData(Part part) {
+        public static ObjectData ToObjectData(Part part, IEnumerable<GeometryAsset> geometry = null) {
             var rotation = Rotation(part).eulerAngles;
             return new ObjectData { connectionId = part.id, partId = part.catalogId, states = part.state, hasPaint = part.hasPaint,
                 xPos = part.position[0], yPos = part.position[1], zPos = part.position[2],
                 xRot = rotation.x, yRot = rotation.y, zRot = rotation.z,
-                rColor = part.color[0], gColor = part.color[1], bColor = part.color[2] };
+                rColor = part.color[0], gColor = part.color[1], bColor = part.color[2],
+                customModel = part.catalogId == CustomModel.PartId ? ToCustomModel(part, geometry) : null };
+        }
+        private static CustomModelData ToCustomModel(Part part, IEnumerable<GeometryAsset> geometry) {
+            var asset = (geometry ?? Array.Empty<GeometryAsset>()).FirstOrDefault(value => value.hash == part.assetHash);
+            if (asset == null) throw new InvalidOperationException("The shared custom model geometry is unavailable.");
+            return new CustomModelData { name = asset.name, vertices = asset.vertices.Select(value => (float)value).ToArray(), triangles = asset.triangles.ToArray(),
+                mounts = DocumentModel.Mounts(part).Select(mount => new CustomMountData {
+                    x = (float)mount.position[0], y = (float)mount.position[1], z = (float)mount.position[2],
+                    qx = (float)mount.rotation[0], qy = (float)mount.rotation[1], qz = (float)mount.rotation[2], qw = (float)mount.rotation[3],
+                    diameter = (float)mount.diameter, depth = (float)mount.depth, threaded = mount.threaded
+                }).ToArray() };
         }
         public static BuildData ToBuild(Document document) {
             var local = SceneBuild.ToBuildData();
-            local.parts = document.parts.Select(ToObjectData).ToArray();
+            local.parts = document.parts.Select(part => ToObjectData(part, DocumentModel.Assets(document))).ToArray();
             local.chains = DocumentModel.Chains(document).Select(c => new ChainData { members = c.members.ToArray() }).ToArray(); return local;
         }
         public static void Load(Document document) {
@@ -84,7 +112,7 @@ namespace Protobot {
         }
         public static void Apply(AcceptedEdit edit, Document accepted) {
             var existing = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
-            var replacements = edit.transaction.writes.Where(p => existing.TryGetValue(p.id, out var body) && body.GetComponent<SavedObject>().id != p.catalogId).Select(p => p.id).ToHashSet();
+            var replacements = edit.transaction.writes.Where(p => existing.TryGetValue(p.id, out var body) && RequiresReplacement(body, p)).Select(p => p.id).ToHashSet();
             var ids = edit.transaction.deletes.ToHashSet();
             var reselect = new List<(SelectionManager manager, string[] ids, bool individual)>();
             foreach (var manager in UnityEngine.Object.FindObjectsByType<SelectionManager>(FindObjectsSortMode.None)) {
@@ -102,7 +130,7 @@ namespace Protobot {
                 var part = accepted.parts.First(p => p.id == write.id);
                 bodies.TryGetValue(part.id, out var body);
                 if (body != null && replacements.Contains(part.id)) { body.SetActive(false); UnityEngine.Object.Destroy(body); body = null; }
-                if (body == null) body = SceneBuild.GenerateObject(ToObjectData(part), ToBuild(accepted));
+                if (body == null) body = SceneBuild.GenerateObject(ToObjectData(part, DocumentModel.Assets(accepted)), ToBuild(accepted));
                 ApplyAppearance(body, part);
                 SetPose(body, part);
             }
@@ -143,6 +171,20 @@ namespace Protobot {
                 var material = PartColors.SampleMaterial(body);
                 if (material != null) { color.a = material.color.a; material.color = color; }
             }
+        }
+        private static bool RequiresReplacement(GameObject body, Part part) {
+            if (body.GetComponent<SavedObject>().id != part.catalogId) return true;
+            if (part.catalogId != CustomModel.PartId) return false;
+            var captured = Capture(body);
+            return captured.assetHash != part.assetHash || DocumentModel.Mounts(captured).Length != DocumentModel.Mounts(part).Length ||
+                !DocumentModel.Mounts(captured).Zip(DocumentModel.Mounts(part), SameMount).All(equal => equal);
+        }
+        private static bool SameMount(CustomMount a, CustomMount b) {
+            if (a == null || b == null || a.position?.Length != 3 || b.position?.Length != 3 || a.rotation?.Length != 4 || b.rotation?.Length != 4) return false;
+            bool position = a.position.Zip(b.position, (x, y) => Math.Abs(x - y) < .000001).All(equal => equal);
+            double dot = Math.Abs(a.rotation.Zip(b.rotation, (x, y) => x * y).Sum());
+            return position && Math.Abs(1 - dot) < .000001 && Math.Abs(a.diameter - b.diameter) < .000001 &&
+                Math.Abs(a.depth - b.depth) < .000001 && a.threaded == b.threaded;
         }
         private static Quaternion Rotation(Part part) => new Quaternion((float)part.rotation[0], (float)part.rotation[1], (float)part.rotation[2], (float)part.rotation[3]);
     }
