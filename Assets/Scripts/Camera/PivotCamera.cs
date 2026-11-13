@@ -9,11 +9,10 @@ namespace Protobot {
         //Moving values
         public bool moving => DOTween.IsTweening(transform);
 
-        private Tweener orbitTween;
-        public bool orbiting => orbitTween != null ? orbitTween.active : false;
-
-        private Tweener zoomTween;
-        public bool zooming => zoomTween != null ? zoomTween.active : false;
+        private int lastOrbitFrame = -1;
+        private int lastZoomFrame = -1;
+        public bool orbiting => lastOrbitFrame == Time.frameCount;
+        public bool zooming => lastZoomFrame == Time.frameCount;
 
         public Vector3 cameraPosition => camera.transform.localPosition;
         public Vector3 focusPosition => transform.position;
@@ -88,17 +87,23 @@ namespace Protobot {
 
         //ZOOM
         public void ZoomControl(float input) {
-            input *= (zoomDistance * 0.3f);
-            
-            int inverted = 1;
-            if (invertZoom) inverted = -1;
-
-            zoomDistance += -input * inverted;
-            zoomDistance = Mathf.Clamp(zoomDistance, 0.5f, 1000f);
-
+            zoomDistance = CalculateZoomDistance(zoomDistance, input, 1f, invertZoom);
+            camera.transform.DOKill();
             Vector3 newPos = cameraPosition;
             newPos.z = -zoomDistance;
-            zoomTween = camera.transform.DOLocalMove(newPos, 0.4f);
+            camera.transform.localPosition = newPos;
+            lastZoomFrame = Time.frameCount;
+        }
+
+        public static float CalculateZoomDistance(float distance, float scrollDelta, float sensitivity, bool inverted) {
+            if (!float.IsFinite(distance) || !float.IsFinite(scrollDelta) || !float.IsFinite(sensitivity))
+                return Mathf.Clamp(float.IsFinite(distance) ? distance : 5f, 0.5f, 1000f);
+            // Input System wheel deltas use 120 units per detent. Trackpads
+            // contribute fractional deltas, so exponential scaling gives both
+            // devices the same signed, frame-rate-independent behavior.
+            float detents = scrollDelta / 120f;
+            float direction = inverted ? 1f : -1f;
+            return Mathf.Clamp(distance * Mathf.Exp(direction * detents * sensitivity * 0.12f), 0.5f, 1000f);
         }
         
         public void SetInvertZoom(bool value) {
@@ -108,22 +113,32 @@ namespace Protobot {
 
         //ORBIT
         public void OrbitControl(Vector2 orbitValue) {
+            if (DOTween.IsTweening(transform)) {
+                transform.DOKill();
+                orbitRot = transform.eulerAngles;
+                panPos = transform.position;
+            }
             orbitRot += new Vector3(orbitValue.x, orbitValue.y, 0);
-
-            orbitTween = transform.DORotateQuaternion(Quaternion.Euler(orbitRot), 0.4f);
+            transform.rotation = Quaternion.Euler(orbitRot);
+            lastOrbitFrame = Time.frameCount;
         }
 
         public void OrbitSnap() {
             Vector3 snapVector = lookAngle.Round(90);
-            if (Vector3.Distance(snapVector, lookAngle) < snapSensitivity && !moving)
-                transform.DOLocalRotate(snapVector, 0.25f);
+            if (lastOrbitFrame != Time.frameCount && Vector3.Distance(snapVector, lookAngle) < snapSensitivity && !moving)
+                transform.DOLocalRotate(snapVector, 0.25f).OnComplete(() => orbitRot = transform.eulerAngles);
         }
 
         //PAN
         public void PanControl(Vector2 panValue) {
+            if (DOTween.IsTweening(transform)) {
+                transform.DOKill();
+                panPos = transform.position;
+                orbitRot = transform.eulerAngles;
+            }
             float zoomFactor = zoomDistance / 5; // makes panning adjust by zoom distance, closer zoom should be less pan distance covered
             panPos += ((transform.right * -panValue.x) + (transform.up * -panValue.y)) * zoomFactor;
-            transform.DOMove(panPos, 0.25f);
+            transform.position = panPos;
         }
     }
 }

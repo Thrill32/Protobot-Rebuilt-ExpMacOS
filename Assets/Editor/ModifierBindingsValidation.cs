@@ -38,6 +38,11 @@ namespace ProtobotEditorTools {
                 "Modifier providers are missing from Main's bindings.");
             Require(new SerializedObject(Object.FindFirstObjectByType<MultiSelector>()).FindProperty("mutliSelectInput").objectReferenceValue == multiple,
                 "Multi-selection does not use its own Preferences binding.");
+            var windowsDefault = new InputAction("Windows grouping", InputActionType.Button);
+            ModifierBindingDefaults.ConfigureGroupingDefault(windowsDefault, true);
+            Require(windowsDefault.bindings.Count == 1 && windowsDefault.bindings[0].path == ModifierBindingDefaults.WindowsGroupingPath,
+                "Windows grouping bypass must default to Z rather than the OS-reserved Meta key.");
+            windowsDefault.Dispose();
 
             var manager = typeof(InputSystem).GetField("s_Manager", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
             var runInEdit = manager.GetType().GetProperty("runPlayerUpdatesInEditMode");
@@ -88,7 +93,7 @@ namespace ProtobotEditorTools {
                 Check(false, false, false, Key.LeftShift);
                 Check(true, false, false, Key.LeftShift, Key.V);
                 Check(false, true, false, Key.LeftShift, Key.B);
-                Debug.Log("Separate modifier validation passed: default Command/Control behavior, distinct Preferences rows, modifier-only rebinding, independent grouping/snap/multi-select actions and complete rebound chords.");
+                Debug.Log("Separate modifier validation passed: macOS Command and Windows Z grouping defaults, distinct Preferences rows, modifier-only rebinding, independent grouping/snap/multi-select actions and complete rebound chords.");
             }
             finally {
                 foreach (var (input, action, rebind) in originals) {

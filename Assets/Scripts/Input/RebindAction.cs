@@ -16,7 +16,7 @@ namespace Protobot.InputEvents {
         // The appended slot holds the fourth modifier (Command/Windows).
         private const int TriggerBinding = 3;
         private static readonly int[] ModifierBindings = { 0, 1, 2, 4 };
-        private string SavedRebinds => PlayerPrefs.GetString(id);
+        private string SavedRebinds => LocalPreferences.GetString(id);
         public bool IsEmpty => string.IsNullOrEmpty(SavedRebinds);
 
         public Action OnSaveRebinds;
@@ -155,7 +155,8 @@ namespace Protobot.InputEvents {
 
         public void SaveRebinds() {
             var rebinds = action.SaveBindingOverridesAsJson();
-            PlayerPrefs.SetString(id, rebinds);
+            LocalPreferences.SetString(id, rebinds);
+            LocalPreferences.Save();
 
             action.Enable();
 
@@ -178,7 +179,8 @@ namespace Protobot.InputEvents {
             action.RemoveAllBindingOverrides();
             action.Disable();
 
-            PlayerPrefs.DeleteKey(id);
+            LocalPreferences.DeleteKey(id);
+            LocalPreferences.Save();
 
             OnResetRebinds?.Invoke();
         }

@@ -48,7 +48,7 @@ namespace Protobot {
         }
 
         private bool CanCaptureInput() {
-            if (RebindAction.Rebinding || !Application.isFocused || Protobot.Tools.KeyboardTransformTool.BlocksCameraNavigation || Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
+            if (RebindAction.Rebinding || !Application.isFocused || !Protobot.Tools.KeyboardTransformTool.AllowsNoclipCamera(activationInput) || Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
                 return false;
 
             var selected = EventSystem.current != null
@@ -114,6 +114,11 @@ namespace Protobot {
         private static float NormalizeAngle(float angle) {
             return angle > 180f ? angle - 360f : angle;
         }
+
+        public void SetMovementSpeed(float value) => movementSpeed = value;
+        public void SetMouseSensitivity(float value) => mouseSensitivity = value;
+        public float MovementSpeed => movementSpeed;
+        public float MouseSensitivity => mouseSensitivity;
 
         private void OnApplicationFocus(bool hasFocus) {
             if (!hasFocus && active)
