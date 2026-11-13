@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Protobot.Collaboration;
@@ -50,10 +51,17 @@ namespace Protobot {
             path = Path.Combine(ProfileDirectory, "preferences.json");
             profile = File.Exists(path) ? WireJson.Decode<Store>(File.ReadAllBytes(path)).entries.ToDictionary(e => e.key, e => e.value) : new Dictionary<string, string>();
         }
+        public static bool HasKey(string key) => profile == null ? PlayerPrefs.HasKey(key) : profile.ContainsKey(key);
         public static string GetString(string key, string fallback = "") => profile == null ? PlayerPrefs.GetString(key, fallback) : profile.TryGetValue(key, out var value) ? value : fallback;
         public static int GetInt(string key, int fallback = 0) => profile == null ? PlayerPrefs.GetInt(key, fallback) : int.TryParse(GetString(key), out var value) ? value : fallback;
+        public static float GetFloat(string key, float fallback = 0f) {
+            var text = GetString(key);
+            return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && IsFinite(value)
+                ? value : fallback;
+        }
         public static void SetString(string key, string value) { if (profile == null) PlayerPrefs.SetString(key, value); else { profile[key] = value; Save(); } }
-        public static void SetInt(string key, int value) { if (profile == null) PlayerPrefs.SetInt(key, value); else SetString(key, value.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
+        public static void SetInt(string key, int value) { if (profile == null) PlayerPrefs.SetInt(key, value); else SetString(key, value.ToString(CultureInfo.InvariantCulture)); }
+        public static void SetFloat(string key, float value) => SetString(key, value.ToString("G9", CultureInfo.InvariantCulture));
         public static void DeleteKey(string key) { if (profile == null) PlayerPrefs.DeleteKey(key); else { profile.Remove(key); Save(); } }
         public static void Save() {
             if (profile == null) { PlayerPrefs.Save(); return; }
@@ -62,5 +70,6 @@ namespace Protobot {
             if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
             GC.KeepAlive(ownership);
         }
+        public static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     }
 }

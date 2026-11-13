@@ -26,7 +26,10 @@ namespace Protobot.InputEvents {
             ShortcutPriority.Register(this);
             //performed += () => Debug.Log("Performed " + name + " input event!");
 
+            bool windowsGrouping = name == "Grouping Bypass" && AppPlatform.OnWindows;
+            if (windowsGrouping) ModifierBindingDefaults.ConfigureGroupingDefault(defaultAction, true);
             rebindAction = new RebindAction(name, allowModifierOnly);
+            if (windowsGrouping) ModifierBindingDefaults.MigrateWindowsGroupingRebind(rebindAction, true);
 
             rebindAction.OnCompleteRebind += () => defaultAction.Disable();
             rebindAction.OnSaveRebinds += () => defaultAction.Disable();

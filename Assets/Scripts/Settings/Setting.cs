@@ -56,6 +56,7 @@ namespace Protobot {
 
         public void SaveValue() {
             LocalPreferences.SetString(name, currentValue);
+            LocalPreferences.Save();
         }
 
         public void SetValue(string newValue) {

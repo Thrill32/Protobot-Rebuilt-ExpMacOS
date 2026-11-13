@@ -105,6 +105,7 @@ namespace ProtobotEditorTools {
             var real = new Vector2(5.25f, -2.5f);
             var expectedMotion = gesture.Position(viewport.center + real, Vector3.right, false) - gesture.Position(viewport.center, Vector3.right, false);
             for (int repeat = 0; repeat < 6; repeat++) {
+                ResetWarp();
                 Event(mouse, edge, Vector2.zero);
                 Near(mouse.position.ReadValue(), edge, "Queued mouse event did not reach the device.");
                 var before = gesture.Position(edge, Vector3.right, false);
@@ -145,6 +146,7 @@ namespace ProtobotEditorTools {
                 InputSystem.QueueDeltaStateEvent(mouse.delta, fastMotion); UpdateInput();
                 Near(mouse.delta.ReadValue(), fastMotion, "A genuine fast relative movement was mistaken for a warp.");
             }
+            CheckVerticalAndOverlappingWarps(mouse, viewport);
             Require(!CursorWarp.Warp(mouse, mouse.position.ReadValue()), "A zero-distance warp was issued.");
             var other = InputSystem.AddDevice<Mouse>();
             try {
@@ -155,10 +157,42 @@ namespace ProtobotEditorTools {
             finally { InputSystem.RemoveDevice(other); mouse.MakeCurrent(); }
         }
 
+        private static void CheckVerticalAndOverlappingWarps(Mouse mouse, Rect viewport) {
+            var top = new Vector2(viewport.center.x, viewport.yMax - 1);
+            Require(TransformCursor.TryWrap(top, viewport, out var bottom), "Vertical edge did not wrap.");
+            Event(mouse, top, Vector2.zero);
+            Require(CursorWarp.Warp(mouse, bottom), "Vertical warp request failed.");
+            var verticalMotion = new Vector2(3f, 7f);
+            Event(mouse, bottom + verticalMotion, bottom - top + verticalMotion);
+            Near(mouse.position.ReadValue(), bottom + verticalMotion, "Vertical coalesced ack lost real motion.");
+            Near(mouse.delta.ReadValue(), verticalMotion, "Vertical teleport leaked into accumulated motion.");
+            Event(mouse, bottom, bottom - top);
+            Near(mouse.position.ReadValue(), bottom + verticalMotion, "Delayed vertical ack rewound the pointer.");
+
+            // Windows can coalesce an acknowledgement after another edge is
+            // reached. The older warp must not overwrite the newer logical
+            // position, on either axis.
+            ResetWarp();
+            var right = new Vector2(viewport.xMax - 1, viewport.center.y);
+            TransformCursor.TryWrap(right, viewport, out var left);
+            Event(mouse, right, Vector2.zero);
+            Require(CursorWarp.Warp(mouse, left), "First overlapping warp failed.");
+            var upper = new Vector2(left.x, viewport.yMax - 1);
+            Event(mouse, upper, upper - left);
+            TransformCursor.TryWrap(upper, viewport, out var lower);
+            Require(CursorWarp.Warp(mouse, lower), "Second overlapping warp failed.");
+            Event(mouse, left, left - right);
+            Near(mouse.position.ReadValue(), lower, "Older horizontal acknowledgement overwrote a newer vertical warp.");
+            Event(mouse, lower + Vector2.one * 4f, lower - upper + Vector2.one * 4f);
+            Near(mouse.position.ReadValue(), lower + Vector2.one * 4f, "Newer vertical acknowledgement lost post-warp motion.");
+            Near(mouse.delta.ReadValue(), Vector2.one * 4f, "Overlapping warp motion was not accumulated.");
+        }
+
         private static void Event(Mouse mouse, Vector2 position, Vector2 delta, double time = -1, Vector2 scroll = default, ushort buttons = 0) {
             InputSystem.QueueStateEvent(mouse, new MouseState { position = position, delta = delta, scroll = scroll, buttons = buttons }, time);
             UpdateInput();
         }
+        private static void ResetWarp() => typeof(CursorWarp).GetMethod("Reset", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, null);
         private static void UpdateInput() => typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,
             new[] { typeof(InputUpdateType) }, null).Invoke(null, new object[] { InputUpdateType.Dynamic });
         private static void Near(Vector2 a, Vector2 b, string message) => Require(Vector2.Distance(a, b) < .002f, message + $" ({a} vs {b})");

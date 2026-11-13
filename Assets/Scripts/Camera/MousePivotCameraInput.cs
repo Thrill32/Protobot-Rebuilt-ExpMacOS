@@ -46,18 +46,19 @@ namespace Protobot {
         }
 
         private void Update() {
-            if (InputEvent.IsNoclipMovementCaptured || Protobot.Tools.KeyboardTransformTool.BlocksCameraNavigation || Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
+            if (InputEvent.IsNoclipMovementCaptured || Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
                 return;
 
-            if (orbitInput.IsPressed && !disableOrbitInput) {
+            if (orbitInput.IsPressed && !disableOrbitInput && Protobot.Tools.KeyboardTransformTool.AllowsCameraNavigation(orbitInput)) {
                 Orbit();
             }
 
-            if (panInput.IsPressed && !disablePanInput) {
+            if (panInput.IsPressed && !disablePanInput && Protobot.Tools.KeyboardTransformTool.AllowsCameraNavigation(panInput)) {
                 Pan();
             }
 
-            ZoomScroll();
+            if (Protobot.Tools.KeyboardTransformTool.AllowsCameraZoom)
+                ZoomScroll();
         }
 
         public void Orbit() {
@@ -79,7 +80,7 @@ namespace Protobot {
 
         public void ZoomMouseY() {
             float mouseYInput = (MouseInput.yAxis * zoomSensitvity) / 12;
-            updateZoom?.Invoke(mouseYInput);
+            updateZoom?.Invoke(mouseYInput * 120f);
         }
 
         public void ZoomScroll() {
@@ -102,5 +103,9 @@ namespace Protobot {
         public void SetPanSensitivity(float newSensitivity) {
             panSensitivity = newSensitivity;
         }
+
+        public float OrbitSensitivity => orbitSensitivity;
+        public float PanSensitivity => panSensitivity;
+        public float ZoomSensitivity => zoomSensitvity;
     }
 }

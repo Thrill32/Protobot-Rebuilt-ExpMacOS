@@ -206,7 +206,7 @@ namespace Protobot {
         }
 
         private void UpdatePosition() {
-            if (currentPlacementData is SelectionPlacementData && (IsNavigatingCamera || MouseInput.overUI)) return;
+            if (IsNavigatingCamera || MouseInput.overUI) return;
             foreach (PlaceDisplacement placePosition in placePositions) {
                 // P uses only its explicitly selected source face, or the grid.
                 // Hardware and gear rules must never infer an anchor for this rigid copy.

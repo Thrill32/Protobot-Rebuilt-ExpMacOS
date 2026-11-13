@@ -156,6 +156,7 @@ namespace Protobot.InputEvents {
         public void SaveRebinds() {
             var rebinds = action.SaveBindingOverridesAsJson();
             LocalPreferences.SetString(id, rebinds);
+            LocalPreferences.Save();
 
             action.Enable();
 
@@ -179,6 +180,7 @@ namespace Protobot.InputEvents {
             action.Disable();
 
             LocalPreferences.DeleteKey(id);
+            LocalPreferences.Save();
 
             OnResetRebinds?.Invoke();
         }

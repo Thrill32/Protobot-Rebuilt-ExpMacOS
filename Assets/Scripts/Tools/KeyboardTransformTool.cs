@@ -48,6 +48,7 @@ namespace Protobot.Tools {
         private bool active;
         private bool rotating;
         private bool settling;
+        private bool cameraPaused;
         private Tween smoothingTween;
         private Vector3 displayedOffset;
         private Quaternion displayedRotation = Quaternion.identity;
@@ -69,12 +70,25 @@ namespace Protobot.Tools {
         public static bool BlocksUINavigation => IsCapturingInput ||
             (instance != null && instance.isActiveAndEnabled && instance.placement != null && instance.placement.rotating);
 
-        public static bool BlocksCameraNavigation => IsCapturingInput;
+        public static bool BlocksCameraNavigation => !AllowsCameraZoom;
+
+        public static bool AllowsCameraZoom => !IsCapturingInput || instance != null && instance.isActiveAndEnabled &&
+            instance.active && !instance.settling && !instance.numericInput.IsOpen && instance.placement?.IsTypingRotation != true;
+
+        public static bool AllowsCameraNavigation(InputEvent input) {
+            if (!IsCapturingInput) return true;
+            if (!AllowsCameraZoom || input == null || Mouse.current == null) return false;
+            // Left/right mouse own transform confirmation/cancellation. Other
+            // camera gestures can pause and rebase the transform preview.
+            return !input.UsesControl(Mouse.current.leftButton) && !input.UsesControl(Mouse.current.rightButton);
+        }
+
+        public static bool AllowsNoclipCamera(InputEvent input) => AllowsCameraNavigation(input);
 
         public bool IsCameraNavigationHeld => InputEvent.IsNoclipMovementCaptured ||
             CameraInputHeld(orbitInput) || CameraInputHeld(panInput) || CameraInputHeld(noclipInput);
 
-        private static bool CameraInputHeld(InputEvent input) => input != null && input.IsCurrentlyPressed && AllowsInput(input);
+        private static bool CameraInputHeld(InputEvent input) => input != null && input.IsCurrentlyPressed && AllowsCameraNavigation(input);
 
         // Keep modifiers available, but consume selection, undo/redo, tool changes,
         // and camera clicks until the confirmation/cancellation frame has ended.
@@ -97,6 +111,8 @@ namespace Protobot.Tools {
             if (input == instance.grabInput || input == instance.rotateInput ||
                 input.name == "Snap Bypass" || input.name == "Grouping Bypass" || input.name == "Toggle Grid" || input.name == "Duplicate")
                 return true;
+            if (input == instance.orbitInput || input == instance.panInput || input == instance.noclipInput)
+                return AllowsCameraNavigation(input);
             return false;
         }
 
@@ -218,6 +234,7 @@ namespace Protobot.Tools {
             rotationDegrees = 0f;
             active = true;
             settling = false;
+            cameraPaused = false;
             displayedOffset = targetOffset = Vector3.zero;
             displayedRotation = targetRotation = Quaternion.identity;
             gesture.Begin(refCamera, origin, MouseInput.Position);
@@ -286,6 +303,14 @@ namespace Protobot.Tools {
         }
 
         private void HandleInput(Keyboard keyboard, Mouse mouse) {
+            if (IsCameraNavigationHeld) {
+                cameraPaused = true;
+                return;
+            }
+            if (cameraPaused) {
+                cameraPaused = false;
+                ResumeMouse();
+            }
             if (keyboard.escapeKey.wasPressedThisFrame) {
                 if (!EscapeDeselect.TryHandleEscape()) Finish(false);
                 return;
@@ -421,6 +446,7 @@ namespace Protobot.Tools {
             }
             active = false;
             settling = false;
+            cameraPaused = false;
             finishedFrame = Time.frameCount;
         }
 
@@ -449,6 +475,7 @@ namespace Protobot.Tools {
             smoothingTween = null;
             active = false;
             settling = false;
+            cameraPaused = false;
             finishedFrame = Time.frameCount;
         }
 

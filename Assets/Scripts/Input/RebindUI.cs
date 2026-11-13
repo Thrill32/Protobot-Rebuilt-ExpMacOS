@@ -48,9 +48,7 @@ namespace Protobot.InputEvents {
             else if (inputEvent.name == "Save Selected Parts As")
                 actionNameText.text = "Save Selection As";
 
-            if (inputEvent.name == "Grouping Bypass" && EventRebindAction.IsEmpty)
-                rebindText.text = Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor ? "Win" : "Cmd";
-            else if (EventRebindAction.IsEmpty && (inputEvent.name == "Copy Selection" || inputEvent.name == "Paste Selection"))
+            if (EventRebindAction.IsEmpty && (inputEvent.name == "Copy Selection" || inputEvent.name == "Paste Selection"))
                 rebindText.text = (Application.platform == RuntimePlatform.OSXPlayer || Application.platform == RuntimePlatform.OSXEditor ? "Cmd+" : "Ctrl+") +
                     (inputEvent.name == "Copy Selection" ? "C" : "V");
             else if (!EventRebindAction.IsEmpty)
