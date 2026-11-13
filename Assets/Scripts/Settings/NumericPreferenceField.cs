@@ -14,10 +14,13 @@ namespace Protobot {
         [SerializeField] private float defaultValue;
         [SerializeField] private float minimum;
         [SerializeField] private float maximum;
+        [SerializeField] private Button defaultButton;
 
         private float current;
         private bool bound;
         public float Current => current;
+        public float DefaultValue => defaultValue;
+        public bool IsDefault => Mathf.Approximately(current, defaultValue);
         public string PreferenceKey => Key(value);
 
         private void Awake() {
@@ -66,7 +69,29 @@ namespace Protobot {
             LocalPreferences.SetFloat(PreferenceKey, current);
             LocalPreferences.Save();
             Display(current);
+            UpdateDefaultButton();
             return true;
+        }
+
+        public void SetDefaultButton(Button button) {
+            if (defaultButton != null) defaultButton.onClick.RemoveListener(SetToDefault);
+            defaultButton = button;
+            if (defaultButton != null) {
+                defaultButton.onClick.RemoveAllListeners();
+                defaultButton.onClick.AddListener(SetToDefault);
+            }
+            UpdateDefaultButton();
+        }
+
+        public void SetToDefault() {
+            current = defaultValue;
+            Apply(current);
+            // Persist the default explicitly so an older slider preference is
+            // not migrated back on the next launch.
+            LocalPreferences.SetFloat(PreferenceKey, current);
+            LocalPreferences.Save();
+            Display(current);
+            UpdateDefaultButton();
         }
 
         private float LoadValue() {
@@ -98,6 +123,7 @@ namespace Protobot {
 
         private bool InBounds(float number) => LocalPreferences.IsFinite(number) && number >= minimum && number <= maximum;
         private void Display(float number) { if (field != null) field.SetTextWithoutNotify(Format(number)); }
+        private void UpdateDefaultButton() { if (defaultButton != null) defaultButton.interactable = !IsDefault; }
         public static string Format(float number) => number.ToString("G9", CultureInfo.InvariantCulture);
         public static bool TryParse(string text, float min, float max, out float value) =>
             float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&

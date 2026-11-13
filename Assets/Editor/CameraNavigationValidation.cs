@@ -84,6 +84,17 @@ namespace ProtobotEditorTools {
                 var input = field.GetComponent<InputField>();
                 Require(input != null && input.navigation.mode == Navigation.Mode.Automatic, "A camera field is not keyboard navigable.");
                 Require(input.text == NumericPreferenceField.Format(field.Current), "A camera field does not show its exact current value.");
+                var fieldRect = (RectTransform)field.transform;
+                Require(fieldRect.sizeDelta.x <= 55f && fieldRect.sizeDelta.y <= 20f,
+                    "A camera numeric field is larger than the compact Preferences layout.");
+                var row = (RectTransform)field.transform.parent;
+                Require(row.sizeDelta.x <= 165f && row.sizeDelta.y <= 25f,
+                    "A camera preference row exceeds the existing column scale.");
+                var defaultButton = row.Find("Set Default Button")?.GetComponent<Button>();
+                Require(defaultButton != null && defaultButton.navigation.mode == Navigation.Mode.Automatic,
+                    "A camera field is missing its keyboard-focusable set-to-default button.");
+                Require(((RectTransform)defaultButton.transform).sizeDelta == new Vector2(15f, 15f) && defaultButton.image?.sprite != null,
+                    "A camera default button does not match the keybind reset control scale/style.");
             }
             var categories = fields[0].GetComponentInParent<PreferencesCategoryScroller>(true);
             Require(categories != null && categories.GetComponent<RectMask2D>() != null, "Preferences category scrolling/clipping was not installed.");
@@ -129,12 +140,19 @@ namespace ProtobotEditorTools {
             try {
                 Require(test.TryCommit("0.375") && test.GetComponent<InputField>().text == "0.375", "Typed camera value did not commit exactly.");
                 Require(!test.TryCommit("NaN") && test.GetComponent<InputField>().text == "0.375", "Invalid camera value replaced the last valid value.");
+                var defaultButton = test.transform.parent.Find("Set Default Button").GetComponent<Button>();
+                Require(defaultButton.interactable, "A changed camera preference did not enable its default button.");
+                defaultButton.onClick.Invoke();
+                Require(test.IsDefault && test.GetComponent<InputField>().text == NumericPreferenceField.Format(test.DefaultValue),
+                    "The camera default button did not restore and display the exact default.");
+                Near(LocalPreferences.GetFloat(test.PreferenceKey), test.DefaultValue, "The restored camera default was not persisted.");
+                Require(!defaultButton.interactable, "The camera default button stayed enabled at the default value.");
             }
             finally {
                 if (had) LocalPreferences.SetString(test.PreferenceKey, previous); else LocalPreferences.DeleteKey(test.PreferenceKey);
                 LocalPreferences.Save();
             }
-            Debug.Log("Camera navigation smoke passed: immediate orbit/pan/zoom, numeric UI/persistence, scrolling, keyboard focus and modal ownership.");
+            Debug.Log("Camera navigation smoke passed: immediate orbit/pan/zoom, compact numeric UI, per-field defaults, persistence, scrolling, keyboard focus and modal ownership.");
         }
 
         private static void Near(float actual, float expected, string message) => Require(Mathf.Abs(actual - expected) < .00001f, message + $" ({actual} vs {expected})");
