@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
-        public const string Version = "0.4.0-alpha";
+        public const string Version = "0.4.1-alpha";
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {

@@ -2,9 +2,9 @@ name: Collaboration
 
 on:
   push:
-    paths: ['Collaboration/**', 'Packages/com.protobot.collaboration/**', '.github/workflows/collaboration.yml']
+    paths: ['Collaboration/**', 'Packages/com.protobot.collaboration/**', 'Assets/Resources/Collaboration/catalog.json', '.github/workflows/collaboration.yml']
   pull_request:
-    paths: ['Collaboration/**', 'Packages/com.protobot.collaboration/**', '.github/workflows/collaboration.yml']
+    paths: ['Collaboration/**', 'Packages/com.protobot.collaboration/**', 'Assets/Resources/Collaboration/catalog.json', '.github/workflows/collaboration.yml']
   workflow_dispatch:
 
 jobs:
@@ -42,6 +42,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item LICENSE Collaboration/artifacts/${{ matrix.rid }}/LICENSE-Protobot.txt
+          Copy-Item Assets/Resources/Collaboration/catalog.json Collaboration/artifacts/${{ matrix.rid }}/catalog.json
           Copy-Item Collaboration/THIRD-PARTY-NOTICES.md Collaboration/artifacts/${{ matrix.rid }}/
           Copy-Item Collaboration/licenses/*.txt Collaboration/artifacts/${{ matrix.rid }}/
           New-Item -ItemType Directory -Force Collaboration/artifacts/${{ matrix.rid }}/deploy | Out-Null

@@ -94,6 +94,16 @@ internal static partial class Program {
         Check(DocumentModel.Hash(reversed) != DocumentModel.Hash(both), "saved state included in hash");
         var chained = DocumentModel.Reduce(both, Tx(both, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("chain-ab", "b", "a") }), seed.catalog);
         Check(chained.chains.Single().version == 1 && chained.chains.Single().members.SequenceEqual(new[] { "a", "b" }), "chain create is versioned and canonical");
+        var compound = DocumentModel.Reduce(both, Tx(both, "AddParts", new[] { Cube("copy-a", 20), Cube("copy-b", 24) },
+            chains: new[] { Chain("chain-copy", "copy-b", "copy-a") }), seed.catalog);
+        Check(compound.parts.Count(p => p.id.StartsWith("copy-", StringComparison.Ordinal)) == 2 &&
+            compound.chains.Single().members.SequenceEqual(new[] { "copy-a", "copy-b" }), "parts and their chain create atomically");
+        var movedAndCopied = DocumentModel.Reduce(both, Tx(both, "TransformAndCopy", new[] { Cube("a", 2), Cube("alt-a", 20), Cube("alt-b", 24) },
+            chains: new[] { Chain("alt-chain", "alt-a", "alt-b") }), seed.catalog);
+        Check(movedAndCopied.parts.Single(p => p.id == "a").position[0] == 2 && movedAndCopied.chains.Single().members.SequenceEqual(new[] { "alt-a", "alt-b" }),
+            "transform and copied chain create atomically");
+        Reject(() => DocumentModel.Reduce(both, Tx(both, "AddParts", new[] { Cube("copy-only", 20) },
+            chains: new[] { Chain("chain-cross", "a", "copy-only") }), seed.catalog), "invalid-chain-mutation");
         Reject(() => DocumentModel.Reduce(chained, Tx(chained, "TransformAndCopy", new[] { Cube("chain-ab") }), seed.catalog), "identity-in-use");
         Reject(() => DocumentModel.Reduce(chained, Tx(chained, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("duplicate-ab", "a", "b") }), seed.catalog),
             "duplicate-chain");
@@ -174,7 +184,7 @@ internal static partial class Program {
         long aliceSequence = 0, bobSequence = 0;
         Receipt Commit(JoinResponse author, string kind, Part[] writes, string[] deletes = null, ChainRecord[] chains = null, string[] chainDeletes = null) {
             var ids = writes.Select(p => p.id).Concat(deletes ?? Array.Empty<string>()).Where(id => document.parts.Any(p => p.id == id))
-                .Concat((chains ?? Array.Empty<ChainRecord>()).SelectMany(c => c.members))
+                .Concat((chains ?? Array.Empty<ChainRecord>()).SelectMany(c => c.members).Where(id => document.parts.Any(p => p.id == id)))
                 .Concat((chainDeletes ?? Array.Empty<string>()).SelectMany(id => DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.members ?? Array.Empty<string>()))
                 .Distinct().ToArray();
             string lease = ids.Length == 0 || kind == "Undo" || kind == "Redo" ? null : room.Reserve(author.token, new LeaseRequest { ids = ids }).token;
@@ -191,6 +201,14 @@ internal static partial class Program {
         }
         Receipt History(JoinResponse author, bool redo = false) => Commit(author, redo ? "Redo" : "Undo", Array.Empty<Part>());
         Part Part(string id) => WireJson.Clone(document.parts.Single(p => p.id == id));
+        Check(Commit(alice, "AddParts", new[] { Cube("paste-a", -10), Cube("paste-b", -6) },
+            chains: new[] { Chain("paste-chain", "paste-a", "paste-b") }).accepted && DocumentModel.Chains(document).Single().id == "paste-chain",
+            "compound part/chain import needs no lease for fresh endpoints");
+        Check(History(alice).accepted && document.parts.Length == 0 && DocumentModel.Chains(document).Length == 0,
+            "compound import undo removes parts and chain together");
+        Check(History(alice, true).accepted && document.parts.Length == 2 && DocumentModel.Chains(document).Single().id == "paste-chain",
+            "compound import redo restores parts and stable chain identity");
+        Check(History(alice).accepted, "compound import fixture reset");
         Check(Commit(alice, "AddParts", new[] { Cube("a"), Cube("b", 10) }).accepted, "history fixture create");
         Check(Commit(bob, "AddParts", new[] { Cube("c", 20) }).accepted, "other participant create");
         Check(Commit(alice, "SetChains", Array.Empty<Part>(), chains: new[] { Chain("chain-ab", "a", "b") }).accepted, "chain create accepted");
@@ -218,9 +236,13 @@ internal static partial class Program {
         Check(History(alice).accepted, "restore before compound copy");
         var moving = Part("a"); moving.position[0] = 30;
         var copy = Part("a"); copy.id = "copy";
-        Check(Commit(alice, "TransformAndCopy", new[] { moving, copy }).accepted, "atomic Alt transform plus create");
-        Check(History(alice).accepted && Part("a").position[0] == 0 && !document.parts.Any(p => p.id == "copy"), "compound undo restores source and removes copy");
-        Check(History(alice, true).accepted && Part("a").position[0] == 30 && document.parts.Any(p => p.id == "copy"), "compound redo resurrects copy");
+        var copyB = Part("b"); copyB.id = "copy-b";
+        Check(Commit(alice, "TransformAndCopy", new[] { moving, copy, copyB }, chains: new[] { Chain("copy-chain", "copy", "copy-b") }).accepted,
+            "atomic Alt transform plus copied chain create");
+        Check(History(alice).accepted && Part("a").position[0] == 0 && !document.parts.Any(p => p.id == "copy") &&
+            !DocumentModel.Chains(document).Any(c => c.id == "copy-chain"), "compound undo restores source and removes copies/chain");
+        Check(History(alice, true).accepted && Part("a").position[0] == 30 && document.parts.Any(p => p.id == "copy") &&
+            DocumentModel.Chains(document).Any(c => c.id == "copy-chain"), "compound redo resurrects copies and chain");
         Check(History(bob).accepted && !document.parts.Any(p => p.id == "c") && document.parts.Any(p => p.id == "copy"), "personal undo preserves other participants' operations");
         var held = room.Reserve(bob.token, new LeaseRequest { ids = new[] { "a" } });
         Check(History(alice).error == "parts-reserved", "undo cannot bypass another live reservation");

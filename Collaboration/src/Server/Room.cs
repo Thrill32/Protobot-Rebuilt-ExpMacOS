@@ -221,7 +221,12 @@ namespace Protobot.Collaboration.Server {
                         .Concat(DocumentModel.ChainWrites(command).Where(c => DocumentModel.Chains(document).Any(old => old.id == c.id))
                             .SelectMany(c => DocumentModel.Chains(document).First(old => old.id == c.id).members))
                         .Concat(DocumentModel.ChainDeletes(command).SelectMany(id => DocumentModel.Chains(document).FirstOrDefault(c => c.id == id)?.members ?? Array.Empty<string>()));
-                    var requiredLeaseIds = existing.Concat(chainMembers).Distinct().ToArray();
+                    // Fresh part IDs in a compound create transaction cannot be
+                    // reserved yet. Existing endpoints still require the ordinary
+                    // lease, while the reducer restricts new chains to endpoints
+                    // created by that same atomic transaction.
+                    var existingPartIds = document.parts.Select(p => p.id).ToHashSet(StringComparer.Ordinal);
+                    var requiredLeaseIds = existing.Concat(chainMembers.Where(existingPartIds.Contains)).Distinct().ToArray();
                     Lease lease = null;
                     if (requiredLeaseIds.Length > 0 && inverse == null) {
                         lease = OwnedLease(member, transaction.lease);

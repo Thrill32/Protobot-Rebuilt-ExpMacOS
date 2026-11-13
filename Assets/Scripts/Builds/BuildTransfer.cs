@@ -69,5 +69,25 @@ namespace Protobot.Builds {
                     throw new InvalidDataException("The build contains an invalid placement anchor.");
             }
         }
+
+        // Connected placement must fail closed because accepted logical topology
+        // is durable. Offline placement retains its legacy behavior of ignoring
+        // malformed/incomplete optional chain records.
+        public static void ValidateChains(BuildData build) {
+            var chains = build?.chains ?? Array.Empty<ChainData>();
+            if (chains.Length > Protobot.Collaboration.DocumentModel.MaxChains)
+                throw new InvalidDataException("A transferred build contains too many chains.");
+            var idCounts = build.parts.Where(part => !string.IsNullOrEmpty(part?.connectionId))
+                .GroupBy(part => part.connectionId, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+            var topologies = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var chain in chains) {
+                if (chain?.members == null || chain.members.Length < 2 || chain.members.Length > Protobot.Collaboration.DocumentModel.MaxWriteSet ||
+                    chain.members.Any(string.IsNullOrEmpty) || chain.members.Distinct(StringComparer.Ordinal).Count() != chain.members.Length ||
+                    chain.members.Any(id => !idCounts.TryGetValue(id, out var count) || count != 1))
+                    throw new InvalidDataException("The build contains an invalid chain.");
+                var topology = string.Join("\0", chain.members.OrderBy(id => id, StringComparer.Ordinal));
+                if (!topologies.Add(topology)) throw new InvalidDataException("The build contains a duplicate chain.");
+            }
+        }
     }
 }

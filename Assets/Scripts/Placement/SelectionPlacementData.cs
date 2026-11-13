@@ -61,8 +61,10 @@ namespace Protobot {
             templates = new List<GameObject>();
         }
 
-        public static SelectionPlacementData FromBuild(BuildData build, Transform preview, ObjectDuplicator duplicator, SelectionManager selectResult) {
+        public static SelectionPlacementData FromBuild(BuildData build, Transform preview, ObjectDuplicator duplicator, SelectionManager selectResult,
+            bool validateChains = false) {
             BuildTransfer.Validate(build);
+            if (validateChains) BuildTransfer.ValidateChains(build);
             var data = new SelectionPlacementData(preview, duplicator) { RepeatPlacement = false, ResultSelection = selectResult };
             try {
                 var renderers = new List<MeshRenderer>();
@@ -86,6 +88,7 @@ namespace Protobot {
                 data.HasHole = build.placementAnchor?.hole == true;
                 data.displayMesh = MeshCombiner.CombineMeshes(renderers, frame.position, frame.rotation);
                 data.chains = build.chains ?? Array.Empty<ChainData>();
+                if (validateChains) data.ValidateChains();
                 data.Normalize(frame);
                 return data;
             }
@@ -98,6 +101,17 @@ namespace Protobot {
                 var rotation = template.transform.rotation;
                 template.transform.localPosition = Quaternion.Inverse(frame.rotation) * (position - frame.position);
                 template.transform.localRotation = Quaternion.Inverse(frame.rotation) * rotation;
+            }
+        }
+
+        private void ValidateChains() {
+            if (chains.Length == 0) return;
+            var parts = templates.SelectMany(template => template.GetComponentsInChildren<SavedObject>(true))
+                .GroupBy(saved => saved.ConnectionId, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            foreach (var chain in chains) {
+                var sprockets = chain.members.Select(id => parts[id].GetComponent<SimulationPart>()).ToList();
+                if (!ChainLoop.Compatible(sprockets, out var reason))
+                    throw new System.IO.InvalidDataException("The build contains an invalid chain: " + reason + ".");
             }
         }
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 using Protobot;
@@ -45,7 +46,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration simulation validation passed: shared chain add/remove and history, rigid-set Move, private mouse/timeline/playback, no preview ghosts or reservations, accepted file saves, mouse and Set pose commits, compound personal undo/redo, remote edit invalidation, stale graph rejection, contention and disconnect recovery.");
+                Debug.Log("Collaboration simulation validation passed: shared chain add/remove/history, atomic Alt/paste/import chain copies, rigid-set Move, private mouse/timeline/playback, no preview ghosts or reservations, accepted file saves, mouse and Set pose commits, compound personal undo/redo, remote edit invalidation, stale graph rejection, contention and disconnect recovery.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -140,11 +141,85 @@ namespace ProtobotEditorTools {
             await History();
             Require(DocumentModel.Chains(Document()).Single().id == chain.id, "Undoing chain removal did not restore the accepted connection.");
 
+            // The real Alt transform/copy path retains contained chain topology:
+            // originals move while the new chain joins only the stationary copies.
+            var keyboard = Object.FindFirstObjectByType<KeyboardTransformTool>();
+            keyboard.enabled = false; // Batch Mode has no focused game window; drive confirmation explicitly.
+            var altBaseline = WireJson.Clone(Document());
+            var altBaselineIds = altBaseline.parts.Select(p => p.id).ToHashSet();
+            selection.SetCurrent(new MultiSelection(null, new List<GameObject> { Body(sprocketAId), Body(sprocketBId) }) { individual = true }, true, true);
+            foreach (var device in InputSystem.devices.OfType<Keyboard>()) InputSystem.QueueStateEvent(device, new KeyboardState(UnityEngine.InputSystem.Key.LeftAlt));
+            UpdateInput();
+            Invoke(keyboard, "BeginSelection", false);
+            await Until(() => Get<bool>(keyboard, "active"));
+            Require(Get<List<GameObject>>(keyboard, "duplicates").Count == 2, "Alt chain copy did not create both private part copies.");
+            Invoke(keyboard, "SetTarget", Vector3.up * 5, Quaternion.identity);
+            next = Document().revision + 1; Invoke(keyboard, "CompleteConfirmation");
+            foreach (var device in InputSystem.devices.OfType<Keyboard>()) InputSystem.QueueStateEvent(device, new KeyboardState());
+            UpdateInput();
+            keyboard.enabled = true;
+            await Accepted(next);
+            var altCopyIds = Document().parts.Where(p => !altBaselineIds.Contains(p.id)).Select(p => p.id).ToHashSet();
+            var altChain = DocumentModel.Chains(Document()).Single(c => c.id != chain.id);
+            Require(altCopyIds.Count == 2 && altChain.members.All(altCopyIds.Contains) &&
+                Document().parts.Where(p => new[] { sprocketAId, sprocketBId }.Contains(p.id)).All(p => p.position[1] > altBaseline.parts.Single(old => old.id == p.id).position[1] + 4.9),
+                "Alt transform/copy did not atomically move originals and connect only its copies.");
+            await History();
+            Require(Document().parts.Length == altBaseline.parts.Length && DocumentModel.Chains(Document()).Single().id == chain.id, "Alt chain-copy undo left copied entities.");
+            Matches(altBaseline);
+            await History(true);
+            Require(DocumentModel.Chains(Document()).Any(c => c.id == altChain.id), "Alt chain-copy redo lost its stable chain identity.");
+            await History();
+            Matches(altBaseline);
+
+            // Clipboard paste and build import remap both endpoint IDs and create
+            // the copied chain in the same accepted edit as its new parts.
+            var placement = Object.FindFirstObjectByType<Placement>();
+            var transfer = Object.FindFirstObjectByType<BuildTransferTool>();
+            selection.SetCurrent(new MultiSelection(null, new List<GameObject> { Body(sprocketAId), Body(sprocketBId) }) { individual = true }, true, true);
+            var chainBuild = BuildTransfer.Capture(selection.current);
+            Require(chainBuild?.parts.Length == 2 && chainBuild.chains?.Length == 1, "Chain transfer fixture did not capture both endpoints and topology.");
+            string importPath = Path.Combine(Path.GetTempPath(), "collaboration-chain-import-" + Guid.NewGuid().ToString("N") + ".pbb");
+            string clipboard = GUIUtility.systemCopyBuffer;
+            try {
+                using (var file = File.Create(importPath)) new BinaryFormatter().Serialize(file, chainBuild);
+                var baselineIds = Document().parts.Select(p => p.id).ToHashSet();
+                int baselineParts = baselineIds.Count;
+                Require(await transfer.CopySelectedAsync() && await transfer.PasteAsync(), "Shared chain clipboard workflow did not start.");
+                Set(placement, "currentDisplacement", new Protobot.Transformations.Displacement(center + rotation * Vector3.right * 40, rotation));
+                next = Document().revision + 1; Invoke(placement, "Place"); await Accepted(next);
+                var pastedIds = Document().parts.Where(p => !baselineIds.Contains(p.id)).Select(p => p.id).ToHashSet();
+                var pastedChain = DocumentModel.Chains(Document()).Single(c => c.id != chain.id);
+                Require(Document().parts.Length == baselineParts + 2 && pastedIds.Count == 2 && pastedChain.members.All(pastedIds.Contains) &&
+                    Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Any(loop => loop.ConnectionId == pastedChain.id),
+                    "Pasted chain was not atomically remapped to its new parts.");
+                await History();
+                Require(Document().parts.Length == baselineParts && DocumentModel.Chains(Document()).Single().id == chain.id,
+                    "Undoing chain paste left copied parts or topology.");
+                await History(true);
+                Require(DocumentModel.Chains(Document()).Any(c => c.id == pastedChain.id), "Redoing chain paste lost its stable chain identity.");
+                await History();
+
+                Require(await transfer.ImportBuildAsync(importPath), "Shared build import with a chain did not start.");
+                Set(placement, "currentDisplacement", new Protobot.Transformations.Displacement(center - rotation * Vector3.right * 40, rotation));
+                next = Document().revision + 1; Invoke(placement, "Place"); await Accepted(next);
+                var importedIds = Document().parts.Where(p => !baselineIds.Contains(p.id)).Select(p => p.id).ToHashSet();
+                Require(importedIds.Count == 2 && DocumentModel.Chains(Document()).Any(c => c.id != chain.id && c.members.All(importedIds.Contains)) &&
+                    BuildTransfer.SelectedBodies(selection.current).Select(b => b.GetComponent<SavedObject>().ConnectionId).ToHashSet().SetEquals(importedIds),
+                    "Imported chain build was not accepted and selected as one remapped set.");
+                await History();
+                Require(Document().parts.Length == baselineParts && DocumentModel.Chains(Document()).Single().id == chain.id,
+                    "Undoing chain import did not restore its complete baseline.");
+            }
+            finally {
+                GUIUtility.systemCopyBuffer = clipboard;
+                if (File.Exists(importPath)) File.Delete(importPath);
+                if (placement.placing) placement.CancelPlacement();
+            }
+
             // Existing Move math publishes a selected rigid set as one edit, without moving the motor.
             var start = WireJson.Clone(Document());
             selection.SetCurrent(new MultiSelection(null, new List<GameObject> { Body(shaftId), Body(gearId) }) { individual = true }, true, true);
-            var keyboard = Object.FindFirstObjectByType<KeyboardTransformTool>();
-            var placement = Object.FindFirstObjectByType<Placement>();
             Get<MoveToolManager>(keyboard, "moveToolManager").StartMoving();
             await Until(() => placement.placing);
             var source = selection.current.gameObject.transform;
@@ -301,6 +376,8 @@ namespace ProtobotEditorTools {
             typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,
                 new[] { typeof(InputUpdateType) }, null).Invoke(null, new object[] { InputUpdateType.Dynamic });
         }
+        private static void UpdateInput() => typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null,
+            new[] { typeof(InputUpdateType) }, null).Invoke(null, new object[] { InputUpdateType.Dynamic });
         private static async Task Until(Func<bool> predicate) {
             var watch = System.Diagnostics.Stopwatch.StartNew();
             while (!predicate()) { if (watch.Elapsed.TotalSeconds > 15) throw new TimeoutException("Collaboration simulation scenario timed out."); await Task.Delay(20); }

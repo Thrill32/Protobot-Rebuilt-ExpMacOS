@@ -46,8 +46,11 @@ namespace Protobot.Collaboration {
                 tx.expected.Length <= MaxWriteSet * 2 && expectedChains.Length <= MaxWriteSet * 2, "write-set-limit");
             Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "DeleteParts" ||
                 tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts", "unsupported-mutation");
+            bool createsPartsAndChains = (tx.kind == "AddParts" || tx.kind == "TransformAndCopy") && tx.writes.Length > 0 && tx.deletes.Length == 0 &&
+                chainWrites.Length > 0 && chainDeletes.Length == 0;
             Require(tx.kind == "SetChains" ? tx.writes.Length == 0 && tx.deletes.Length == 0 && chainWrites.Length + chainDeletes.Length > 0 :
-                tx.kind == "RestoreParts" || chainWrites.Length == 0 && chainDeletes.Length == 0 || tx.kind == "DeleteParts" && chainWrites.Length == 0,
+                tx.kind == "RestoreParts" || createsPartsAndChains || chainWrites.Length == 0 && chainDeletes.Length == 0 ||
+                tx.kind == "DeleteParts" && chainWrites.Length == 0,
                 "invalid-chain-mutation");
             var parts = current.parts.ToDictionary(p => p.id, StringComparer.Ordinal);
             var tombstones = current.tombstones.ToDictionary(p => p.id, p => p.version, StringComparer.Ordinal);
@@ -62,6 +65,7 @@ namespace Protobot.Collaboration {
                 Require(actual == dependency.version, "stale-entity");
             }
             var changed = new HashSet<string>(StringComparer.Ordinal);
+            var created = new HashSet<string>(StringComparer.Ordinal);
             foreach (var write in tx.writes) {
                 ValidatePart(write, catalog);
                 Require(changed.Add(write.id) && expected.ContainsKey(write.id), "missing-write-version");
@@ -88,6 +92,7 @@ namespace Protobot.Collaboration {
                 accepted.rotation = NormalizeRotation(accepted.rotation);
                 parts[accepted.id] = accepted;
                 tombstones.Remove(accepted.id);
+                if (!exists) created.Add(accepted.id);
             }
             foreach (var id in tx.deletes) {
                 Require((tx.kind == "RestoreParts" || tx.kind == "DeleteParts" && tx.writes.Length == 0) && ValidId(id) && changed.Add(id) &&
@@ -113,6 +118,8 @@ namespace Protobot.Collaboration {
                 Require(changedChains.Add(write.id) && chainExpected.ContainsKey(write.id) && !parts.ContainsKey(write.id) && !tombstones.ContainsKey(write.id),
                     "missing-chain-version");
                 bool exists = chains.TryGetValue(write.id, out var before);
+                if (tx.kind == "AddParts" || tx.kind == "TransformAndCopy")
+                    Require(!exists && write.members.All(created.Contains), "invalid-chain-mutation");
                 if (tx.kind == "RestoreParts") Require(exists || chainTombstones.ContainsKey(write.id), "missing-chain");
                 else if (!exists) Require(!chainTombstones.ContainsKey(write.id) && chainExpected[write.id] == 0, "chain-identity-in-use");
                 var accepted = WireJson.Clone(write);

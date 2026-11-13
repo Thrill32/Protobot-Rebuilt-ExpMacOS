@@ -4,6 +4,7 @@ Push-Location $PSScriptRoot
 try {
     dotnet publish src/Cli/Cli.csproj -c Release -r $Runtime --self-contained true "-p:CollaborationRuntime=$Runtime" -p:RestoreLockedMode=true -m:1 -o "artifacts/$Runtime"
     if ($LASTEXITCODE -ne 0) { throw 'Collaboration helper publication failed.' }
+    Copy-Item ../Assets/Resources/Collaboration/catalog.json "artifacts/$Runtime/catalog.json"
     Copy-Item ../LICENSE "artifacts/$Runtime/LICENSE-Protobot.txt"
     Copy-Item THIRD-PARTY-NOTICES.md "artifacts/$Runtime/"
     Copy-Item licenses/*.txt "artifacts/$Runtime/"

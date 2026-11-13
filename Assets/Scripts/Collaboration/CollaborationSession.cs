@@ -357,10 +357,13 @@ namespace Protobot {
             var session = instance;
             try {
                 DocumentModel.Require(session.client.IsConnected, "disconnected");
-                var writes = CollaborationScene.Bodies(bodies.Concat(copies ?? Enumerable.Empty<GameObject>())).Select(b => CollaborationScene.Capture(b)).ToArray();
+                var sourceBodies = CollaborationScene.Bodies(bodies);
+                var copiedChains = session.CaptureCopiedChains(sourceBodies, copies);
+                var writes = CollaborationScene.Bodies(sourceBodies.Concat(copies ?? Enumerable.Empty<GameObject>())).Select(b => CollaborationScene.Capture(b)).ToArray();
                 if ((copies == null || copies.Count == 0) && writes.All(p => DocumentModel.SamePart(p, session.committed.parts.FirstOrDefault(before => before.id == p.id)))) { CancelPose(); return; }
                 var expected = (dependencies ?? Array.Empty<VersionRef>()).Concat(session.reservedVersions).GroupBy(v => v.id).Select(g => g.First()).ToArray();
-                var tx = session.CreateTransaction(copies?.Count > 0 ? "TransformAndCopy" : "SetPoses", writes, dependencies: expected, token: session.lease);
+                var tx = session.CreateTransaction(copies?.Count > 0 ? "TransformAndCopy" : "SetPoses", writes, dependencies: expected, token: session.lease,
+                    chainWrites: copiedChains, chainDependencies: ChainVersions(copiedChains.Select(c => c.id)));
                 if (copies != null) ObjectDuplicator.DiscardCopies(copies);
                 _ = session.Submit(tx);
             }
@@ -370,13 +373,38 @@ namespace Protobot {
                 if (copies != null) ObjectDuplicator.DiscardCopies(copies);
             }
         }
+        private ChainRecord[] CaptureCopiedChains(List<GameObject> sourceBodies, List<GameObject> copies) {
+            if (copies == null || copies.Count == 0) return Array.Empty<ChainRecord>();
+            var sourceParts = sourceBodies.Where(body => body != null).SelectMany(body => body.GetComponentsInChildren<SavedObject>(true))
+                .Select(saved => saved.gameObject).Distinct().ToList();
+            var sourceRoots = sourceParts.Where(part => !sourceParts.Any(other => other != part && part.transform.IsChildOf(other.transform))).ToList();
+            DocumentModel.Require(sourceRoots.Count == copies.Count, "copy-map-mismatch");
+            var ids = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i < sourceRoots.Count; i++) {
+                var source = sourceRoots[i].GetComponentsInChildren<SavedObject>(true);
+                var copy = copies[i].GetComponentsInChildren<SavedObject>(true);
+                DocumentModel.Require(source.Length == copy.Length, "copy-map-mismatch");
+                for (int j = 0; j < source.Length; j++) ids[source[j].ConnectionId] = copy[j].ConnectionId;
+            }
+            var used = committed.parts.Select(p => p.id).Concat(committed.tombstones.Select(p => p.id))
+                .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet(StringComparer.Ordinal);
+            return DocumentModel.Chains(committed).Where(chain => chain.members.All(ids.ContainsKey)).Select(chain => {
+                string id; do id = Guid.NewGuid().ToString("N"); while (!used.Add(id));
+                return new ChainRecord { id = id, members = chain.members.Select(member => ids[member]).ToArray() };
+            }).ToArray();
+        }
         public static void PlaceCatalog(GameObject temporary, VersionRef[] dependencies = null) => PlaceCopies(new List<GameObject> { temporary }, dependencies);
-        public static void PlaceCopies(List<GameObject> temporary, VersionRef[] dependencies = null, SelectionManager selectResult = null) {
+        public static void PlaceCopies(List<GameObject> temporary, VersionRef[] dependencies = null, SelectionManager selectResult = null,
+            List<GameObject> temporaryChains = null) {
             var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
+            var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj => obj.GetComponent<Simulation.ChainLoop>())
+                .Where(loop => loop != null).Select(loop => loop.Capture()).ToArray();
             ObjectDuplicator.DiscardCopies(temporary);
+            if (temporaryChains != null) ObjectDuplicator.DiscardCopies(temporaryChains);
             if (IsShared && CanEdit) {
                 try {
-                    var tx = instance.CreateTransaction("AddParts", parts, dependencies: dependencies);
+                    var tx = instance.CreateTransaction("AddParts", parts, dependencies: dependencies,
+                        chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)));
                     if (selectResult != null) instance.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
                     _ = instance.Submit(tx);
                 }
