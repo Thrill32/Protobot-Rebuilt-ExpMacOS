@@ -11,6 +11,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.UI;
 using InputEvent = Protobot.InputEvents.InputEvent;
 using Object = UnityEngine.Object;
 
@@ -47,7 +48,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 Check();
-                Debug.Log("Box selection validation passed: release-time default/rebound grouping bypass, additive selection, overlapping groups, repeated/empty boxes, hole scope, cancellation and UI boundaries.");
+                Debug.Log("Box selection validation passed: release-time default/rebound grouping bypass, additive selection, overlapping groups, repeated/empty boxes, hole scope, cancellation, UI boundaries and bounded tiny/large sliced rendering.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -59,6 +60,7 @@ namespace ProtobotEditorTools {
             var manager = GameObject.Find("Primary Selection Manager").GetComponent<SelectionManager>();
             var box = manager.GetComponent<BoxSelector>();
             var boxUI = Get<BoxSelectUI>(box, "boxSelectUI");
+            CheckSelectionBoxRendering(boxUI);
             var multiple = Get<InputEvent>(manager.GetComponent<MultiSelector>(), "mutliSelectInput");
             var grouping = (InputEvent)typeof(GroupingBypassInput).GetField("input", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
             var oldAction = multiple.defaultAction;
@@ -196,6 +198,34 @@ namespace ProtobotEditorTools {
                 Require(manager.current is MultiSelection selection && selection.objs.Count == expected.Length &&
                     new HashSet<GameObject>(selection.objs).SetEquals(expected),
                     $"Box selection has incorrect or duplicate members: expected {expected.Length}, got {(manager.current as MultiSelection)?.objs.Count}; additive={multiple.IsPressed}, raw={multiple.defaultAction.IsPressed()}, key={keyboard.leftCtrlKey.isPressed}.");
+            }
+        }
+
+        private static void CheckSelectionBoxRendering(BoxSelectUI boxUI) {
+            var image = boxUI.GetComponent<Image>();
+            var rect = (RectTransform)image.transform;
+            Require(image.type == Image.Type.Sliced && image.sprite != null && image.sprite.border.sqrMagnitude > 0f,
+                "The selection rectangle is not using a bounded sliced border.");
+            Require(image.pixelsPerUnitMultiplier <= 1f,
+                "The selection rectangle border uses a tile-scale pixels-per-unit multiplier.");
+
+            string tileWarning = null;
+            Application.LogCallback callback = (message, _, _) => {
+                if (message.Contains("Too many sprite tiles") && message.Contains("Selecting Box")) tileWarning = message;
+            };
+            Application.logMessageReceived += callback;
+            try {
+                image.enabled = true;
+                rect.sizeDelta = new Vector2(2f, 2f);
+                Canvas.ForceUpdateCanvases();
+                rect.sizeDelta = new Vector2(20000f, 12000f);
+                Canvas.ForceUpdateCanvases();
+                Require(tileWarning == null, "Large selection rectangle generated tiled-sprite geometry: " + tileWarning);
+            }
+            finally {
+                Application.logMessageReceived -= callback;
+                image.enabled = false;
+                rect.sizeDelta = Vector2.zero;
             }
         }
 

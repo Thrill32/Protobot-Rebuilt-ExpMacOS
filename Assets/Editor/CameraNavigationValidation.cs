@@ -9,6 +9,7 @@ using Protobot.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -98,6 +99,7 @@ namespace ProtobotEditorTools {
             }
             var categories = fields[0].GetComponentInParent<PreferencesCategoryScroller>(true);
             Require(categories != null && categories.GetComponent<RectMask2D>() != null, "Preferences category scrolling/clipping was not installed.");
+            CheckPreferencesScrolling(categories, fields[0]);
             Require(fields[0].transform.parent.parent.GetComponentsInChildren<Slider>(true).Length == 0,
                 "A legacy camera sensitivity slider remains in the Camera category.");
 
@@ -153,6 +155,46 @@ namespace ProtobotEditorTools {
                 LocalPreferences.Save();
             }
             Debug.Log("Camera navigation smoke passed: immediate orbit/pan/zoom, compact numeric UI, per-field defaults, persistence, scrolling, keyboard focus and modal ownership.");
+        }
+
+        private static void CheckPreferencesScrolling(PreferencesCategoryScroller scroller, NumericPreferenceField field) {
+            var category = field.transform.parent.parent.parent as RectTransform;
+            var origin = category.anchoredPosition;
+            var selected = EventSystem.current.currentSelectedGameObject;
+            var ancestors = scroller.GetComponentsInParent<Transform>(true)
+                .Select(item => (item.gameObject, item.gameObject.activeSelf)).ToArray();
+            var categoryStates = scroller.transform.Cast<Transform>()
+                .Select(item => (item.gameObject, item.gameObject.activeSelf)).ToArray();
+            foreach (var state in ancestors) state.gameObject.SetActive(true);
+            foreach (var state in categoryStates) state.gameObject.SetActive(state.gameObject == category.gameObject);
+            var fixture = new GameObject("Scrolling validation fixture", typeof(RectTransform), typeof(Image), typeof(Button));
+            var rect = fixture.GetComponent<RectTransform>();
+            rect.SetParent(category, false);
+            rect.anchorMin = rect.anchorMax = new Vector2(.5f, 1f);
+            rect.pivot = new Vector2(.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, -2000f);
+            rect.sizeDelta = new Vector2(100f, 20f);
+            try {
+                Canvas.ForceUpdateCanvases();
+                scroller.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = new Vector2(0f, -100f) });
+                Require(category.anchoredPosition.y > origin.y,
+                    "Preferences wheel input did not scroll overflowing content.");
+                scroller.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = new Vector2(0f, 10000f) });
+                Require(Vector2.Distance(category.anchoredPosition, origin) < .01f,
+                    "Preferences scrolling did not clamp safely at its origin.");
+                EventSystem.current.SetSelectedGameObject(fixture);
+                typeof(PreferencesCategoryScroller).GetMethod("LateUpdate", BindingFlags.NonPublic | BindingFlags.Instance)
+                    .Invoke(scroller, null);
+                Require(category.anchoredPosition.y > origin.y,
+                    "Keyboard-focused Preferences content was not brought into view.");
+            }
+            finally {
+                EventSystem.current.SetSelectedGameObject(selected);
+                Object.Destroy(fixture);
+                scroller.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = new Vector2(0f, 10000f) });
+                foreach (var state in categoryStates) state.gameObject.SetActive(state.activeSelf);
+                foreach (var state in ancestors) state.gameObject.SetActive(state.activeSelf);
+            }
         }
 
         private static void Near(float actual, float expected, string message) => Require(Mathf.Abs(actual - expected) < .00001f, message + $" ({actual} vs {expected})");

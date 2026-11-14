@@ -13,7 +13,9 @@ using Protobot.StateSystems;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
@@ -47,7 +49,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 await Check();
-                Debug.Log("Color painting validation passed: catalog families, per-slot defaults, default brush UI, default restoration after copy/regeneration/load, nested renderers/material slots, hole and box selection, exact undo/redo without repainting restored selections, no-op paint, material isolation, dirty detection, regeneration, clipboard and binary save/load.");
+                Debug.Log("Color painting validation passed: custom-picker pointer ownership, catalog families, per-slot defaults, default brush UI, default restoration after copy/regeneration/load, nested renderers/material slots, hole and box selection, exact undo/redo without repainting restored selections, no-op paint, material isolation, dirty detection, regeneration, clipboard and binary save/load.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -235,8 +237,10 @@ namespace ProtobotEditorTools {
             var panel = dropdown.transform.parent.gameObject;
             bool wasActive = panel.activeSelf;
             dropdown.SetValueWithoutNotify(0);
+            panel.SetActive(false);
             tool.EnableUI(panel);
             Require(ColorTool.UseDefaultColor && !ColorTool.CustomColor, "Opening Default brush let slider callbacks replace it with a white tint.");
+            await CheckPickerPointerOwnership(tool, dropdown, panel);
             panel.SetActive(wasActive);
             ColorToolActiveCheck.colorToolActive = true;
 
@@ -324,6 +328,38 @@ namespace ProtobotEditorTools {
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
             await NextFrame();
             ColorToolActiveCheck.colorToolActive = true;
+        }
+
+        private static async Task CheckPickerPointerOwnership(ColorTool tool, UnityEngine.UI.Dropdown dropdown, GameObject panel) {
+            tool.HandleInput(dropdown.options.Count - 1);
+            var custom = Get<GameObject>(tool, "custom");
+            Require(panel.activeInHierarchy && custom.activeInHierarchy && ColorTool.CustomColor,
+                "The custom color picker did not open for pointer validation.");
+            var slider = custom.GetComponentsInChildren<Slider>(true).First();
+            var ownership = slider.GetComponent<ColorPickerPointerOwnership>();
+            Require(ownership != null && custom.GetComponent<Graphic>().raycastTarget,
+                "The custom picker is missing slider or panel pointer ownership.");
+
+            var pointer = new PointerEventData(EventSystem.current) {
+                pointerId = -1, button = PointerEventData.InputButton.Left, position = Vector2.zero
+            };
+            ownership.OnPointerDown(pointer);
+            Require(ColorPickerPointerOwnership.BlocksScenePointer,
+                "Slider pointer-down was not owned by the custom picker.");
+            float value = slider.value > 0f ? slider.value - 1f : slider.value + 1f;
+            slider.value = value;
+            ownership.OnDrag(pointer);
+            Require(panel.activeSelf && custom.activeSelf && ColorPickerPointerOwnership.BlocksScenePointer &&
+                Mathf.Approximately(ColorTool.ColorToSet.r, Get<Slider>(tool, "red").value / 255f),
+                "Dragging a color slider closed the picker or stopped updating the brush.");
+            ownership.OnPointerUp(pointer);
+            Require(panel.activeSelf && custom.activeSelf && ColorPickerPointerOwnership.BlocksScenePointer,
+                "Slider pointer-up escaped picker ownership in its dispatch frame.");
+
+            tool.HandleInput(0);
+            await NextFrame();
+            Require(ColorTool.UseDefaultColor && !ColorTool.CustomColor && !custom.activeSelf,
+                "Default did not deliberately close the custom picker after a slider gesture.");
         }
 
         private static Material[] Materials(GameObject part) => MeshCombiner.GetRenderers(new[] { part })

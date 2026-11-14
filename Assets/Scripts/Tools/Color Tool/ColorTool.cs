@@ -20,6 +20,17 @@ public class ColorTool : MonoBehaviour
         set { colorToSet = value; UseDefaultColor = false; }
     }
     public static bool CustomColor;
+
+    private void Awake()
+    {
+        var panel = custom.transform as RectTransform;
+        ColorPickerPointerOwnership.Configure(panel);
+        if (custom.TryGetComponent<Graphic>(out var background)) background.raycastTarget = true;
+        foreach (var slider in custom.GetComponentsInChildren<Slider>(true))
+            if (slider.GetComponent<ColorPickerPointerOwnership>() == null)
+                slider.gameObject.AddComponent<ColorPickerPointerOwnership>();
+    }
+
     public void EnableUI(GameObject ui)
     {
         ui.SetActive(!ui.gameObject.activeSelf);
