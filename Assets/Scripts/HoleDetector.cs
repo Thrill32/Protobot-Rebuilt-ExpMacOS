@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System;
-using System.Collections;
 using UnityEngine;
 using Protobot.StateSystems;
 
@@ -11,7 +10,7 @@ namespace Protobot {
         [SerializeField] HoleCollider.HoleType targetHoleType;
 
         private void Update() {
-            if (Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             var allHoles = new HashSet<HoleCollider>(holes);
             foreach (var holeCollider in allHoles) {
                 if (!Usable(holeCollider))
@@ -27,22 +26,21 @@ namespace Protobot {
         public Action OnRemoveHole; // Runs whenever any hole gets removed from this hole detector
         public Action OnRemoveTargetHole; // Runs when a target hole is added to this hole detector
         
-        private static bool Usable(HoleCollider hole) => hole != null && hole.isActiveAndEnabled &&
+        private int targetNotificationFrame = -1;
+        public bool CanDetect => this != null && isActiveAndEnabled && gameObject.activeInHierarchy && !gameObject.IsDeleted();
+
+        private static bool Usable(HoleCollider hole) => hole != null && hole.isActiveAndEnabled && hole.gameObject.activeInHierarchy &&
             hole.holeData?.part != null && !hole.gameObject.IsDeleted();
 
         private void OnDisable() {
-            StopAllCoroutines();
+            targetNotificationFrame = -1;
             RemoveAll();
         }
         
-        /// <summary>
-        /// Makes sure to wait until all holes have been added before deciding to add a target hole
-        /// Due to the randomness of OnTriggerStay
-        /// </summary>
-        /// <returns></returns>
-        IEnumerator WaitAddTargetHole() {
-            yield return new WaitForEndOfFrame();
-            if (TargetHoleFound) OnAddTargetHole?.Invoke();
+        private void LateUpdate() {
+            if (targetNotificationFrame < 0 || Time.frameCount <= targetNotificationFrame) return;
+            targetNotificationFrame = -1;
+            if (CanDetect && TargetHoleFound) OnAddTargetHole?.Invoke();
         }
 
         public List<GameObject> GetObjects() {
@@ -69,7 +67,8 @@ namespace Protobot {
         /// <summary>Re-query stationary geometry after regeneration instead of
         /// waiting for trigger callbacks from a moving/woken rigidbody.</summary>
         public void RefreshOverlaps() {
-            if (!isActiveAndEnabled || Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
+            Physics.SyncTransforms();
             var capsule = GetComponent<CapsuleCollider>();
             var scale = transform.lossyScale;
             float radius = capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
@@ -146,7 +145,7 @@ namespace Protobot {
         }
 
         private void OnTriggerStay(Collider other) {
-            if (Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             if (other.TryGetComponent(out HoleCollider hole))
                 DetectHole(hole);
         }
@@ -159,7 +158,7 @@ namespace Protobot {
         }
 
         private void OnTriggerExit(Collider other) {
-            if (Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             if (other.TryGetComponent(out HoleCollider hole))
                 if (hole.IsOccupiedBy(this))
                     RemoveHole(hole);
@@ -179,13 +178,19 @@ namespace Protobot {
         public bool IsTargetHole(HoleCollider hole) => hole.holeType == targetHoleType;
 
         public void AddHole(HoleCollider hole) {
-            if (!isActiveAndEnabled || !Usable(hole) || holes.Contains(hole) || !hole.TryAddDetector(this)) return;
+            if (!CanDetect || !Usable(hole) || holes.Contains(hole)) return;
+            // Establish both sides before OnSetDetector can disable either end.
             holes.Add(hole);
-
-            if (IsTargetHole(hole)) {
-                StartCoroutine(WaitAddTargetHole());
+            if (!hole.TryAddDetector(this)) {
+                holes.Remove(hole);
+                return;
             }
-            
+            if (!CanDetect || !Usable(hole) || !holes.Contains(hole)) {
+                RemoveHole(hole);
+                return;
+            }
+            if (IsTargetHole(hole) && targetNotificationFrame < 0)
+                targetNotificationFrame = Time.frameCount;
             OnAddHole?.Invoke();
         }
 

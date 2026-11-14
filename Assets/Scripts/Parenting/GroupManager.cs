@@ -21,7 +21,7 @@ namespace Protobot {
         public static void FormConnection(ConnectingPart connectingPart, List<GameObject> objs) {
             if (connectingPart == null) return;
             GameObject connectingObj = connectingPart.gameObject;
-            var attached = connectingPart.isActiveAndEnabled && objs != null
+            var attached = Live(connectingObj) && connectingPart.isActiveAndEnabled && objs != null
                 ? new HashSet<GameObject>(objs.Where(obj => Live(obj) && obj != connectingObj)) : new HashSet<GameObject>();
             if (Graph.TryGetValue(connectingObj, out var previous))
                 foreach (var removed in previous.Except(attached).ToArray()) BreakConnection(connectingPart, removed);
@@ -40,22 +40,23 @@ namespace Protobot {
         public static void BreakConnection(ConnectingPart connectingPart, GameObject obj) {
             GameObject connectingObj = connectingPart.gameObject;
 
-            if (Graph.ContainsKey(connectingObj))
-                Graph[connectingObj].Remove(obj);
-            
-            if (Graph.ContainsKey(obj))
-                Graph[obj].Remove(connectingObj);
+            RemoveEdge(connectingObj, obj);
+            RemoveEdge(obj, connectingObj);
         }
         
+        private static void RemoveEdge(GameObject from, GameObject to) {
+            if (!Graph.TryGetValue(from, out var edges)) return;
+            edges.Remove(to);
+            if (edges.Count == 0) Graph.Remove(from);
+        }
+
         /// <summary>
         /// Removes a given object and all of its connections from the group graph
         /// </summary>
         public static void Remove(GameObject obj) {
             if (ReferenceEquals(obj, null)) return;
             if (Graph.ContainsKey(obj)) {
-                foreach (GameObject c in Graph[obj]) {
-                    if (Graph.TryGetValue(c, out var connections)) connections.Remove(obj);
-                }
+                foreach (GameObject c in Graph[obj].ToArray()) RemoveEdge(c, obj);
 
                 Graph.Remove(obj);
             }

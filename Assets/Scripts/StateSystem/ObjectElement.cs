@@ -17,6 +17,8 @@ namespace Protobot.StateSystems {
             rotation = newObj.transform.rotation;
         }
         public void Load() {
+            // Selection pivots can be destroyed after their bodies were recorded.
+            if (obj == null) return;
             ApplyExistence(existing);
 
             if (obj.transform.position != position)
@@ -70,8 +72,10 @@ namespace Protobot.StateSystems {
         /// </summary>
         /// <param name="value"></param>
         public void ApplyExistence(bool value) {
-            obj.SetActive(value);
+            if (obj == null) return;
+            // Lifecycle callbacks must observe the new existence state.
             obj.layer = value ? 0 : LayerMask.NameToLayer("Deleted");
+            obj.SetActive(value);
         }
 
     }

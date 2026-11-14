@@ -1,5 +1,4 @@
 ﻿using UnityEngine;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -7,7 +6,11 @@ namespace Protobot {
     public abstract class ConnectingPart : MonoBehaviour {
         [SerializeField] public HoleDetector holeDetector;
 
-        private Coroutine pendingRefresh;
+        private int refreshFrame = -1;
+
+        // isActiveAndEnabled can still be true during a child's OnDisable,
+        // before Unity has delivered OnDisable to this component.
+        private bool Live => this != null && isActiveAndEnabled && gameObject.activeInHierarchy && !gameObject.IsDeleted();
         
         public abstract bool CanFormConnection { get; }
 
@@ -21,22 +24,27 @@ namespace Protobot {
         }
 
         public void FormConnection() {
-            GroupManager.FormConnection(this, CanFormConnection ? GetAttachedParts() : null);
+            if (this == null) return;
+            GroupManager.FormConnection(this, Live && holeDetector != null && holeDetector.CanDetect && CanFormConnection
+                ? GetAttachedParts() : null);
         }
 
         public void BreakConnection() => GroupManager.Remove(gameObject);
 
         private void RefreshConnections() {
-            if (isActiveAndEnabled && pendingRefresh == null)
-                pendingRefresh = StartCoroutine(WaitRefresh());
+            if (Live && refreshFrame < 0) refreshFrame = Time.frameCount;
         }
 
-        private IEnumerator WaitRefresh() {
-            yield return new WaitForEndOfFrame();
-            pendingRefresh = null;
+        private void LateUpdate() {
+            if (refreshFrame < 0 || Time.frameCount <= refreshFrame) return;
+            refreshFrame = -1;
+            if (!Live) return;
+            // Re-enabled stationary geometry need not receive a physics callback
+            // before its group is available again.
+            if (holeDetector != null) holeDetector.RefreshOverlaps();
             FormConnection();
         }
-        
+
         public void OnEnable() {
             holeDetector.OnAddHole += RefreshConnections;
             holeDetector.OnRemoveHole += RefreshConnections;
@@ -44,8 +52,7 @@ namespace Protobot {
         }
 
         public void OnDisable() {
-            if (pendingRefresh != null) StopCoroutine(pendingRefresh);
-            pendingRefresh = null;
+            refreshFrame = -1;
             if (holeDetector != null) {
                 holeDetector.OnAddHole -= RefreshConnections;
                 holeDetector.OnRemoveHole -= RefreshConnections;
