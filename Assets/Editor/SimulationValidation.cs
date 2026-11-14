@@ -58,7 +58,7 @@ namespace ProtobotEditorTools {
                 if (!checkedRender) {
                     Check();
                     if (SessionState.GetBool(Key + ".Mechanisms", false)) MechanismValidation.Check();
-                    Debug.Log("Simulation smoke passed: generated motor/shafts/collars/gears, ratio propagation, stationary housings/bearings, reverse/large-time evaluation, reset/cancel, click commit, undo/redo, preview-safe saves, wrapped mouse scrubbing, timeline controls, unbound/rebound actions and placement/Move/GH gear snapping.");
+                Debug.Log("Simulation smoke passed: generated motor/shafts/collars/gears, ratio propagation, stationary housings/bearings, reverse/large-time evaluation, reset/cancel, click commit, undo/redo, preview-safe saves, wrapped mouse scrubbing, timeline controls, unbound/rebound actions, Move gear snapping and body-only G/H denial.");
                     if (!SessionState.GetBool(Key + ".Render", false)) { Finish(0); return; }
                     checkedRender = true; frames = 0;
                     GameObject.Find("Splash Screen")?.SetActive(false);
@@ -466,16 +466,10 @@ namespace ProtobotEditorTools {
                 manager.SetCurrent(new ObjectSelection { gameObject = source.gameObject, individual = true }, true, true);
                 Physics.SyncTransforms(); Point(camera.WorldToScreenPoint(point));
                 Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
-                var data = Get<PlacementData>(placement, "currentPlacementData");
-                Require(placement.placing && rule.TryGetDisplacement(data, out var pose), "G/H did not use Move's gear snapping near a circumference");
-                Near(source.transform.position, movedStart.position, "The Move preview changed the actual gear before confirmation");
-                rule.TryGetDisplacement(data, out var preview);
-                source.transform.SetPositionAndRotation(preview.translation.Position, preview.rotation.Orientation);
-                Require(GearSnapping.AreMeshed(source, target), "The G/H Move preview did not mesh the gear");
-                source.transform.SetPositionAndRotation(movedStart.position, movedStart.rotation);
-                placement.CancelPlacement();
-                Near(source.transform.position, movedStart.position, "G/H gear cancellation lost the starting position");
-                Near(source.transform.rotation, movedStart.rotation, "G/H gear cancellation lost the starting rotation");
+                Require(!placement.placing && !Get<bool>(tool, "active"),
+                    "Body-only G/H fell through to free/gear Move without a concrete source hole.");
+                Near(source.transform.position, movedStart.position, "Denied G/H lost the starting gear position");
+                Near(source.transform.rotation, movedStart.rotation, "Denied G/H lost the starting gear rotation");
             }
             finally {
                 placement.CancelPlacement();

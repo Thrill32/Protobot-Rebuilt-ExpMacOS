@@ -26,7 +26,7 @@ https://github.com/user-attachments/assets/7b37e938-61f8-463c-8c47-1981fb4ccd90
 
 Pull requests are welcome and very much appreciated. You can also contribute by submitting issues for problems you find in the software.
 
-For a current architecture and workflow overview, see [CONTEXT_MAP.md](CONTEXT_MAP.md).
+For a current architecture and workflow overview, see [CONTEXT_MAP.md](CONTEXT_MAP.md). Targeted checks and build procedures are in [VALIDATION.md](VALIDATION.md).
 
 #### Notes
 - This branch uses Unity **6000.6.6f1**. Please use this version for changes to the project; [`ProjectVersion.txt`](ProjectSettings/ProjectVersion.txt) is authoritative.

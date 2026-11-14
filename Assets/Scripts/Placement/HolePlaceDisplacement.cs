@@ -21,16 +21,22 @@ namespace Protobot {
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             displacement = null;
             HoleFace source = null;
+            var moving = placementData as GameObjectPlacementData;
             if (placementData is SelectionPlacementData copy) {
                 if (!copy.HasHole) return false;
             }
-            else if (placementData is not GameObjectPlacementData moving ||
-                !moving.GetGameObject().TryGetComponent(out source)) return false;
+            else if (moving == null ||
+                moving.sourceHole == null && !moving.GetGameObject().TryGetComponent(out source)) return false;
             if (!MoveTargeting.TryRaycast(mouseCast.ray, mouseCast.layerMask,
                 oppositeHoleInput != null && oppositeHoleInput.IsCurrentlyPressed, true, null, out var target)) return false;
             rotationAnchor = target.face;
             Pose aligned;
-            if (source != null) {
+            if (moving?.sourceHole != null) {
+                var sourcePose = moving.sourceHole.Face;
+                var pivot = moving.GetGameObject().transform;
+                aligned = MoveTargeting.Align(sourcePose, target.face, new Pose(pivot.position, pivot.rotation));
+            }
+            else if (source != null) {
                 source.Refresh();
                 aligned = MoveTargeting.Align(new Pose(source.position, source.LookRotation), target.face,
                     new Pose(source.position, source.Rotation));

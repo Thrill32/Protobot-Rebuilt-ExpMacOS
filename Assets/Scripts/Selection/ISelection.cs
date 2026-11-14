@@ -84,6 +84,8 @@ namespace Protobot.SelectionSystem {
         private readonly HoleFace marker;
         public Vector3 Direction => Hole.part.transform.TransformDirection(localDirection).normalized;
         public Pose Face => MoveTargeting.HoleFace(Hole, Direction);
+        public bool IsValid => Hole?.part != null && Hole.part.activeInHierarchy && !Hole.part.IsDeleted() &&
+            Hole.source != null && Hole.source.gameObject.activeInHierarchy;
 
         private SelectedHoleAnchor(HoleData hole, Vector3 direction, HoleFace marker) {
             Hole = hole;

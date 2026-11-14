@@ -188,7 +188,7 @@ File → Save Selected Parts As… exports the captured set as `.pbb` through a 
 
 ## Validation entry points
 
-These are existing checks to run when changing the implementation; this document itself does not change runtime behavior. Full invocation/build instructions are in [CONTEXT_MAP.md](CONTEXT_MAP.md#validation-and-build).
+These are existing checks to run when changing the implementation; this document itself does not change runtime behavior. Full invocation/build instructions are in [VALIDATION.md](VALIDATION.md).
 
 | Change area | Relevant existing validation |
 | --- | --- |

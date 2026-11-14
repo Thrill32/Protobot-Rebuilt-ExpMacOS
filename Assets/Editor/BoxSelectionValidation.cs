@@ -47,7 +47,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 Check();
-                Debug.Log("Box selection validation passed: replacement, default and rebound additive input, complete chords, overlapping/repeated boxes, empty boxes, single/multi/hole selections and individual grouping scope.");
+                Debug.Log("Box selection validation passed: release-time default/rebound grouping bypass, additive selection, overlapping groups, repeated/empty boxes, hole scope, cancellation and UI boundaries.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -60,8 +60,11 @@ namespace ProtobotEditorTools {
             var box = manager.GetComponent<BoxSelector>();
             var boxUI = Get<BoxSelectUI>(box, "boxSelectUI");
             var multiple = Get<InputEvent>(manager.GetComponent<MultiSelector>(), "mutliSelectInput");
+            var grouping = (InputEvent)typeof(GroupingBypassInput).GetField("input", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
             var oldAction = multiple.defaultAction;
             var oldRebind = multiple.rebindAction;
+            var oldGroupingAction = grouping.defaultAction;
+            var oldGroupingRebind = grouping.rebindAction;
             var oldCamera = Get<Camera>(box, "cam");
             var keyboard = InputSystem.AddDevice<Keyboard>();
             var camera = new GameObject("Box validation camera", typeof(Camera)).GetComponent<Camera>();
@@ -81,6 +84,8 @@ namespace ProtobotEditorTools {
                 multiple.defaultAction = new InputAction("Box validation multiple", InputActionType.Button, keyboard.leftCtrlKey.path);
                 multiple.defaultAction.Enable();
                 multiple.rebindAction = new RebindAction("Box validation " + Guid.NewGuid(), true);
+                grouping.rebindAction.action.Disable();
+                grouping.rebindAction = new RebindAction("Box validation grouping " + Guid.NewGuid(), true);
 
                 Press(); Seed(); Drag(1); Expect(parts[1]);
                 Press(Key.LeftCtrl); Seed(); Drag(1); Expect(parts[0], parts[1]);
@@ -103,7 +108,7 @@ namespace ProtobotEditorTools {
                     holeFace = face, faceDirection = collider.transform.forward, individual = true
                 }, true, true);
                 Drag(1); Expect(parts[0], parts[1]);
-                Require(manager.current.individual, "Adding a box discarded individual selection scope.");
+                Require(!manager.current.individual, "A box inherited grouping bypass from a prior hole selection.");
 
                 multiple.defaultAction.Disable();
                 multiple.rebindAction.action.AddBinding(keyboard.f8Key.path);
@@ -112,6 +117,53 @@ namespace ProtobotEditorTools {
                 Press(); Press(Key.LeftCtrl); Seed(); Drag(1); Expect(parts[1]);
                 Press(); Press(Key.F8); Seed(); Drag(1); Expect(parts[1]);
                 Press(); Press(Key.F8, Key.LeftAlt); Seed(); Drag(1); Expect(parts[0], parts[1]);
+
+                // Connect the first and third parts while the third remains
+                // outside a box around the first.
+                var graph = (Dictionary<GameObject, HashSet<GameObject>>)typeof(GroupManager)
+                    .GetField("Graph", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
+                graph[parts[0]] = new HashSet<GameObject> { parts[2] };
+                graph[parts[2]] = new HashSet<GameObject> { parts[0] };
+
+                multiple.rebindAction.action.Disable(); multiple.defaultAction.Enable();
+                grouping.rebindAction.action.Disable(); grouping.defaultAction.Enable();
+                Press(); Drag(0); Expect(parts[0], parts[2]);
+                Require(!manager.current.individual, "An ordinary box unexpectedly bypassed grouping.");
+                Press(Key.LeftMeta); Require(GroupingBypassInput.IsHeld, "The default grouping modifier was not physically held.");
+                Drag(0); Expect(parts[0]);
+                Require(manager.current.individual, "The default grouping modifier did not bypass the overlapping group.");
+                Press(); Drag(0); Expect(parts[0], parts[2]);
+                Require(!manager.current.individual, "Grouping bypass latched after the default modifier was released.");
+
+                grouping.defaultAction.Disable();
+                grouping.rebindAction.action.AddBinding(keyboard.leftAltKey.path);
+                grouping.rebindAction.action.Enable();
+                Press(Key.LeftAlt); Require(GroupingBypassInput.IsHeld, "The rebound grouping modifier was not physically held.");
+                Drag(0); Expect(parts[0]);
+                Press(); Drag(0); Expect(parts[0], parts[2]);
+                Require(!manager.current.individual, "Grouping bypass latched after the rebound modifier was released.");
+
+                // A prior individually scoped selection cannot lend that scope
+                // to an additive box resolved after the modifier is released.
+                manager.SetCurrent(new ObjectSelection { gameObject = parts[1], individual = true }, true, true);
+                Press(Key.LeftCtrl); Drag(0); Expect(parts);
+                Require(!manager.current.individual, "Additive box inherited grouping bypass from its previous selection.");
+
+                // Exercise the real BoxSelectUI performed/canceled boundary
+                // against the active EventSystem, including UI release and a
+                // canceled drag that later receives the input's canceled event.
+                int releases = 0;
+                boxUI.OnReleaseBox += (_, _) => releases++;
+                Invoke(boxUI, "TryBeginBoxSelect", true, new Vector2(50, 50));
+                Require(!Get<bool>(boxUI, "selecting"), "A box selection started over UI.");
+                Invoke(boxUI, "TryBeginBoxSelect", false, new Vector2(500, 500));
+                Require(Get<bool>(boxUI, "selecting"), "A scene box selection did not start.");
+                Invoke(boxUI, "ResolveBoxSelect", true, new Vector2(50, 50));
+                Require(releases == 0 && !Get<bool>(boxUI, "selecting"), "Releasing a box over UI resolved a scene selection.");
+                Invoke(boxUI, "TryBeginBoxSelect", false, new Vector2(500, 500));
+                Require(boxUI.CancelSelection(), "An active box could not be canceled.");
+                Invoke(boxUI, "ResolveBoxSelect", false, new Vector2(50, 50));
+                Require(releases == 0, "A canceled box resolved on the later input release.");
             }
             finally {
                 Press();
@@ -119,6 +171,8 @@ namespace ProtobotEditorTools {
                 multiple.defaultAction.Dispose(); multiple.rebindAction.action.Dispose();
                 multiple.defaultAction = oldAction; multiple.rebindAction = oldRebind;
                 if (oldRebind.IsEmpty) oldAction.Enable(); else oldRebind.action.Enable();
+                grouping.defaultAction = oldGroupingAction; grouping.rebindAction.action.Dispose(); grouping.rebindAction = oldGroupingRebind;
+                if (oldGroupingRebind.IsEmpty) oldGroupingAction.Enable(); else oldGroupingRebind.action.Enable();
                 typeof(BoxSelector).GetField("cam", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(box, oldCamera);
                 InputSystem.RemoveDevice(keyboard);
                 foreach (var part in parts) Object.Destroy(part);
@@ -129,6 +183,7 @@ namespace ProtobotEditorTools {
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys));
                 InputSystem.Update();
                 multiple.Update();
+                grouping.Update();
             }
             void Seed() => manager.SetCurrent(new ObjectSelection { gameObject = parts[0] }, true, true);
             void Drag(int index, bool reverse = false) {
@@ -146,6 +201,8 @@ namespace ProtobotEditorTools {
 
         private static T Get<T>(object target, string name) => (T)target.GetType()
             .GetField(name, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(target);
+        private static object Invoke(object target, string name, params object[] args) => target.GetType()
+            .GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance).Invoke(target, args);
         private static void Require(bool condition, string message) {
             if (!condition) throw new InvalidOperationException(message);
         }

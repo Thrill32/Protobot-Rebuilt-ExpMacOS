@@ -190,12 +190,20 @@ namespace ProtobotEditorTools {
             await History(true); Require(Body().GetComponent<SavedObject>().id == "CCHL-1x2-7", "Property redo did not regenerate new geometry.");
 
             var placement = Object.FindFirstObjectByType<Placement>();
+            var moveHole = Body().GetComponentInChildren<HoleCollider>();
+            var moveFace = Get<HoleFace>(selection.GetComponent<HoleFaceResponseSelector>(), "selectHoleFace");
+            moveFace.Set(moveHole.holeData, moveHole.transform.forward);
+            selection.SetCurrent(new HoleSelection { gameObject = moveFace.gameObject, holeData = moveHole.holeData,
+                holeFace = moveFace, faceDirection = moveHole.transform.forward, individual = true }, true, true);
             Invoke(keyboard, "BeginSelection", false);
             await Until(() => Get<bool>(keyboard, "active"));
             Invoke(keyboard, "MoveFromGrab");
             await Until(() => placement.placing);
             placement.CancelPlacement();
             await Until(() => CollaborationSession.CanEdit);
+            int handoffFrame = Time.frameCount;
+            await Until(() => Time.frameCount > handoffFrame);
+            selection.SetCurrent(new ObjectSelection { gameObject = Body(), individual = true }, true, true);
             rev = Document().revision;
             Get<MoveToolManager>(keyboard, "moveToolManager").StartMoving();
             await Until(() => placement.placing);

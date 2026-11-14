@@ -20,12 +20,27 @@ namespace Protobot.UI {
         private bool selecting;
 
         private void Awake() {
-            input.performed += () => {
-                selecting = true;
-                InitializeBox();
-            };
+            input.performed += BeginBoxSelect;
+            input.canceled += EndBoxSelect;
+        }
 
-            input.canceled += () => DisableBoxSelect();
+        private void BeginBoxSelect() => TryBeginBoxSelect(MouseInput.overUI, MouseInput.Position);
+        private void EndBoxSelect() => ResolveBoxSelect(MouseInput.overUI, MouseInput.Position);
+
+        internal void TryBeginBoxSelect(bool overUI, Vector2 position) {
+            if (overUI) return;
+            selecting = true;
+            InitializeBox(position);
+        }
+
+        internal void ResolveBoxSelect(bool overUI, Vector2 position) {
+            if (!selecting) return;
+            image.enabled = false;
+            if (!overUI && Vector3.Distance(startPos, position) > 5)
+                OnReleaseBox?.Invoke(startPos, position);
+
+            rect.sizeDelta = Vector2.zero;
+            selecting = false;
         }
 
         void Start() {
@@ -43,19 +58,9 @@ namespace Protobot.UI {
             }
         }
 
-        void InitializeBox() {
+        void InitializeBox(Vector2 position) {
             image.enabled = true;
-            startPos = MouseInput.Position;
-        }
-
-        void DisableBoxSelect() {
-            if (!selecting) return;
-            image.enabled = false;
-            if (Vector3.Distance(startPos, MouseInput.Position) > 5)
-                OnReleaseBox?.Invoke(startPos, MouseInput.Position);
-
-            rect.sizeDelta = Vector2.zero;
-            selecting = false;
+            startPos = position;
         }
 
         public bool CancelSelection() {

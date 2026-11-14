@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using Protobot.Transformations;
+using Protobot.SelectionSystem;
 
 namespace Protobot {
     public class MoveToolManager : MonoBehaviour {
@@ -23,20 +24,61 @@ namespace Protobot {
         }
 
         public void StartMoving() {
-            if (placement.placing || !objectLink.active || Tools.KeyboardTransformTool.IsCapturingInput)
-                return;
-            if (CollaborationSession.IsShared && !CollaborationSession.HasPoseReservation(objectLink.obj.GetConnectedObjects(true, false, !objectLink.individual))) {
-                var source = objectLink.obj;
-                CollaborationSession.ReservePose(source.GetConnectedObjects(true, false, !objectLink.individual), () => {
-                    if (source == objectLink.obj && !placement.placing && CollaborationSession.HasPoseReservation(source.GetConnectedObjects(true, false, !objectLink.individual))) StartMoving();
-                    else CollaborationSession.CancelPose();
-                });
-                return;
+            TryStartMoving(objectLink.obj, objectLink.individual, null, false, null, null);
+        }
+
+        public bool StartHoleMove(ISelection selection, Action started, Action denied) {
+            var anchor = selection is HoleSelection hole ? SelectedHoleAnchor.From(hole) :
+                (selection as MultiSelection)?.placementHole;
+            return TryStartMoving(selection?.gameObject, selection?.individual == true, anchor, true, started, denied);
+        }
+
+        public static bool HasConcreteSourceHole(ISelection selection) {
+            var anchor = selection is HoleSelection hole ? SelectedHoleAnchor.From(hole) :
+                (selection as MultiSelection)?.placementHole;
+            return AnchorBelongsToSelection(selection?.gameObject, selection?.individual == true, anchor);
+        }
+
+        private bool TryStartMoving(GameObject source, bool individual, SelectedHoleAnchor anchor, bool requireHole,
+            Action started, Action denied) {
+            if (placement.placing || source == null || !source.activeInHierarchy || Tools.KeyboardTransformTool.IsCapturingInput ||
+                requireHole && !AnchorBelongsToSelection(source, individual, anchor)) {
+                denied?.Invoke();
+                return false;
+            }
+            var bodies = source.GetConnectedObjects(true, false, !individual);
+            if (CollaborationSession.IsShared && !CollaborationSession.HasPoseReservation(bodies)) {
+                if (!CollaborationSession.CanEdit || CollaborationSession.HasReservation) {
+                    denied?.Invoke();
+                    return false;
+                }
+                CollaborationSession.ReservePose(bodies, () => {
+                    if (source == objectLink.obj && !placement.placing &&
+                        (!requireHole || AnchorBelongsToSelection(source, individual, anchor)) &&
+                        CollaborationSession.HasPoseReservation(source.GetConnectedObjects(true, false, !individual)))
+                        TryStartMoving(source, individual, anchor, requireHole, started, denied);
+                    else {
+                        CollaborationSession.CancelPose();
+                        denied?.Invoke();
+                    }
+                }, denied);
+                return true;
             }
             // A grab can restore the body before the face's next Update.
             // Build the preview from the live source frame in either entry path.
-            if (objectLink.obj.TryGetComponent<HoleFace>(out var face)) face.Refresh();
-            placement.StartPlacing(new GameObjectPlacementData(objectLink.obj, placement.transform, objectLink.individual));
+            if (source.TryGetComponent<HoleFace>(out var face)) face.Refresh();
+            placement.StartPlacing(new GameObjectPlacementData(source, placement.transform, individual, anchor));
+            if (!placement.placing) {
+                denied?.Invoke();
+                return false;
+            }
+            started?.Invoke();
+            return true;
+        }
+
+        private static bool AnchorBelongsToSelection(GameObject source, bool individual, SelectedHoleAnchor anchor) {
+            if (source == null || !source.activeInHierarchy || anchor?.IsValid != true) return false;
+            return source.GetConnectedObjects(true, true, !individual).Contains(anchor.Hole.part);
         }
     }
 }

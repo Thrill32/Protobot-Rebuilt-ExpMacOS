@@ -54,10 +54,14 @@ namespace Protobot.Tools {
         private Quaternion displayedRotation = Quaternion.identity;
         private Vector3 targetOffset;
         private Quaternion targetRotation = Quaternion.identity;
+        private ISelection moveHandoffSelection;
+        private bool moveHandoffWaiting;
         private const float SmoothingDuration = 0.25f; // Same duration as standard axis dragging.
 
         public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled && (instance.active || instance.placement?.IsTypingRotation == true)) ||
             finishedFrame == Time.frameCount;
+        public static bool IsBorrowingMove => instance != null && instance.isActiveAndEnabled &&
+            instance.moveHandoffSelection != null && (instance.moveHandoffWaiting || instance.placement?.placing == true);
 
         internal static void CaptureCurrentFrame() => finishedFrame = Time.frameCount;
 
@@ -245,13 +249,20 @@ namespace Protobot.Tools {
             if (!active || rotating || settling || numericInput.IsOpen ||
                 moveTool == null || moveToolManager == null) return;
 
+            var requestedSelection = selection;
+            bool hasSourceHole = MoveToolManager.HasConcreteSourceHole(requestedSelection);
             // Discard the uncommitted grab (including Alt copies) before using
-            // the same selection, toolbar and placement path as tool 2.
-            Finish(false);
+            // the same placement path as tool 2. The toolbar is intentionally
+            // untouched, so the user's prior tool remains selected.
+            FinishInternal(false, hasSourceHole);
             finishedFrame = -1;
             try {
-                moveTool.Toggle(true);
-                moveToolManager.StartMoving();
+                if (!hasSourceHole) return;
+                moveHandoffSelection = requestedSelection;
+                moveHandoffWaiting = true;
+                if (!moveToolManager.StartHoleMove(requestedSelection,
+                    () => moveHandoffWaiting = false, EndMoveHandoff))
+                    EndMoveHandoff();
             }
             finally {
                 // The shortcut still owns this frame: H must not toggle the grid,
@@ -288,6 +299,7 @@ namespace Protobot.Tools {
         }
 
         private void LateUpdate() {
+            MaintainMoveHandoff();
             if (!active)
                 return;
 
@@ -419,7 +431,9 @@ namespace Protobot.Tools {
             }
         }
 
-        private void Finish(bool confirm) {
+        private void Finish(bool confirm) => FinishInternal(confirm, false);
+
+        private void FinishInternal(bool confirm, bool preservePoseReservation) {
             numericInput.Close();
             if (!active)
                 return;
@@ -442,7 +456,7 @@ namespace Protobot.Tools {
                         roots[i].SetPositionAndRotation(positions[i], rotations[i]);
                 }
                 ObjectDuplicator.DiscardCopies(duplicates);
-                CollaborationSession.CancelPose();
+                if (!preservePoseReservation) CollaborationSession.CancelPose();
             }
             active = false;
             settling = false;
@@ -512,7 +526,28 @@ namespace Protobot.Tools {
             }
         }
 
-        private void OnDisable() => Finish(false);
+        private void MaintainMoveHandoff() {
+            if (moveHandoffSelection == null) return;
+            bool valid = selectionManager.current == moveHandoffSelection &&
+                MoveToolManager.HasConcreteSourceHole(moveHandoffSelection);
+            if (!valid) {
+                if (placement.placing) placement.CancelPlacement();
+                EndMoveHandoff();
+            }
+            else if (!moveHandoffWaiting && !placement.placing) EndMoveHandoff();
+        }
+
+        private void EndMoveHandoff() {
+            if (moveHandoffWaiting) CollaborationSession.CancelPose();
+            moveHandoffWaiting = false;
+            moveHandoffSelection = null;
+        }
+
+        private void OnDisable() {
+            Finish(false);
+            if (moveHandoffSelection != null && placement.placing) placement.CancelPlacement();
+            EndMoveHandoff();
+        }
 
         private string ConstraintLabel => axis == Vector3.right ? "X" :
             axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
@@ -524,7 +559,7 @@ namespace Protobot.Tools {
             string snap = numericInput.IsOpen ? "Exact entry" : TransformSnapping.Active ? "Snap on" : "Snap off";
             string holeKey = holeSnapInput != null ? holeSnapInput.GetCurrentKeybind() : "H";
             string help = "X/Y/Z: axis    /: type value";
-            if (!rotating) help += $"    {holeKey}: Move tool";
+            if (!rotating && MoveToolManager.HasConcreteSourceHole(selection)) help += $"    {holeKey}: Move selected hole";
             return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
                 help + "\nClick / Enter: confirm    Esc / Right click: cancel";
         }
