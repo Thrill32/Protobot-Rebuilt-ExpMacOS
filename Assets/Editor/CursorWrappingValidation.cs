@@ -169,6 +169,19 @@ namespace ProtobotEditorTools {
             Event(mouse, bottom, bottom - top);
             Near(mouse.position.ReadValue(), bottom + verticalMotion, "Delayed vertical ack rewound the pointer.");
 
+            // A second physical traversal can return to the old edge within the
+            // native echo guard. Matching position/delta is real motion on X or Y.
+            foreach (var edge in new[] { top, new Vector2(viewport.xMax - 1, viewport.center.y) }) {
+                ResetWarp(); Event(mouse,edge,Vector2.zero);
+                TransformCursor.TryWrap(edge,viewport,out var wrapped);
+                Require(CursorWarp.Warp(mouse,wrapped), "Repeat traversal warp failed.");
+                Event(mouse,wrapped,wrapped-edge);
+                var motion = edge-wrapped;
+                Event(mouse,edge,motion);
+                Near(mouse.position.ReadValue(),edge,"A real fast return to the previous edge was mistaken for a native echo.");
+                Near(mouse.delta.ReadValue(),motion,"Fast repeated wrapping lost physical motion.");
+            }
+
             // Windows can coalesce an acknowledgement after another edge is
             // reached. The older warp must not overwrite the newer logical
             // position, on either axis.

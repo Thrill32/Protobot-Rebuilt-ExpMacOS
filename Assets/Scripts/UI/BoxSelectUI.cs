@@ -49,11 +49,6 @@ namespace Protobot.UI {
 
         void Update() {
             if (selecting) {
-                ///* this can be removed before release PLEASE DO NOT FORGET THIS IS AWFUL
-                if (Mouse.current.leftButton.isPressed)
-                {
-                    input.rebindAction.ResetRebinds(); //I hate this ill remove it before full release I think only one person had this issue I hope shouldn't happen ever again
-                }//*/
                 UpdateSelectionBox();
             }
         }
@@ -72,20 +67,16 @@ namespace Protobot.UI {
         }
 
         void UpdateSelectionBox() {
-            if (startPos == null) {
-                startPos = MouseInput.Position;
-            }
-
-            Vector2 curPos = MouseInput.Position;
-
-            float width = curPos.x - startPos.x;
-            float height = curPos.y - startPos.y;
-
-            rect.sizeDelta = new Vector2(Mathf.Abs(width), Mathf.Abs(height));
-
-            float xOffset = (width < 0) ? width : 0;
-            float yOffset = (height < 0) ? height : 0;
-            rect.position = startPos + new Vector2(xOffset, yOffset);
+            var parent = (RectTransform)rect.parent;
+            var canvas = image.canvas.rootCanvas;
+            var eventCamera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+            // Pointer coordinates are screen pixels; the canvas can use a different
+            // scale (and a camera). Convert both endpoints into the parent's frame.
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, startPos, eventCamera, out var start) ||
+                !RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, MouseInput.Position, eventCamera, out var end)) return;
+            rect.pivot = Vector2.zero;
+            rect.sizeDelta = new Vector2(Mathf.Abs(end.x - start.x), Mathf.Abs(end.y - start.y));
+            rect.localPosition = Vector2.Min(start, end);
         }
     }
 }

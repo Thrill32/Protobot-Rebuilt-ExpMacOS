@@ -26,6 +26,11 @@ public class ColorTool : MonoBehaviour
         var panel = custom.transform as RectTransform;
         ColorPickerPointerOwnership.Configure(panel);
         if (custom.TryGetComponent<Graphic>(out var background)) background.raycastTarget = true;
+        // Include the palette/header/background as well as the nested RGB panel.
+        var options = custom.transform.parent.gameObject;
+        if (options.TryGetComponent<Graphic>(out var optionsBackground)) optionsBackground.raycastTarget = true;
+        if (options.GetComponent<ColorPickerPointerOwnership>() == null)
+            options.AddComponent<ColorPickerPointerOwnership>();
         foreach (var slider in custom.GetComponentsInChildren<Slider>(true))
             if (slider.GetComponent<ColorPickerPointerOwnership>() == null)
                 slider.gameObject.AddComponent<ColorPickerPointerOwnership>();

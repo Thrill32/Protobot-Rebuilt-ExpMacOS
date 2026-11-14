@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using DG.Tweening;
 using Protobot;
 using Protobot.InputEvents;
@@ -38,7 +39,8 @@ namespace ProtobotEditorTools {
             bool had = LocalPreferences.HasKey(key); string previous = LocalPreferences.GetString(key);
             try {
                 LocalPreferences.SetFloat(key, 0.123456789f); LocalPreferences.Save();
-                Require(LocalPreferences.GetString(key) == NumericPreferenceField.Format(0.123456789f), "Numeric preference lost its exact display value.");
+                Require(float.Parse(NumericPreferenceField.Format(0.123456789f), System.Globalization.CultureInfo.InvariantCulture) == LocalPreferences.GetFloat(key), "Numeric display lost float precision.");
+                Require(NumericPreferenceField.Format(.1f) == "0.1", "Default sensitivity exposes binary float noise.");
                 Near(LocalPreferences.GetFloat(key), 0.123456789f, "Numeric preference did not round-trip.");
             }
             finally {
@@ -70,14 +72,14 @@ namespace ProtobotEditorTools {
             if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
         }
 
-        private static void Tick() {
+        private static async void Tick() {
             if (!EditorApplication.isPlaying || EditorApplication.isCompiling || ++frames < 15) return;
             EditorApplication.update -= Tick; SessionState.SetBool(SmokeKey, false);
-            try { CheckRuntime(); EditorApplication.Exit(0); }
+            try { await CheckRuntime(); EditorApplication.Exit(0); }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
         }
 
-        private static void CheckRuntime() {
+        private static async Task CheckRuntime() {
             var fields = Object.FindObjectsByType<NumericPreferenceField>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             Require(fields.Length == 5, "Runtime camera Preferences did not install exactly five numeric fields.");
             Require(fields.Select(field => field.PreferenceKey).Distinct().Count() == 5, "Camera fields do not use distinct preference keys.");
@@ -99,7 +101,7 @@ namespace ProtobotEditorTools {
             }
             var categories = fields[0].GetComponentInParent<PreferencesCategoryScroller>(true);
             Require(categories != null && categories.GetComponent<RectMask2D>() != null, "Preferences category scrolling/clipping was not installed.");
-            CheckPreferencesScrolling(categories, fields[0]);
+            await CheckPreferencesScrolling(categories, fields[0]);
             Require(fields[0].transform.parent.parent.GetComponentsInChildren<Slider>(true).Length == 0,
                 "A legacy camera sensitivity slider remains in the Camera category.");
 
@@ -144,6 +146,7 @@ namespace ProtobotEditorTools {
                 Require(!test.TryCommit("NaN") && test.GetComponent<InputField>().text == "0.375", "Invalid camera value replaced the last valid value.");
                 var defaultButton = test.transform.parent.Find("Set Default Button").GetComponent<Button>();
                 Require(defaultButton.interactable, "A changed camera preference did not enable its default button.");
+                Require(test.TryCommit("0.10000001") && !test.IsDefault && defaultButton.interactable, "A near-default exact value disabled the reset button.");
                 defaultButton.onClick.Invoke();
                 Require(test.IsDefault && test.GetComponent<InputField>().text == NumericPreferenceField.Format(test.DefaultValue),
                     "The camera default button did not restore and display the exact default.");
@@ -157,41 +160,21 @@ namespace ProtobotEditorTools {
             Debug.Log("Camera navigation smoke passed: immediate orbit/pan/zoom, compact numeric UI, per-field defaults, persistence, scrolling, keyboard focus and modal ownership.");
         }
 
-        private static void CheckPreferencesScrolling(PreferencesCategoryScroller scroller, NumericPreferenceField field) {
+        private static async Task CheckPreferencesScrolling(PreferencesCategoryScroller scroller, NumericPreferenceField field) {
             var category = field.transform.parent.parent.parent as RectTransform;
-            var origin = category.anchoredPosition;
             var selected = EventSystem.current.currentSelectedGameObject;
             var ancestors = scroller.GetComponentsInParent<Transform>(true)
                 .Select(item => (item.gameObject, item.gameObject.activeSelf)).ToArray();
             var categoryStates = scroller.transform.Cast<Transform>()
                 .Select(item => (item.gameObject, item.gameObject.activeSelf)).ToArray();
+            GameObject.Find("Launch Canvas")?.SetActive(false);
             foreach (var state in ancestors) state.gameObject.SetActive(true);
             foreach (var state in categoryStates) state.gameObject.SetActive(state.gameObject == category.gameObject);
-            var fixture = new GameObject("Scrolling validation fixture", typeof(RectTransform), typeof(Image), typeof(Button));
-            var rect = fixture.GetComponent<RectTransform>();
-            rect.SetParent(category, false);
-            rect.anchorMin = rect.anchorMax = new Vector2(.5f, 1f);
-            rect.pivot = new Vector2(.5f, 1f);
-            rect.anchoredPosition = new Vector2(0f, -2000f);
-            rect.sizeDelta = new Vector2(100f, 20f);
             try {
-                Canvas.ForceUpdateCanvases();
-                scroller.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = new Vector2(0f, -100f) });
-                Require(category.anchoredPosition.y > origin.y,
-                    "Preferences wheel input did not scroll overflowing content.");
-                scroller.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = new Vector2(0f, 10000f) });
-                Require(Vector2.Distance(category.anchoredPosition, origin) < .01f,
-                    "Preferences scrolling did not clamp safely at its origin.");
-                EventSystem.current.SetSelectedGameObject(fixture);
-                typeof(PreferencesCategoryScroller).GetMethod("LateUpdate", BindingFlags.NonPublic | BindingFlags.Instance)
-                    .Invoke(scroller, null);
-                Require(category.anchoredPosition.y > origin.y,
-                    "Keyboard-focused Preferences content was not brought into view.");
+                await InteractionOverhaulValidation.CheckSettingsScroll(scroller, category, field);
             }
             finally {
                 EventSystem.current.SetSelectedGameObject(selected);
-                Object.Destroy(fixture);
-                scroller.OnScroll(new PointerEventData(EventSystem.current) { scrollDelta = new Vector2(0f, 10000f) });
                 foreach (var state in categoryStates) state.gameObject.SetActive(state.activeSelf);
                 foreach (var state in ancestors) state.gameObject.SetActive(state.activeSelf);
             }

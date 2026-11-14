@@ -57,7 +57,8 @@ namespace Protobot.InputEvents {
 
             // Capture even when a composite chord consumed the underlying action's value.
             // Otherwise releasing Command before C could fire the plain C action.
-            if (!shortcutAllowed || !EscapeDeselect.AllowsInput(this) || !Protobot.Builds.BuildTransferTool.AllowsInput(this) || !CollaborationSession.AllowsInput(this))
+            if (!shortcutAllowed || (Protobot.Tools.KeyboardTransformTool.IsEditingText() && UsesKeyboardBinding()) ||
+                !EscapeDeselect.AllowsInput(this) || !Protobot.Builds.BuildTransferTool.AllowsInput(this) || !CollaborationSession.AllowsInput(this))
                 suppressedUntilRelease = true;
             else if (!IsPressed)
                 suppressedUntilRelease = false;
@@ -103,6 +104,15 @@ namespace Protobot.InputEvents {
             if (action == null || !action.enabled) return false;
             foreach (var candidate in action.controls)
                 if (candidate == control) return true;
+            return false;
+        }
+
+        private bool UsesKeyboardBinding() => UsesKeyboard(defaultAction) || UsesKeyboard(rebindAction?.action);
+
+        private static bool UsesKeyboard(InputAction action) {
+            if (action == null || !action.enabled) return false;
+            foreach (var control in action.controls)
+                if (control.device is Keyboard) return true;
             return false;
         }
 

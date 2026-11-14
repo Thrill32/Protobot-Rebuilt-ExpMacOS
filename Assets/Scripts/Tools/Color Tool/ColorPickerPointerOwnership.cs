@@ -5,7 +5,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 /// <summary>Keeps RGB slider gestures owned by the custom-color picker.</summary>
-public sealed class ColorPickerPointerOwnership : MonoBehaviour, IPointerDownHandler, IPointerUpHandler,
+public sealed class ColorPickerPointerOwnership : MonoBehaviour, IPointerClickHandler, IPointerDownHandler, IPointerUpHandler,
     IBeginDragHandler, IDragHandler, IEndDragHandler {
     private static readonly HashSet<int> pointers = new();
     private static RectTransform panel;
@@ -14,12 +14,18 @@ public sealed class ColorPickerPointerOwnership : MonoBehaviour, IPointerDownHan
     public static bool BlocksScenePointer {
         get {
             if (pointers.Count > 0 || releaseFrame == Time.frameCount) return true;
-            return panel != null && panel.gameObject.activeInHierarchy && Mouse.current != null &&
-                RectTransformUtility.RectangleContainsScreenPoint(panel, MouseInput.Position);
+            if (panel == null || !panel.gameObject.activeInHierarchy || Mouse.current == null) return false;
+            var canvas = panel.GetComponentInParent<Canvas>().rootCanvas;
+            return RectTransformUtility.RectangleContainsScreenPoint(panel, MouseInput.Position,
+                canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera);
         }
     }
 
     public static void Configure(RectTransform pickerPanel) => panel = pickerPanel;
+
+    // Input System resolves clicks separately from down/drag. Sliders implement
+    // those handlers but not clicks, which otherwise reach the ancestor toolbar Toggle.
+    public void OnPointerClick(PointerEventData eventData) { }
 
     public void OnPointerDown(PointerEventData eventData) => Claim(eventData);
     public void OnBeginDrag(PointerEventData eventData) => Claim(eventData);

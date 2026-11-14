@@ -1,5 +1,6 @@
 using System.Linq;
 using Protobot.UI;
+using Protobot.InputEvents;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -16,11 +17,11 @@ namespace Protobot {
         }
 
         private static readonly Definition[] Definitions = {
-            new("Orbit Sensitivity", "Orbit sensitivity", NumericPreferenceField.CameraValue.OrbitSensitivity, .1f, .001f, 5f),
-            new("Pan Sensitivity", "Pan sensitivity", NumericPreferenceField.CameraValue.PanSensitivity, .05f, .0001f, 2f),
-            new("Zoom Sensitivity", "Zoom sensitivity", NumericPreferenceField.CameraValue.ZoomSensitivity, 1f, .01f, 10f),
-            new("Free-fly Look Sensitivity", "Shift+mouse look sensitivity", NumericPreferenceField.CameraValue.MouseLookSensitivity, .1f, .001f, 5f),
-            new("Free-fly Movement Speed", "WASDQE movement speed", NumericPreferenceField.CameraValue.MovementSpeed, 15f, .1f, 500f)
+            new("Orbit Sensitivity", "Orbit", NumericPreferenceField.CameraValue.OrbitSensitivity, .1f, .001f, 5f),
+            new("Pan Sensitivity", "Pan", NumericPreferenceField.CameraValue.PanSensitivity, .05f, .0001f, 2f),
+            new("Zoom Sensitivity", "Zoom", NumericPreferenceField.CameraValue.ZoomSensitivity, 1f, .01f, 10f),
+            new("Free-fly Look Sensitivity", "Free-fly look", NumericPreferenceField.CameraValue.MouseLookSensitivity, .1f, .001f, 5f),
+            new("Free-fly Movement Speed", "Free-fly speed", NumericPreferenceField.CameraValue.MovementSpeed, 15f, .1f, 500f)
         };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -42,10 +43,40 @@ namespace Protobot {
                     setting.enabled = false;
 
             for (int i = 0; i < Definitions.Length; i++) ConfigureField(left, Definitions[i], i, mouse, noclip, resetPrototype);
+            LayoutCategory((RectTransform)cameraMenu, left);
 
             var categories = (RectTransform)cameraMenu.parent;
             if (categories.GetComponent<RectMask2D>() == null) categories.gameObject.AddComponent<RectMask2D>();
             if (categories.GetComponent<PreferencesCategoryScroller>() == null) categories.gameObject.AddComponent<PreferencesCategoryScroller>();
+        }
+
+        private static void LayoutCategory(RectTransform category, RectTransform left) {
+            // The authored columns were anchored to the viewport bottom while the
+            // keybinds were anchored to its top. Give the category a content height
+            // derived from its live rows, independent of the window/scroll viewport.
+            float top = 45f;
+            var rows = category.GetComponentsInChildren<RebindUI>(true)
+                .Where(row => row.gameObject.activeSelf)
+                .Select(row => (RectTransform)row.transform)
+                .OrderByDescending(row => row.anchoredPosition.y).ToArray();
+            foreach (var row in rows) {
+                row.SetInsetAndSizeFromParentEdge(RectTransform.Edge.Top, top, row.rect.height);
+                top += row.rect.height + 5f;
+            }
+            top += 5f;
+            float fieldHeight = 35f + (Definitions.Length - 1) * 29f + 25f;
+            foreach (var column in new[] { left, (RectTransform)category.Find("Right Column") }) {
+                column.anchorMin = new Vector2(0f, 1f);
+                column.anchorMax = Vector2.one;
+                column.pivot = new Vector2(.5f, 1f);
+                column.anchoredPosition = new Vector2(column.anchoredPosition.x, -top);
+                column.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, column == left ? fieldHeight : 120f);
+            }
+            category.anchorMin = new Vector2(0f, 1f);
+            category.anchorMax = Vector2.one;
+            category.pivot = new Vector2(.5f, 1f);
+            category.anchoredPosition = Vector2.zero;
+            category.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, top + fieldHeight + 12f);
         }
 
         private static void ConfigureField(RectTransform parent, Definition definition, int index,

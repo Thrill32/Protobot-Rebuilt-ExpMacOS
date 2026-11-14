@@ -141,7 +141,7 @@ namespace ProtobotEditorTools {
             var box = Object.FindFirstObjectByType<BoxSelectUI>(); int releases = 0;
             box.OnReleaseBox += (_, _) => releases++;
             Set(box, "selecting", true);
-            await Escape(() => { Invoke(box, "DisableBoxSelect"); Require(releases == 0 && selection.current?.gameObject == body, "Canceled box selection later fired on release."); });
+            await Escape(() => { Invoke(box, "ResolveBoxSelect", false, new Vector2(500,500)); Require(releases == 0 && selection.current?.gameObject == body, "Canceled box selection later fired on release."); });
 
             // Connect retains the tool and selection while canceling source/animation.
             var connect = Object.FindFirstObjectByType<ConnectTool>();

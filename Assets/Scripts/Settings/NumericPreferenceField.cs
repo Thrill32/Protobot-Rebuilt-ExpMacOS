@@ -20,7 +20,7 @@ namespace Protobot {
         private bool bound;
         public float Current => current;
         public float DefaultValue => defaultValue;
-        public bool IsDefault => Mathf.Approximately(current, defaultValue);
+        public bool IsDefault => current == defaultValue;
         public string PreferenceKey => Key(value);
 
         private void Awake() {
@@ -35,7 +35,6 @@ namespace Protobot {
             field.characterLimit = 16;
             field.navigation = new Navigation { mode = Navigation.Mode.Automatic };
             field.onEndEdit.AddListener(CommitFromUI);
-            Initialize();
         }
 
         public void Configure(InputField input, CameraValue cameraValue, MousePivotCameraInput mouse,
@@ -48,6 +47,7 @@ namespace Protobot {
             minimum = min;
             maximum = max;
             Bind();
+            Initialize();
         }
 
         public void Initialize() {
@@ -55,6 +55,7 @@ namespace Protobot {
             current = InBounds(loaded) ? loaded : defaultValue;
             Apply(current);
             Display(current);
+            UpdateDefaultButton();
         }
 
         private void CommitFromUI(string text) => TryCommit(text);
@@ -124,7 +125,7 @@ namespace Protobot {
         private bool InBounds(float number) => LocalPreferences.IsFinite(number) && number >= minimum && number <= maximum;
         private void Display(float number) { if (field != null) field.SetTextWithoutNotify(Format(number)); }
         private void UpdateDefaultButton() { if (defaultButton != null) defaultButton.interactable = !IsDefault; }
-        public static string Format(float number) => number.ToString("G9", CultureInfo.InvariantCulture);
+        public static string Format(float number) => number.ToString("R", CultureInfo.InvariantCulture);
         public static bool TryParse(string text, float min, float max, out float value) =>
             float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
             LocalPreferences.IsFinite(value) && value >= min && value <= max;

@@ -204,10 +204,11 @@ namespace ProtobotEditorTools {
         private static void CheckSelectionBoxRendering(BoxSelectUI boxUI) {
             var image = boxUI.GetComponent<Image>();
             var rect = (RectTransform)image.transform;
+            Require(!image.raycastTarget, "The selection visual intercepts its own drag/release.");
             Require(image.type == Image.Type.Sliced && image.sprite != null && image.sprite.border.sqrMagnitude > 0f,
                 "The selection rectangle is not using a bounded sliced border.");
-            Require(image.pixelsPerUnitMultiplier <= 1f,
-                "The selection rectangle border uses a tile-scale pixels-per-unit multiplier.");
+            Require(image.sprite.border.x / (image.pixelsPerUnit * image.pixelsPerUnitMultiplier) <= 2f,
+                "The selection rectangle border exceeds two canvas units.");
 
             string tileWarning = null;
             Application.LogCallback callback = (message, _, _) => {

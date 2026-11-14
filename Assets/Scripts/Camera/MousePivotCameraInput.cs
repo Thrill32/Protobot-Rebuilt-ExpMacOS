@@ -46,7 +46,8 @@ namespace Protobot {
         }
 
         private void Update() {
-            if (InputEvent.IsNoclipMovementCaptured || Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
+            if (InputEvent.IsNoclipMovementCaptured || MouseInput.overUI || CollaborationSession.BlocksUIInput ||
+                Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
                 return;
 
             if (orbitInput.IsPressed && !disableOrbitInput && Protobot.Tools.KeyboardTransformTool.AllowsCameraNavigation(orbitInput)) {

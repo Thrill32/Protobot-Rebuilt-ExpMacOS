@@ -6,6 +6,9 @@ namespace Protobot {
     /// <summary>Keeps UI submit/cancel from competing with part picking and modal tools.</summary>
     public sealed class ToolUIInputModule : InputSystemUIInputModule {
         public override void Process() {
+            // Capture before UI callbacks can close or move the hit panel. Scene
+            // polling uses this same live raycast, independent of Update ordering.
+            MouseInput.UIBlocksPointer();
             // Collaboration uses a modal canvas. Its backdrop owns pointer hits,
             // while normal UI processing must continue for its fields and buttons.
             if (CollaborationSession.BlocksUIInput && eventSystem.currentSelectedGameObject != null && !CollaborationSession.OwnsUIFocus(eventSystem.currentSelectedGameObject))
