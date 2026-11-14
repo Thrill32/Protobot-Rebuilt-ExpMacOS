@@ -14,11 +14,23 @@ internal static partial class Program {
                 Console.WriteLine("protobot-collab init --data-dir <new-directory> --room <id> (--catalog <catalog.json> | --snapshot <room-export.json>) [--password-prompt | --password-file <file>]\n" +
                     "protobot-collab serve --data-dir <local-directory> [--config <initial-bootstrap.json>] [--listen http://127.0.0.1:8787] [--public-url <https-origin>] [--allow-lan-http]\n" +
                     "protobot-collab serve --ephemeral --config <protected-bootstrap.json>\n" +
+                    "protobot-collab backup --data-dir <stopped-room> --output <new-archive.zip>\n" +
+                    "protobot-collab restore --input <archive.zip> --data-dir <new-directory>\n" +
                     "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests] [--quick] [--output <report.json>]\n" +
                     "Development alpha: one room; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
             }
             if (args[0] == "init") return Initialize(new Options(args, new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
             if (args[0] == "doctor") return await Doctor(new Options(args, new[] { "--url", "--catalog", "--room", "--password-file", "--transport", "--output" }, new[] { "--password-prompt", "--quick", "--allow-lan-http" }));
+            if (args[0] == "backup") {
+                var backup = new Options(args, new[] { "--data-dir", "--output" }, Array.Empty<string>());
+                RoomBackup.Backup(backup.Required("--data-dir"), backup.Required("--output"));
+                Console.WriteLine("Backup completed."); return 0;
+            }
+            if (args[0] == "restore") {
+                var restore = new Options(args, new[] { "--input", "--data-dir" }, Array.Empty<string>());
+                RoomBackup.Restore(restore.Required("--input"), restore.Required("--data-dir"));
+                Console.WriteLine("Restore completed."); return 0;
+            }
             DocumentModel.Require(args[0] == "serve", "unknown-command");
             var options = new Options(args, new[] { "--data-dir", "--config", "--listen", "--public-url" }, new[] { "--bootstrap-stdin", "--ephemeral", "--allow-lan-http" });
             bool parentOwned = options.Has("--bootstrap-stdin");

@@ -1,6 +1,6 @@
 # Dedicated Debian room
 
-This is the single-room deployment path for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Bounded custom geometry, confirmed live mounting layouts and sprocket chains are accepted room content. A separate large-asset service, multi-room administration and backup/restore commands remain unfinished.
+This is the single-room deployment path for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Bounded custom geometry, confirmed live mounting layouts and sprocket chains are accepted room content. A separate large-asset service and multi-room administration remain unfinished. Offline single-room backup/restore is supported.
 
 Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux-arm64` for `aarch64`/`arm64` systems such as a 64-bit Raspberry Pi 4. These self-contained .NET 10 publishes include the managed runtime, but still require the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. A 32-bit `armv7l` operating system is not supported by the supplied artifacts.
 
@@ -165,4 +165,18 @@ Local automated checks establish CLI/protocol behavior, not approval or compatib
 sudo systemctl stop protobot-collab
 ```
 
-SQLite recovery is independent of every participant's local `.pbb` saves. With the service stopped, preserve the **whole private room directory**, including `owner.json`, together with its matching helper/catalog release. Do not copy individual SQLite/WAL files from a running store. Keep the original matching build for recovery; catalog/storage migration and a consistent online backup/restore command are still future work. Start the same service to resume the same room and identities. Do not run `init` over an existing store.
+SQLite recovery is independent of every participant's local `.pbb` saves. Use offline backup as the service account while systemd is stopped. Create a private backup parent once, then choose a new archive and destination each time:
+
+```sh
+sudo install -d -o protobot -g protobot -m 0700 /var/lib/protobot-collab/backups
+sudo -u protobot /opt/protobot-collab/protobot-collab backup \
+  --data-dir /var/lib/protobot-collab/team \
+  --output /var/lib/protobot-collab/backups/team-backup.zip
+sudo -u protobot /opt/protobot-collab/protobot-collab restore \
+  --input /var/lib/protobot-collab/backups/team-backup.zip \
+  --data-dir /var/lib/protobot-collab/restored-team
+```
+
+Adjust paths to the installed helper and room. Backup refuses a running/locked room and never overwrites an archive. Restore refuses every existing destination, including an empty directory, validates in private staging, then publishes atomically. Do not copy individual SQLite/WAL files or remove `room.lock` to bypass ownership. Archive v1 contains a consistent standalone SQLite snapshot, versioned integrity manifest and matching `owner.json`; it preserves room identity, password verification, memberships/revocations, receipts, assets, mounts, explicit chains and undo/redo history. Keep the matching helper/catalog release with the archive. Archives contain credentials and remain unencrypted, with 0600 files and 0700 restored directories on Unix. Back up service configuration and TLS material separately.
+
+To use the restore, update the systemd unit's `--data-dir` to `/var/lib/protobot-collab/restored-team`, run `sudo systemctl daemon-reload`, then `sudo systemctl start protobot-collab`. Keep the original stopped; never serve both copies. Verify authenticated sustained `doctor` checks and both participants' identity/history recovery through the original endpoint. Do not run `init` over recovered data. See [format, bounds and compatibility](../README.md#offline-backup-and-restore); online backup, storage/catalog migration and multi-room administration remain future work.
