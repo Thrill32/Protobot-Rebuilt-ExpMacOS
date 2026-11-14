@@ -44,6 +44,7 @@ namespace Protobot.Simulation {
             speedLabel = Label(controls, "Speed Label", "1×", 13, new Vector2(322, 0), new Vector2(54, 28), false);
             speed = Slider(controls, "Speed", new Vector2(380, -9), new Vector2(150, 12), .1f, 4);
             speed.onValueChanged.AddListener(value => { if (!updating) tool.SetSpeed(value); });
+            Button(controls, "Chain Route", "Chain route…", 550, 0, 156, tool.EditChainRoute);
             clock = Label(controls, "Clock", "", 12, new Vector2(14, -34), new Vector2(-28, 24));
             timeline = Slider(controls, "Timeline", new Vector2(14, -66), new Vector2(700, 10), 0, 1);
             timeline.onValueChanged.AddListener(value => { if (!updating && tool.Current != null) tool.Seek(value * tool.Current.LoopDuration); });

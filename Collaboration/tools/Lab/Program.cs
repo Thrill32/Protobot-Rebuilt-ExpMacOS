@@ -120,6 +120,33 @@ internal static partial class Program {
             "missing-chain-member-version");
         var reorderedChain = WireJson.Clone(chained); Array.Reverse(reorderedChain.chains[0].members);
         Check(DocumentModel.Hash(reorderedChain) == DocumentModel.Hash(chained), "chain member order is canonical in document hash");
+        var routeSeed = WireJson.Clone(both);
+        routeSeed.parts = new[] { Cube("a"), Cube("b"), Cube("c"), Cube("d") };
+        foreach (var part in routeSeed.parts) part.version = 1;
+        var routeRecord = new ChainRecord { id = "ordered-route", members = new[] { "d", "a", "c", "b" }, routeVersion = 1, wraps = new[] { 0, 0, 1, 0 } };
+        var routed = DocumentModel.Reduce(routeSeed, Tx(routeSeed, "SetChains", Array.Empty<Part>(), chains: new[] { routeRecord }), seed.catalog);
+        Check(DocumentModel.SameChain(routeRecord, routed.chains.Single()), "route canonicalization retains adjacency and per-member wraps");
+        var routeReversed = WireJson.Clone(routed);
+        Array.Reverse(routeReversed.chains[0].members); Array.Reverse(routeReversed.chains[0].wraps);
+        Check(DocumentModel.Hash(routeReversed) == DocumentModel.Hash(routed) && DocumentModel.SameChain(routeReversed.chains[0], routed.chains[0]),
+            "explicit route reversal is canonical in hashes and history");
+        var routeRotated = WireJson.Clone(routed);
+        routeRotated.chains[0].members = routeRotated.chains[0].members.Skip(1).Concat(routeRotated.chains[0].members.Take(1)).ToArray();
+        routeRotated.chains[0].wraps = routeRotated.chains[0].wraps.Skip(1).Concat(routeRotated.chains[0].wraps.Take(1)).ToArray();
+        Check(DocumentModel.Hash(routeRotated) == DocumentModel.Hash(routed), "cyclic route start is canonical");
+        var routeChanged = WireJson.Clone(routed); routeChanged.chains[0].wraps[1] = 1 - routeChanged.chains[0].wraps[1];
+        Check(DocumentModel.Hash(routeChanged) != DocumentModel.Hash(routed) && !DocumentModel.SameChain(routeChanged.chains[0], routed.chains[0]),
+            "wrap edits participate in hashing and personal history");
+        routeChanged = WireJson.Clone(routed); var order = routeChanged.chains[0].members;
+        (order[1], order[2]) = (order[2], order[1]);
+        Check(DocumentModel.Hash(routeChanged) != DocumentModel.Hash(routed), "noncyclic reordering changes route hash");
+        foreach (var malformed in new[] {
+            new ChainRecord { id = "bad-route", members = routeRecord.members, routeVersion = 1 },
+            new ChainRecord { id = "bad-route", members = routeRecord.members, routeVersion = 1, wraps = new[] { 0, 1 } },
+            new ChainRecord { id = "bad-route", members = routeRecord.members, routeVersion = 1, wraps = new[] { 0, 2, 0, 0 } },
+            new ChainRecord { id = "bad-route", members = routeRecord.members, routeVersion = 2, wraps = routeRecord.wraps },
+            new ChainRecord { id = "bad-route", members = routeRecord.members, routeVersion = 0, wraps = routeRecord.wraps } })
+            Reject(() => DocumentModel.Reduce(routeSeed, Tx(routeSeed, "SetChains", Array.Empty<Part>(), chains: new[] { malformed }), seed.catalog), "invalid-chain-route");
         var staleChain = Tx(chained, "SetChains", Array.Empty<Part>(), chainDeletes: new[] { "chain-ab" }); staleChain.expectedChains[0].version--;
         Reject(() => DocumentModel.Reduce(chained, staleChain, seed.catalog), "stale-chain");
         Reject(() => DocumentModel.Reduce(chained, Tx(chained, "DeleteParts", Array.Empty<Part>(), new[] { "a" }), seed.catalog), "missing-chain-member");
@@ -351,10 +378,11 @@ internal static partial class Program {
             var chainLease = await clients[0].ReserveAsync(chainMembers);
             var chainTx = clients[0].CreateTransaction("SetChains", Array.Empty<Part>(), dependencies: chainMembers.Select(id => new VersionRef {
                 id = id, version = chainSnapshot.parts.Single(p => p.id == id).version
-            }).ToArray(), lease: chainLease.token, chainWrites: new[] { Chain("network-chain", chainMembers) });
+            }).ToArray(), lease: chainLease.token, chainWrites: new[] { new ChainRecord { id = "network-chain", members = chainMembers, routeVersion = 1, wraps = new[] { 0, 0 } } });
             var chainReceipt = await clients[0].SubmitAsync(chainTx);
             await Task.WhenAll(clients.Select(c => c.WaitForRevisionAsync(chainReceipt.revision)));
-            Check(chainReceipt.accepted && clients.All(c => DocumentModel.Chains(c.Snapshot).Single().id == "network-chain") &&
+            Check(chainReceipt.accepted && clients.All(c => DocumentModel.Chains(c.Snapshot).Single().id == "network-chain" &&
+                    DocumentModel.Chains(c.Snapshot).Single().routeVersion == 1 && DocumentModel.Chains(c.Snapshot).Single().wraps.SequenceEqual(new[] { 0, 0 })) &&
                 clients.Select(c => DocumentModel.Hash(c.Snapshot)).Distinct().Count() == 1, transport + " chain create converges");
             var one = await clients[0].ReserveAsync(new[] { "part0" });
             try { await clients[1].ReserveAsync(new[] { "part0" }); throw new Exception("Expected contention"); }

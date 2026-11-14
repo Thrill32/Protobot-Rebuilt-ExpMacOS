@@ -136,12 +136,13 @@ namespace Protobot.Simulation {
             result.GlobalAngleReference = reference == Vector3.up ? "+Y" : "+Z";
             foreach (var chain in UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None)) {
                 var members = chain.ResolveParts();
-                if (!ChainLoop.Compatible(members, out _)) continue;
+                if (!chain.TryContour(out var contour, out _)) continue;
+                members = contour.parts.ToList();
                 var chainPorts = members.Select(g => ports.FirstOrDefault(p => p.body == g.gameObject)).ToArray();
                 if (chainPorts.Any(p => p == null)) continue;
                 for (int i = 1; i < chainPorts.Length; i++) {
                     var a = chainPorts[0]; var b = chainPorts[i];
-                    Link(a, b, (double)a.gear.teeth / b.gear.teeth * Math.Sign(Vector3.Dot(a.axis, b.axis)));
+                    Link(a, b, (double)a.gear.teeth / b.gear.teeth * contour.RotationSign(i) / contour.RotationSign(0));
                 }
                 result.chains.Add(chain);
             }
@@ -204,9 +205,10 @@ namespace Protobot.Simulation {
                 track.body.transform.SetPositionAndRotation(track.center + rotation * (track.start.position - track.center), rotation * track.start.rotation);
             }
             foreach (var chain in chains.Where(c => c != null)) {
-                var first = chain.ResolveParts().FirstOrDefault();
+                if (!chain.TryContour(out var contour, out _)) continue;
+                var first = contour.parts[0];
                 var track = first != null ? tracks.FirstOrDefault(t => t.body == first.gameObject) : null;
-                if (track != null) chain.SetTravel((float)(seconds * 90 * track.ratio / 360) * first.teeth * first.chainPitch * Math.Sign(Vector3.Dot(track.axis, first.Axis)));
+                if (track != null) chain.SetTravel((float)(seconds * 90 * track.ratio / 360) * first.teeth * first.chainPitch * Math.Sign(Vector3.Dot(track.axis, first.Axis)) * contour.RotationSign(0));
             }
         }
         private static int Depth(Transform transform) { int depth = 0; while (transform.parent != null) { depth++; transform = transform.parent; } return depth; }

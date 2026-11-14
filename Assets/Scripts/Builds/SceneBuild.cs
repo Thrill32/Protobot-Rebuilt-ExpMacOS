@@ -27,7 +27,8 @@ namespace Protobot.Builds {
         /// <summary>
         /// Generates all the objects into the scene using given BuildData
         /// </summary>
-        public static void GenerateBuild(BuildData buildData) {
+        public static void GenerateBuild(BuildData buildData, bool validateRoutes = true) {
+            if (validateRoutes) BuildTransfer.ValidateExplicitChainGeometry(buildData);
             CollaborationSession.LeaveForFileOpen();
             // Validate embedded geometry before replacing any current scene objects.
             foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())

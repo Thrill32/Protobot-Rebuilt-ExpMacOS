@@ -88,7 +88,7 @@ namespace Protobot {
                 data.HasHole = build.placementAnchor?.hole == true;
                 data.displayMesh = MeshCombiner.CombineMeshes(renderers, frame.position, frame.rotation);
                 data.chains = build.chains ?? Array.Empty<ChainData>();
-                if (validateChains) data.ValidateChains();
+                data.ValidateChains(explicitOnly: !validateChains);
                 data.Normalize(frame);
                 return data;
             }
@@ -104,13 +104,13 @@ namespace Protobot {
             }
         }
 
-        private void ValidateChains() {
+        private void ValidateChains(bool explicitOnly = false) {
             if (chains.Length == 0) return;
             var parts = templates.SelectMany(template => template.GetComponentsInChildren<SavedObject>(true))
                 .GroupBy(saved => saved.ConnectionId, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-            foreach (var chain in chains) {
+            foreach (var chain in chains.Where(c => !explicitOnly || BuildTransfer.IsExplicitRoute(c))) {
                 var sprockets = chain.members.Select(id => parts[id].GetComponent<SimulationPart>()).ToList();
-                if (!ChainLoop.Compatible(sprockets, out var reason))
+                if (!ChainRouteGeometry.TryBuild(sprockets, chain.routeVersion, chain.wraps, out _, out var reason))
                     throw new System.IO.InvalidDataException("The build contains an invalid chain: " + reason + ".");
             }
         }
@@ -124,7 +124,7 @@ namespace Protobot {
 
         public List<GameObject> Generate(Vector3 position, Quaternion rotation) {
             if (disposed) throw new ObjectDisposedException(nameof(SelectionPlacementData));
-            var copies = duplicator.CreateCopies(templates);
+            var copies = duplicator.CreateCopies(templates, copyChains: false);
             foreach (var copy in copies) {
                 var localPosition = copy.transform.position;
                 var localRotation = copy.transform.rotation;
@@ -138,7 +138,7 @@ namespace Protobot {
             }
             GeneratedChains.Clear();
             foreach (var chain in chains.Where(chain => chain?.members != null && chain.members.All(id => !string.IsNullOrEmpty(id) && ids.ContainsKey(id)))) {
-                var loop = ChainLoop.FromData(new ChainData { members = chain.members.Select(id => ids[id]).ToArray() });
+                var loop = ChainLoop.FromData(chain.Remap(id => ids[id]));
                 if (loop != null) GeneratedChains.Add(loop.gameObject);
             }
             Physics.SyncTransforms();

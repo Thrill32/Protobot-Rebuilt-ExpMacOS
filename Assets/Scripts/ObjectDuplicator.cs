@@ -62,7 +62,7 @@ namespace Protobot {
 
         /// <summary>Shared by axis dragging and keyboard transforms. Copy each
         /// part once, leaving selection pivots out of the cloned hierarchy.</summary>
-        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects, Transform parent = null, bool preserveConnectionIds = false) {
+        public List<GameObject> CreateCopies(IEnumerable<GameObject> objects, Transform parent = null, bool preserveConnectionIds = false, bool copyChains = true) {
             var parts = objects.Where(obj => obj != null)
                 .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>(true))
                 .Select(saved => saved.gameObject).Distinct().ToList();
@@ -84,10 +84,31 @@ namespace Protobot {
                 OwnedPartMaterials.CloneForCopy(copy);
                 copies.Add(copy);
             }
+            if (copyChains && parent == null && !preserveConnectionIds && !CollaborationSession.IsShared) {
+                var ids = new Dictionary<string, string>();
+                for (int i = 0; i < sourceRoots.Count; i++) {
+                    var original = sourceRoots[i].GetComponentsInChildren<SavedObject>(true);
+                    var cloned = copies[i].GetComponentsInChildren<SavedObject>(true);
+                    for (int j = 0; j < original.Length; j++) ids[original[j].ConnectionId] = cloned[j].ConnectionId;
+                }
+                foreach (var chain in Simulation.ChainLoop.SaveAll().Where(c => c.members.All(ids.ContainsKey)))
+                    Simulation.ChainLoop.FromData(chain.Remap(id => ids[id]));
+            }
             return copies;
         }
 
         public static void DiscardCopies(List<GameObject> copies) {
+            var copiedParts = copies.Where(c => c != null).SelectMany(c => c.GetComponentsInChildren<SavedObject>(true)).ToHashSet();
+            var ids = copiedParts.Select(s => s.ConnectionId).ToHashSet();
+            // Frozen templates and load-validation bodies deliberately retain
+            // source IDs. They never own the source's logical chain.
+            ids.ExceptWith(Object.FindObjectsByType<SavedObject>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .Where(s => !copiedParts.Contains(s)).Select(s => s.ConnectionId));
+            foreach (var chain in Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .Where(c => c.MemberIds != null && c.MemberIds.All(ids.Contains))) {
+                chain.gameObject.SetActive(false);
+                if (Application.isPlaying) Destroy(chain.gameObject); else DestroyImmediate(chain.gameObject);
+            }
             foreach (var copy in copies.Where(copy => copy != null)) {
                 copy.SetActive(false);
                 if (copy.TryGetComponent<CustomModel>(out var custom)) custom.ReleaseGeometry();

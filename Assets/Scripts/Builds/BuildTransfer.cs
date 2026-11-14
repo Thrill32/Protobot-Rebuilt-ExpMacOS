@@ -62,6 +62,7 @@ namespace Protobot.Builds {
                 else if (part.partId != "Error" && PartsManager.GetPartType(part.partId) == null)
                     throw new InvalidDataException("Unknown part type: " + part.partId);
             }
+            ValidateExplicitChainMetadata(build);
             if (build.placementAnchor != null) {
                 var a = build.placementAnchor;
                 if (new[] { a.x, a.y, a.z, a.qx, a.qy, a.qz, a.qw }.Any(v => float.IsNaN(v) || float.IsInfinity(v)) ||
@@ -70,9 +71,42 @@ namespace Protobot.Builds {
             }
         }
 
+        public static bool IsExplicitRoute(ChainData chain) => chain != null &&
+            (chain.routeVersion != 0 || chain.wraps != null && chain.wraps.Length != 0);
+        public static void ValidateExplicitChainMetadata(BuildData build) {
+            var routes = (build.chains ?? Array.Empty<ChainData>()).Where(IsExplicitRoute).ToArray();
+            if (routes.Length == 0) return;
+            ValidateChains(new BuildData { parts = build.parts, chains = routes });
+        }
+        // Preflight new routes before a file load removes the current build.
+        // Only the referenced sprockets are generated; no logical chain or scene
+        // selection is created. Legacy optional records keep their old behavior.
+        public static void ValidateExplicitChainGeometry(BuildData build) {
+            ValidateExplicitChainMetadata(build);
+            var routes = (build.chains ?? Array.Empty<ChainData>()).Where(IsExplicitRoute).ToArray();
+            if (routes.Length == 0) return;
+            var ids = routes.SelectMany(c => c.members).ToHashSet();
+            var root = new GameObject("Chain load validation"); root.SetActive(false);
+            var temporary = new List<GameObject>();
+            try {
+                var parts = new Dictionary<string, Simulation.SimulationPart>(StringComparer.Ordinal);
+                foreach (var part in build.parts.Where(p => ids.Contains(p.connectionId))) {
+                    if (!part.partId.StartsWith("SPKT-", StringComparison.Ordinal)) throw new InvalidDataException("Chain endpoints must be sprockets.");
+                    var body = SceneBuild.GenerateObject(part, build); temporary.Add(body); body.transform.SetParent(root.transform, true);
+                    parts.Add(part.connectionId, body.GetComponent<Simulation.SimulationPart>());
+                }
+                foreach (var chain in routes) if (!Simulation.ChainRouteGeometry.TryBuild(chain.members.Select(id => parts[id]).ToArray(),
+                    chain.routeVersion, chain.wraps, out _, out var reason)) throw new InvalidDataException("Invalid chain route: " + reason);
+            }
+            finally {
+                ObjectDuplicator.DiscardCopies(temporary);
+                if (Application.isPlaying) UnityEngine.Object.Destroy(root); else UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
         // Connected placement must fail closed because accepted logical topology
-        // is durable. Offline placement retains its legacy behavior of ignoring
-        // malformed/incomplete optional chain records.
+        // is durable. Offline placement ignores malformed legacy optional
+        // records; explicit routes are always validated.
         public static void ValidateChains(BuildData build) {
             var chains = build?.chains ?? Array.Empty<ChainData>();
             if (chains.Length > Protobot.Collaboration.DocumentModel.MaxChains)
@@ -81,7 +115,7 @@ namespace Protobot.Builds {
                 .GroupBy(part => part.connectionId, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
             var topologies = new HashSet<string>(StringComparer.Ordinal);
             foreach (var chain in chains) {
-                if (chain?.members == null || chain.members.Length < 2 || chain.members.Length > Protobot.Collaboration.DocumentModel.MaxWriteSet ||
+                if (chain == null || !Protobot.Collaboration.DocumentModel.ValidRoute(chain.members, chain.routeVersion, chain.wraps) ||
                     chain.members.Any(string.IsNullOrEmpty) || chain.members.Distinct(StringComparer.Ordinal).Count() != chain.members.Length ||
                     chain.members.Any(id => !idCounts.TryGetValue(id, out var count) || count != 1))
                     throw new InvalidDataException("The build contains an invalid chain.");

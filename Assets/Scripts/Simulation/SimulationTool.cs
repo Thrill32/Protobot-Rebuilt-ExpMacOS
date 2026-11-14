@@ -30,6 +30,7 @@ namespace Protobot.Simulation {
         private readonly TransformNumericInput numericInput = new();
         private MechanismSimulation simulation;
         private SimulationPanel panel;
+        public ChainRoutingPanel RouteEditor { get; private set; }
         private bool active, animation, playing;
         private int beganFrame;
         private Vector2 lastPointer;
@@ -42,7 +43,8 @@ namespace Protobot.Simulation {
 
         public static bool IsActive => instance != null && instance.active;
         public static bool HasPreview => instance != null && instance.simulation != null;
-        public static bool CapturesSelection => IsActive || consumedFrame == Time.frameCount;
+        public static bool IsRouting => instance?.RouteEditor != null;
+        public static bool CapturesSelection => IsRouting || IsActive || consumedFrame == Time.frameCount;
         public static bool BlocksCamera => consumedFrame == Time.frameCount || IsActive && instance.simulation != null &&
             (!instance.animation || instance.IsTypingRotation || instance.simulation.DriverRotates && MoveRotation.SlashPressed(Keyboard.current));
         public static bool OverPanel => instance != null && instance.panel != null && instance.panel.ContainsPointer;
@@ -78,6 +80,13 @@ namespace Protobot.Simulation {
 
         public void ChainSelected() {
             if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
+            if (RouteEditor != null) return;
+            var keyboard = Keyboard.current;
+            // Keep an existing Shift-containing Chain binding a quick-chain
+            // command. The panel button remains available for route editing.
+            if (keyboard?.shiftKey.isPressed == true && !chainInput.UsesControl(keyboard.leftShiftKey) && !chainInput.UsesControl(keyboard.rightShiftKey)) {
+                EditChainRoute(); return;
+            }
             var selection = selectionManager.current;
             var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
             var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
@@ -88,6 +97,21 @@ namespace Protobot.Simulation {
             Protobot.UI.InteractionFeedback.Notify(message);
         }
 
+        public void EditChainRoute() {
+            if (RouteEditor != null || !CollaborationSession.CanEdit || CollaborationSession.HasReservation ||
+                IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing) return;
+            var selection = selectionManager.current;
+            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
+            var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
+                .Where(p => p.kind == DriveKind.Sprocket).Distinct().ToList();
+            ExitForEdit();
+            if (!ChainRouteGeometry.CompatiblePlane(sprockets, out var reason)) { Protobot.UI.InteractionFeedback.Notify(reason); return; }
+            RouteEditor = new ChainRoutingPanel(sprockets, () => { RouteEditor = null; consumedFrame = Time.frameCount; });
+        }
+        public static bool CancelRouting() {
+            if (!IsRouting) return false;
+            instance.RouteEditor.Dispose(); return true;
+        }
         public void Activate() {
             if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() ||
                 placement.placing || InputEvent.IsNoclipMovementCaptured) return;
@@ -202,6 +226,7 @@ namespace Protobot.Simulation {
         // Mechanism discovery depends on the complete shared scene. Restore before applying a new
         // revision so an old preview can never restore over another participant's accepted transforms.
         public static void BeforeSharedEdit(bool ownEdit) {
+            CancelRouting();
             if (instance == null || instance.simulation == null) return;
             bool confirmed = ownEdit && instance.committing;
             instance.RestorePreview();
@@ -236,6 +261,7 @@ namespace Protobot.Simulation {
         }
 
         public static void ExitForEdit() {
+            CancelRouting();
             if (instance == null || !instance.active) return;
             instance.toolbarToggle.isOn = false;
         }
@@ -245,6 +271,7 @@ namespace Protobot.Simulation {
 
         // Resolve ownership before the existing InputEvent dispatch. Tool changes and edits restore first.
         public static bool AllowsInput(InputEvent input) {
+            if (IsRouting) return input.name == "Orbit" || input.name == "Pan" || input.name == "Noclip Camera";
             if (consumedFrame == Time.frameCount) return false;
             if (!IsActive) return true;
             if (instance.IsTypingRotation || instance.simulation?.DriverRotates == true && MoveRotation.SlashPressed(Keyboard.current)) return false;
@@ -260,6 +287,10 @@ namespace Protobot.Simulation {
         }
 
         private void LateUpdate() {
+            if (RouteEditor != null) {
+                if (!Application.isFocused) CancelRouting(); else RouteEditor.Refresh();
+                return;
+            }
             if (!active) return;
             if (simulation != null && !simulation.IsValid) Cancel();
             if (committing || CollaborationSession.BlocksUIInput || !CollaborationSession.CanPreview) return;
@@ -348,8 +379,9 @@ namespace Protobot.Simulation {
             : $"Drag left/right · Click: set pose{RotationHint} · Esc: revert · {activateInput.GetCurrentKeybind()}: animation";
         private void OnApplicationFocus(bool focused) { if (!focused && active) Cancel(); }
         private void OnApplicationPause(bool paused) { if (paused && active) Cancel(); }
-        private void OnDisable() { if (active) SetActive(false); }
+        private void OnDisable() { RouteEditor?.Dispose(); if (active) SetActive(false); }
         private void OnDestroy() {
+            RouteEditor?.Dispose();
             RestorePreview();
             foreach (var subscription in subscriptions) subscription.input.performed -= subscription.action;
             if (toolbarToggle != null) toolbarToggle.onValueChanged.RemoveListener(SetActive);

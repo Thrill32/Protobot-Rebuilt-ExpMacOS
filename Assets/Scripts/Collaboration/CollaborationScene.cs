@@ -71,7 +71,7 @@ namespace Protobot {
             var bodies = PartsManager.FindLoadedObjects();
             var loops = UnityEngine.Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsSortMode.None);
             var chainParts = loops.ToDictionary(loop => loop, loop => loop.ResolveParts());
-            if (chainParts.Values.Any(parts => !Simulation.ChainLoop.Compatible(parts, out _)))
+            if (loops.Any(loop => !loop.TryContour(out _, out _)))
                 throw new InvalidOperationException("Remove or repair invalid chains before hosting.");
             var used = new HashSet<string>(StringComparer.Ordinal);
             foreach (var body in bodies) {
@@ -110,10 +110,10 @@ namespace Protobot {
         public static BuildData ToBuild(Document document) {
             var local = SceneBuild.ToBuildData();
             local.parts = document.parts.Select(part => ToObjectData(part, DocumentModel.Assets(document))).ToArray();
-            local.chains = DocumentModel.Chains(document).Select(c => new ChainData { members = c.members.ToArray() }).ToArray(); return local;
+            local.chains = DocumentModel.Chains(document).Select(c => new ChainData { id = c.id, members = c.members.ToArray(), routeVersion = c.routeVersion, wraps = c.wraps?.ToArray() }).ToArray(); return local;
         }
         public static void Load(Document document) {
-            SceneBuild.GenerateBuild(ToBuild(document));
+            SceneBuild.GenerateBuild(ToBuild(document), validateRoutes: false);
             Simulation.ChainLoop.ApplyRecords(DocumentModel.Chains(document));
             // The file adapter uses Euler angles; restore the accepted quaternion without a round trip.
             ApplyParts(document.parts);

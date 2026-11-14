@@ -197,18 +197,19 @@ internal static partial class Program {
             owner = room.Join(new JoinRequest { name = "Chain owner", catalogHash = seed.catalog.hash, ownerCredential = seed.ownerCredential });
             var lease = room.Reserve(owner.token, new LeaseRequest { ids = new[] { "a", "b" } });
             var add = Tx(room.Snapshot, "SetChains", Array.Empty<Part>(), lease: lease.token, sequence: 1,
-                chains: new[] { Chain("durable-chain", "a", "b") });
+                chains: new[] { new ChainRecord { id = "durable-chain", members = new[] { "a", "b" }, routeVersion = 1, wraps = new[] { 0, 0 } } });
             Check(room.Commit(owner.token, add).accepted && DocumentModel.Chains(room.Snapshot).Single().version == 1,
                 "durable chain transaction accepted");
         }
         using (var store = new RoomStore(directory, checkpointEvery: 1)) {
             var room = new Room(null, storage: store);
             var resumed = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = owner.resumeToken });
-            Check(DocumentModel.Chains(room.Snapshot).Single().id == "durable-chain", "chain checkpoint recovers topology");
+            Check(DocumentModel.Chains(room.Snapshot).Single().id == "durable-chain" && DocumentModel.Chains(room.Snapshot).Single().routeVersion == 1 &&
+                DocumentModel.Chains(room.Snapshot).Single().wraps.SequenceEqual(new[] { 0, 0 }), "chain checkpoint recovers explicit routing");
             Check(room.Commit(resumed.token, Tx(room.Snapshot, "Undo", Array.Empty<Part>(), sequence: 2)).accepted &&
                 DocumentModel.Chains(room.Snapshot).Length == 0, "durable personal undo removes chain after restart");
             Check(room.Commit(resumed.token, Tx(room.Snapshot, "Redo", Array.Empty<Part>(), sequence: 3)).accepted &&
-                DocumentModel.Chains(room.Snapshot).Single().version == 3, "durable personal redo restores chain with newer version");
+                DocumentModel.Chains(room.Snapshot).Single().version == 3 && DocumentModel.Chains(room.Snapshot).Single().wraps.SequenceEqual(new[] { 0, 0 }), "durable personal redo restores chain with newer version");
         }
         using (var store = new RoomStore(directory)) {
             var room = new Room(null, storage: store);

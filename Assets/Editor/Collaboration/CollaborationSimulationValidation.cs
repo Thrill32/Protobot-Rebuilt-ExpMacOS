@@ -141,6 +141,15 @@ namespace ProtobotEditorTools {
             await History();
             Require(DocumentModel.Chains(Document()).Single().id == chain.id, "Undoing chain removal did not restore the accepted connection.");
 
+            // Explicit route edits use the same stable entity, endpoint leases and personal history.
+            var explicitRoute = Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Single().Data;
+            explicitRoute.routeVersion = 1; explicitRoute.wraps = new[] { 0, 0 };
+            next = Document().revision + 1; CollaborationSession.SetChainRoute(explicitRoute); await Accepted(next);
+            Require(DocumentModel.Chains(Document()).Single().id == chain.id && DocumentModel.Chains(Document()).Single().routeVersion == 1,
+                "Editing a shared route changed its identity or lost metadata");
+            await History(); Require(DocumentModel.Chains(Document()).Single().routeVersion == 0, "Shared route undo lost the legacy route");
+            await History(true); Require(DocumentModel.Chains(Document()).Single().routeVersion == 1, "Shared route redo lost explicit metadata");
+
             // The real Alt transform/copy path retains contained chain topology:
             // originals move while the new chain joins only the stationary copies.
             var keyboard = Object.FindFirstObjectByType<KeyboardTransformTool>();
@@ -161,7 +170,7 @@ namespace ProtobotEditorTools {
             await Accepted(next);
             var altCopyIds = Document().parts.Where(p => !altBaselineIds.Contains(p.id)).Select(p => p.id).ToHashSet();
             var altChain = DocumentModel.Chains(Document()).Single(c => c.id != chain.id);
-            Require(altCopyIds.Count == 2 && altChain.members.All(altCopyIds.Contains) &&
+            Require(altCopyIds.Count == 2 && altChain.members.All(altCopyIds.Contains) && altChain.routeVersion == 1 && altChain.wraps.SequenceEqual(new[] { 0, 0 }) &&
                 Document().parts.Where(p => new[] { sprocketAId, sprocketBId }.Contains(p.id)).All(p => p.position[1] > altBaseline.parts.Single(old => old.id == p.id).position[1] + 4.9),
                 "Alt transform/copy did not atomically move originals and connect only its copies.");
             await History();
@@ -191,6 +200,7 @@ namespace ProtobotEditorTools {
                 var pastedIds = Document().parts.Where(p => !baselineIds.Contains(p.id)).Select(p => p.id).ToHashSet();
                 var pastedChain = DocumentModel.Chains(Document()).Single(c => c.id != chain.id);
                 Require(Document().parts.Length == baselineParts + 2 && pastedIds.Count == 2 && pastedChain.members.All(pastedIds.Contains) &&
+                    pastedChain.routeVersion == 1 && pastedChain.wraps.SequenceEqual(new[] { 0, 0 }) &&
                     Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Any(loop => loop.ConnectionId == pastedChain.id),
                     "Pasted chain was not atomically remapped to its new parts.");
                 await History();
@@ -360,6 +370,35 @@ namespace ProtobotEditorTools {
             Require(connection.IsConnected, "Simulation disconnect prevented reconnect.");
             Matches(Document());
             Require(ghostFrames == 0, "Private simulation sent ghost frames.");
+            // Materialize a real signed inner-idler route through atomic shared placement.
+            var advanced = ChainContourValidation.AdvancedFixture();
+            foreach (var part in advanced) part.transform.position += Vector3.right * 300;
+            var routed = ChainLoop.FromData(ChainContourValidation.Route(advanced)); string routeId = routed.ConnectionId;
+            var routeData = routed.Data;
+            next = Document().revision + 1;
+            CollaborationSession.PlaceCopies(advanced.Select(p => p.gameObject).ToList(), temporaryChains: new List<GameObject> { routed.gameObject });
+            await Accepted(next);
+            var acceptedRoute = DocumentModel.Chains(Document()).Single(c => c.id == routeId);
+            Require(acceptedRoute.routeVersion == 1 && DocumentModel.RouteKey(acceptedRoute.members, 1, acceptedRoute.wraps) ==
+                DocumentModel.RouteKey(routeData.members, 1, routeData.wraps) &&
+                Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Single(c => c.ConnectionId == routeId).TryContour(out _, out _),
+                "Remote canonical materialization lost the inner route");
+            await History(); Require(!DocumentModel.Chains(Document()).Any(c => c.id == routeId), "Signed route undo left topology");
+            await History(true); Require(DocumentModel.Chains(Document()).Any(c => c.id == routeId && c.wraps.Contains(1)), "Signed route redo lost identity/wraps");
+            var idlerId = routeData.members[1]; var idlerPose = WireJson.Clone(peer.Snapshot.parts.Single(p => p.id == idlerId));
+            var displaced = WireJson.Clone(idlerPose); displaced.position[2] += .2;
+            hold = await peer.ReserveAsync(new[] { idlerId });
+            var displacedReceipt = await peer.SubmitAsync(peer.CreateTransaction("SetPoses", new[] { displaced }, lease: hold.token));
+            await Accepted(displacedReceipt.revision); await peer.ReleaseAsync(hold.token);
+            ChainLoop.ApplyRecords(DocumentModel.Chains(Document()));
+            routed = Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Single(c => c.ConnectionId == routeId);
+            Require(!routed.TryContour(out _, out _), "Invalid accepted plane still transmitted motion");
+            idlerPose.version = peer.Snapshot.parts.Single(p => p.id == idlerId).version;
+            hold = await peer.ReserveAsync(new[] { idlerId });
+            var restoredRoute = await peer.SubmitAsync(peer.CreateTransaction("SetPoses", new[] { idlerPose }, lease: hold.token));
+            await Accepted(restoredRoute.revision); await peer.ReleaseAsync(hold.token);
+            Require(routed.ConnectionId == routeId && routed.TryContour(out _, out _), "Remote invalidation/restoration lost the logical route identity");
+
             await peer.LeaveAsync();
             var owned = Get<CollaborationHost>(session, "host");
             Invoke(session, "Detach"); await Get<Task>(session, "hostShutdown"); await owned.StopAsync();

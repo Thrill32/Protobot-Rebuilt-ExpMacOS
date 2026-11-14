@@ -58,6 +58,7 @@ namespace Protobot.InputEvents {
             foreach (var box in FindObjectsByType<BoxSelectUI>(FindObjectsSortMode.None))
                 if (box.CancelSelection()) return;
             if (CustomModelTool.TryCancelActive()) return;
+            if (SimulationTool.CancelRouting()) return;
             if (BuildTransferTool.IsBusy || FindFirstObjectByType<BuildsManager>()?.IsFileOperationInProgress == true) return;
             var simulation = FindFirstObjectByType<SimulationTool>();
             if (simulation != null && simulation.Current != null) { simulation.Cancel(); return; }

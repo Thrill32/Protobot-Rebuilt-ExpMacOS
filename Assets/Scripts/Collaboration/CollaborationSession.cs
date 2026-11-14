@@ -423,7 +423,7 @@ namespace Protobot {
                 .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet(StringComparer.Ordinal);
             return DocumentModel.Chains(committed).Where(chain => chain.members.All(ids.ContainsKey)).Select(chain => {
                 string id; do id = Guid.NewGuid().ToString("N"); while (!used.Add(id));
-                return new ChainRecord { id = id, members = chain.members.Select(member => ids[member]).ToArray() };
+                return new ChainRecord { id = id, members = chain.members.Select(member => ids[member]).ToArray(), routeVersion = chain.routeVersion, wraps = chain.wraps?.ToArray() };
             }).ToArray();
         }
         public static void PlaceCatalog(GameObject temporary, VersionRef[] dependencies = null) => PlaceCopies(new List<GameObject> { temporary }, dependencies);
@@ -504,10 +504,21 @@ namespace Protobot {
         public static void ToggleChain(IEnumerable<Simulation.SimulationPart> parts) {
             if (!IsShared || !CanEdit) return;
             var selected = parts?.Distinct().ToList() ?? new List<Simulation.SimulationPart>();
-            if (!Simulation.ChainLoop.Compatible(selected, out var reason)) { InteractionFeedback.Notify(reason); return; }
+            if (Simulation.ChainLoop.Find(selected.Select(p => p.GetComponent<SavedObject>().ConnectionId)) == null &&
+                !Simulation.ChainLoop.Compatible(selected, out var reason)) { InteractionFeedback.Notify(reason); return; }
             _ = instance.ToggleChainAsync(selected);
         }
-        private async Task ToggleChainAsync(List<Simulation.SimulationPart> parts) {
+        public static void SetChainRoute(Builds.ChainData data, bool remove = false) {
+            if (!IsShared || !CanEdit) return;
+            if (!DocumentModel.ValidRoute(data.members, data.routeVersion, data.wraps)) return;
+            var byId = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
+            var parts = data.members.Select(id => byId.TryGetValue(id, out var body) ? body.GetComponent<Simulation.SimulationPart>() : null).ToList();
+            if (!remove && !Simulation.ChainRouteGeometry.TryBuild(parts, data.routeVersion, data.wraps, out _, out var reason)) {
+                InteractionFeedback.Notify(reason); return;
+            }
+            _ = instance.ToggleChainAsync(parts, data, remove);
+        }
+        private async Task ToggleChainAsync(List<Simulation.SimulationPart> parts, Builds.ChainData route = null, bool remove = false) {
             if (lease != null || submitting) return;
             submitting = true;
             var connection = client; long epoch = connection.ConnectionEpoch; string token = null;
@@ -519,19 +530,21 @@ namespace Protobot {
                 token = (await connection.ReserveAsync(memberIds)).token;
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 ChainRecord[] writes = Array.Empty<ChainRecord>(); string[] deletes = Array.Empty<string>();
-                if (existing == null) {
+                if (route != null && !remove || existing == null && route == null) {
                     string id; var used = committed.parts.Select(p => p.id).Concat(committed.tombstones.Select(p => p.id))
                         .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet();
                     do id = Guid.NewGuid().ToString("N"); while (used.Contains(id));
-                    writes = new[] { new ChainRecord { id = id, members = memberIds } };
+                    writes = new[] { new ChainRecord { id = existing?.id ?? id, members = memberIds,
+                        routeVersion = route?.routeVersion ?? 0, wraps = route?.wraps?.ToArray() } };
                 }
-                else deletes = new[] { existing.id };
+                else if (existing != null) deletes = new[] { existing.id };
+                else return;
                 var tx = CreateTransaction("SetChains", Array.Empty<Part>(), dependencies: expected, token: token,
                     chainWrites: writes, chainDeletes: deletes, chainDependencies: ChainVersions(writes.Select(c => c.id).Concat(deletes)));
                 var receipt = await connection.SubmitAsync(tx);
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
-                status = receipt.accepted ? (existing == null ? "Chain added" : "Chain removed") + " at revision " + receipt.revision : "Chain edit rejected: " + receipt.error;
+                status = receipt.accepted ? (writes.Length > 0 ? "Chain route saved" : "Chain removed") + " at revision " + receipt.revision : "Chain edit rejected: " + receipt.error;
                 InteractionFeedback.Notify(status);
             }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }

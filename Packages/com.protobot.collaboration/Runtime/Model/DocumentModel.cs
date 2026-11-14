@@ -148,7 +148,7 @@ namespace Protobot.Collaboration {
                 else if (!exists) Require(!chainTombstones.ContainsKey(write.id) && chainExpected[write.id] == 0, "chain-identity-in-use");
                 var accepted = WireJson.Clone(write);
                 accepted.version = exists ? before.version + 1 : chainTombstones.TryGetValue(write.id, out var dead) ? dead + 1 : 1;
-                accepted.members = accepted.members.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+                NormalizeRoute(accepted);
                 chains[accepted.id] = accepted; chainTombstones.Remove(accepted.id);
             }
             foreach (var id in chainDeletes) {
@@ -179,8 +179,32 @@ namespace Protobot.Collaboration {
             SameCustom(a, b);
 
         public static bool SameChain(ChainRecord a, ChainRecord b) => a == null || b == null ? a == b :
-            a.id == b.id && (a.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal)
-                .SequenceEqual((b.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal));
+            a.id == b.id && RouteKey(a.members, a.routeVersion, a.wraps) == RouteKey(b.members, b.routeVersion, b.wraps);
+
+        public static bool ValidRoute(string[] members, int version, int[] wraps) =>
+            members != null && members.Length >= 2 && members.Length <= MaxWriteSet &&
+            members.All(id => !string.IsNullOrEmpty(id)) && members.Distinct(StringComparer.Ordinal).Count() == members.Length &&
+            (version == 0 && (wraps == null || wraps.Length == 0) ||
+             version == 1 && wraps != null && wraps.Length == members.Length && wraps.All(w => w == 0 || w == 1));
+
+        // Only cyclic rotations and reversal are equivalent. Wraps always move
+        // with their member; sorting an explicit route would change its shape.
+        public static void NormalizeRoute(ChainRecord chain) {
+            if (chain.routeVersion == 0) { chain.members = chain.members.OrderBy(id => id, StringComparer.Ordinal).ToArray(); return; }
+            int count = chain.members.Length;
+            int start = Array.IndexOf(chain.members, chain.members.OrderBy(id => id, StringComparer.Ordinal).First());
+            int step = string.CompareOrdinal(chain.members[(start + 1) % count], chain.members[(start + count - 1) % count]) <= 0 ? 1 : -1;
+            var indices = Enumerable.Range(0, count).Select(i => (start + step * i + count) % count).ToArray();
+            chain.members = indices.Select(i => chain.members[i]).ToArray();
+            chain.wraps = indices.Select(i => chain.wraps[i]).ToArray();
+        }
+        public static string RouteKey(string[] members, int version, int[] wraps) {
+            if (!ValidRoute(members, version, wraps)) return "invalid:" + version;
+            var chain = new ChainRecord { members = members.ToArray(), routeVersion = version, wraps = wraps?.ToArray() };
+            NormalizeRoute(chain);
+            return version == 0 ? string.Join("|", chain.members) : "route1:" +
+                string.Join("|", chain.members.Select((id, i) => id + ":" + chain.wraps[i]));
+        }
 
         private static string ChainTopology(ChainRecord chain) => string.Join("\0",
             (chain.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal));
@@ -189,6 +213,7 @@ namespace Protobot.Collaboration {
             Require(chain != null && ValidId(chain.id) && chain.members != null && chain.members.Length >= 2 &&
                 chain.members.Length <= MaxWriteSet && chain.members.All(ValidId) && chain.members.Distinct(StringComparer.Ordinal).Count() == chain.members.Length,
                 "invalid-chain");
+            Require(ValidRoute(chain.members, chain.routeVersion, chain.wraps), "invalid-chain-route");
             var available = new HashSet<string>(parts.Select(p => p.id), StringComparer.Ordinal);
             Require(chain.members.All(available.Contains), "missing-chain-member");
         }
@@ -304,6 +329,7 @@ namespace Protobot.Collaboration {
                         writer.Write(chain.id); writer.Write(chain.version);
                         var members = chain.members.OrderBy(id => id, StringComparer.Ordinal).ToArray(); writer.Write(members.Length);
                         foreach (var member in members) writer.Write(member);
+                        if (chain.routeVersion != 0) writer.Write(RouteKey(chain.members, chain.routeVersion, chain.wraps));
                     }
                     writer.Write(ChainTombstones(document).Length);
                     foreach (var dead in ChainTombstones(document).OrderBy(c => c.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }

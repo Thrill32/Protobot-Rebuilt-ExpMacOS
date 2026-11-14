@@ -7,12 +7,13 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace Protobot.Simulation {
-    /// <summary>Persistent logical chain connection with a simple moving rope/chain contour.</summary>
+    /// <summary>Persistent chain identity and route; all consumers use the same validated planar contour.</summary>
     public sealed class ChainLoop : MonoBehaviour {
-        private const float LineWidth = .045f;
-        private const float ArcStep = 8;
+
         [SerializeField] private string chainId;
         [SerializeField] private string[] memberIds;
+        [SerializeField] private int routeVersion;
+        [SerializeField] private int[] wraps;
         public static Material MaterialTemplate;
         private LineRenderer line;
         private Material material;
@@ -34,41 +35,15 @@ namespace Protobot.Simulation {
             return (memberIds ?? Array.Empty<string>()).Select(id => objects.TryGetValue(id, out var saved) ? saved.GetComponent<SimulationPart>() : null).ToList();
         }
 
-        public static bool Compatible(IReadOnlyList<SimulationPart> parts, out string reason) {
-            reason = "Select at least two sprockets";
-            if (parts == null || parts.Count < 2 || parts.Any(p => p == null || p.kind != DriveKind.Sprocket)) return false;
-            var first = parts[0];
-            for (int i = 0; i < parts.Count; i++) {
-                var part = parts[i];
-                reason = "Sprockets must use the same chain size and lie in one plane";
-                if (Mathf.Abs(Vector3.Dot(first.Axis, part.Axis)) < .995f ||
-                    Mathf.Abs(Vector3.Dot(part.ContactCenter - first.ContactCenter, first.Axis)) > .035f ||
-                    Mathf.Abs(part.chainPitch - first.chainPitch) > .005f) return false;
-                for (int j = 0; j < i; j++) {
-                    reason = "Move overlapping sprockets apart before adding a chain";
-                    if (Vector3.Distance(part.ContactCenter, parts[j].ContactCenter) <= part.Radius + parts[j].Radius + .02f) return false;
-                }
-            }
-            reason = "Selected sprockets must form a clear outer loop; connect inner/idler routes in pairs";
-            if (parts.Count > 2 && Ordered(parts).Count != parts.Count) return false;
-            reason = null; return true;
-        }
-
-        private static List<SimulationPart> Ordered(IReadOnlyList<SimulationPart> parts) {
-            if (parts.Count <= 2) return parts.ToList();
-            var n = parts[0].Axis;
-            var x = Vector3.ProjectOnPlane(Mathf.Abs(Vector3.Dot(n, Vector3.right)) < .9f ? Vector3.right : Vector3.up, n).normalized;
-            var y = Vector3.Cross(n, x);
-            Vector2 Point(SimulationPart p) => new(Vector3.Dot(p.ContactCenter, x), Vector3.Dot(p.ContactCenter, y));
-            float Cross(SimulationPart a, SimulationPart b, SimulationPart c) {
-                var u = Point(b) - Point(a); var v = Point(c) - Point(a); return u.x * v.y - u.y * v.x;
-            }
-            var sorted = parts.OrderBy(p => Point(p).x).ThenBy(p => Point(p).y).ToArray();
-            var hull = new List<SimulationPart>();
-            foreach (var p in sorted) { while (hull.Count >= 2 && Cross(hull[^2], hull[^1], p) <= .0001f) hull.RemoveAt(hull.Count - 1); hull.Add(p); }
-            int lower = hull.Count;
-            for (int i = sorted.Length - 2; i >= 0; i--) { while (hull.Count > lower && Cross(hull[^2], hull[^1], sorted[i]) <= .0001f) hull.RemoveAt(hull.Count - 1); hull.Add(sorted[i]); }
-            hull.RemoveAt(hull.Count - 1); return hull;
+        public static bool Compatible(IReadOnlyList<SimulationPart> parts, out string reason) =>
+            ChainRouteGeometry.TryBuild(parts, 0, null, out _, out reason);
+        public bool TryContour(out ChainRouteGeometry.Contour contour, out string reason) =>
+            ChainRouteGeometry.TryBuild(ResolveParts(), routeVersion, wraps, out contour, out reason);
+        public ChainData Data => new() { id = ConnectionId, members = memberIds.ToArray(), routeVersion = routeVersion, wraps = wraps?.ToArray() };
+        private void SetData(ChainData data) { memberIds = data.members.ToArray(); routeVersion = data.routeVersion; wraps = data.wraps?.ToArray(); }
+        public static ChainLoop Find(IEnumerable<string> ids) {
+            var set = ids.ToHashSet();
+            return UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).FirstOrDefault(c => set.SetEquals(c.memberIds));
         }
 
         public static ChainLoop Create(IEnumerable<SimulationPart> parts) {
@@ -76,23 +51,29 @@ namespace Protobot.Simulation {
             if (!Compatible(list, out _)) return null;
             return FromData(new ChainData { members = list.Select(p => p.GetComponent<SavedObject>().ConnectionId).ToArray() });
         }
-        public static ChainLoop FromData(ChainData data, string connectionId = null) {
-            if (data?.members == null || data.members.Length < 2 || data.members.Any(string.IsNullOrEmpty) || data.members.Distinct().Count() < 2) return null;
+        public static ChainLoop FromData(ChainData data, string connectionId = null, bool retainInvalidGeometry = false) {
+            if (data == null || !Protobot.Collaboration.DocumentModel.ValidRoute(data.members, data.routeVersion, data.wraps)) return null;
             var obj = new GameObject("Sprocket Chain") { layer = LayerMask.NameToLayer("Ignore Raycast") };
-            var chain = obj.AddComponent<ChainLoop>(); chain.memberIds = data.members.Distinct().ToArray(); chain.chainId = connectionId; _ = chain.ConnectionId; return chain;
+            var chain = obj.AddComponent<ChainLoop>(); chain.SetData(data); chain.chainId = connectionId ?? data.id; _ = chain.ConnectionId;
+            // Legacy files can contain dangling optional records. Never partially
+            // materialize a malformed or physically impossible explicit route.
+            if (!retainInvalidGeometry && !chain.TryContour(out _, out _)) {
+                obj.SetActive(false); if (Application.isPlaying) Destroy(obj); else DestroyImmediate(obj); return null;
+            }
+            return chain;
         }
         public Protobot.Collaboration.ChainRecord Capture(IEnumerable<SimulationPart> parts = null, long version = 0) {
-            var ids = parts == null ? memberIds : parts.Distinct().Select(p => p.GetComponent<SavedObject>().ConnectionId).ToArray();
-            memberIds = ids.Distinct().ToArray();
-            return new Protobot.Collaboration.ChainRecord { id = ConnectionId, version = version, members = memberIds.ToArray() };
+            if (parts != null) memberIds = parts.Select(p => p.GetComponent<SavedObject>().ConnectionId).ToArray();
+            return new Protobot.Collaboration.ChainRecord { id = ConnectionId, version = version, members = memberIds.ToArray(),
+                routeVersion = routeVersion, wraps = wraps?.ToArray() };
         }
         public static void ApplyRecords(IEnumerable<Protobot.Collaboration.ChainRecord> records) {
             ClearAll();
             foreach (var record in records ?? Array.Empty<Protobot.Collaboration.ChainRecord>())
-                FromData(new ChainData { members = record.members.ToArray() }, record.id);
+                FromData(new ChainData { members = record.members.ToArray(), routeVersion = record.routeVersion, wraps = record.wraps?.ToArray() }, record.id, retainInvalidGeometry: true);
         }
         public static ChainData[] SaveAll() => UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None)
-            .Where(c => Compatible(c.ResolveParts(), out _)).Select(c => new ChainData { members = c.memberIds.ToArray() }).ToArray();
+            .Where(c => c.TryContour(out _, out _)).Select(c => c.Data).ToArray();
         public static void ClearAll() {
             foreach (var loop in UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsInactive.Include, FindObjectsSortMode.None)) {
                 loop.gameObject.SetActive(false); if (Application.isPlaying) Destroy(loop.gameObject); else DestroyImmediate(loop.gameObject);
@@ -101,29 +82,55 @@ namespace Protobot.Simulation {
 
         public static bool Toggle(IEnumerable<SimulationPart> parts, out string message) {
             var list = parts.Distinct().ToList();
+            var existing = Find(list.Where(p => p != null).Select(p => p.GetComponent<SavedObject>().ConnectionId));
+            // Removing an invalid chain must remain possible after moving an endpoint.
+            if (existing != null) { Remove(existing); message = "Chain removed"; return true; }
             if (!Compatible(list, out message)) return false;
-            var ids = list.Select(p => p.GetComponent<SavedObject>().ConnectionId).ToHashSet();
-            var existing = UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).FirstOrDefault(c => ids.SetEquals(c.memberIds));
-            bool adding = existing == null;
-            var loop = existing != null ? existing : Create(list);
-            StateSystem.AddElement(new ChainElement(loop, !adding));
-            loop.gameObject.SetActive(adding);
-            StateSystem.AddState(new ChainElement(loop, adding));
-            message = adding ? $"Connected {list.Count} sprockets with a chain" : "Chain removed";
+            var loop = Create(list);
+            StateSystem.AddElement(new ChainElement(loop, false, loop.Data));
+            StateSystem.AddState(new ChainElement(loop, true, loop.Data));
+            message = $"Connected {list.Count} sprockets · Shift + Chain: edit route";
+            return true;
+        }
+        public static void Remove(ChainLoop loop) {
+            StateSystem.AddElement(new ChainElement(loop, true, loop.Data));
+            loop.gameObject.SetActive(false);
+            StateSystem.AddState(new ChainElement(loop, false, loop.Data));
+        }
+        public static bool SetRoute(ChainData data, out string reason) {
+            reason = "Invalid route metadata";
+            if (data == null || !Protobot.Collaboration.DocumentModel.ValidRoute(data.members, data.routeVersion, data.wraps)) return false;
+            var loop = Find(data.members);
+            var partsById = UnityEngine.Object.FindObjectsByType<SimulationPart>(FindObjectsSortMode.None)
+                .Where(p => p.GetComponent<SavedObject>() != null).GroupBy(p => p.GetComponent<SavedObject>().ConnectionId).ToDictionary(g => g.Key, g => g.First());
+            var parts = data.members.Select(id => partsById.TryGetValue(id, out var part) ? part : null).ToArray();
+            if (!ChainRouteGeometry.TryBuild(parts, data.routeVersion, data.wraps, out _, out reason)) return false;
+            if (loop == null) {
+                loop = FromData(data);
+                StateSystem.AddElement(new ChainElement(loop, false, loop.Data));
+            }
+            else {
+                if (Protobot.Collaboration.DocumentModel.RouteKey(loop.memberIds, loop.routeVersion, loop.wraps) ==
+                    Protobot.Collaboration.DocumentModel.RouteKey(data.members, data.routeVersion, data.wraps)) return true;
+                StateSystem.AddElement(new ChainElement(loop, true, loop.Data));
+                loop.SetData(data);
+            }
+            StateSystem.AddState(new ChainElement(loop, true, loop.Data));
             return true;
         }
         private sealed class ChainElement : IElement {
             private readonly ChainLoop loop;
             private readonly bool active;
-            public ChainElement(ChainLoop loop, bool active) { this.loop = loop; this.active = active; }
-            public void Load() { SimulationTool.ExitForEdit(); if (loop != null) loop.gameObject.SetActive(active); }
+            private readonly ChainData data;
+            public ChainElement(ChainLoop loop, bool active, ChainData data) { this.loop = loop; this.active = active; this.data = data; }
+            public void Load() { SimulationTool.ExitForEdit(); if (loop != null) { loop.SetData(data); loop.gameObject.SetActive(active); loop.RefreshVisual(); } }
         }
 
         public void SetTravel(float distance) { travel = distance; if (material != null) material.mainTextureOffset = new Vector2(-travel / pitch, 0); }
         private void EnsureRenderer() {
             if (line != null) return;
             line = gameObject.AddComponent<LineRenderer>(); line.loop = true; line.useWorldSpace = true;
-            line.widthMultiplier = LineWidth;
+            line.widthMultiplier = ChainRouteGeometry.Width;
             line.numCornerVertices = 0; line.numCapVertices = 0;
             line.shadowCastingMode = ShadowCastingMode.Off; line.receiveShadows = false;
             material = MaterialTemplate != null ? new Material(MaterialTemplate) : new Material(Shader.Find("Universal Render Pipeline/Unlit"));
@@ -135,39 +142,10 @@ namespace Protobot.Simulation {
         }
         private void LateUpdate() => RefreshVisual();
         public void RefreshVisual() {
-            var parts = ResolveParts();
-            if (!Compatible(parts, out _)) { if (line != null) line.enabled = false; return; }
+            if (!TryContour(out var contour, out _)) { if (line != null) line.enabled = false; return; }
             EnsureRenderer(); line.enabled = true;
-            var ordered = Ordered(parts); var n = ordered[0].Axis;
-            // Include the ribbon's inner half and the arc chords' sagitta so
-            // neither the rounded wraps nor their tangent runs enter the teeth.
-            var radii = ordered.Select(p => (Mathf.Max(p.Radius, p.ToothTipRadius) + LineWidth / 2) /
-                Mathf.Cos(ArcStep * .5f * Mathf.Deg2Rad)).ToArray();
-            float segmentLength = radii.Min() * ArcStep * Mathf.Deg2Rad;
-            var normals = new Vector3[ordered.Count];
-            for (int i = 0; i < ordered.Count; i++) {
-                var a = ordered[i]; var b = ordered[(i + 1) % ordered.Count];
-                var d = b.ContactCenter - a.ContactCenter;
-                float cosine = Mathf.Clamp((radii[i] - radii[(i + 1) % ordered.Count]) / d.magnitude, -.999f, .999f);
-                var u = d.normalized;
-                normals[i] = u * cosine - Vector3.Cross(n, u) * Mathf.Sqrt(1 - cosine * cosine);
-            }
-            var points = new List<Vector3>();
-            for (int i = 0; i < ordered.Count; i++) {
-                var a = ordered[i]; var incoming = normals[(i + ordered.Count - 1) % ordered.Count]; var outgoing = normals[i];
-                float angle = Mathf.Repeat(Vector3.SignedAngle(incoming, outgoing, n), 360);
-                int samples = Mathf.Max(2, Mathf.CeilToInt(angle / ArcStep));
-                for (int sample = 0; sample <= samples; sample++) points.Add(a.ContactCenter + Quaternion.AngleAxis(angle * sample / samples, n) * incoming * radii[i]);
-                // Keep the straight runs at the same resolution as the wraps;
-                // long edges can fold LineRenderer's adjacent short arc edges.
-                var next = (i + 1) % ordered.Count;
-                var tangentEnd = ordered[next].ContactCenter + outgoing * radii[next];
-                var tangentStart = points[^1]; var run = tangentEnd - tangentStart;
-                int runSamples = Mathf.Clamp(Mathf.CeilToInt(run.magnitude / segmentLength), 1, 1024);
-                for (int sample = 1; sample < runSamples; sample++) points.Add(Vector3.Lerp(tangentStart, tangentEnd, sample / (float)runSamples));
-            }
-            line.positionCount = points.Count; line.SetPositions(points.ToArray());
-            pitch = ordered[0].chainPitch;
+            line.positionCount = contour.points.Length; line.SetPositions(contour.points);
+            pitch = contour.parts[0].chainPitch;
             material.mainTextureScale = new Vector2(1 / pitch, 1);
             SetTravel(travel);
         }
