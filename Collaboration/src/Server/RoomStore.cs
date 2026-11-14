@@ -250,6 +250,14 @@ namespace Protobot.Collaboration.Server {
             foreach (var value in values) command.Parameters.AddWithValue(value.name, value.value ?? DBNull.Value);
             return command;
         }
+        // Called only by the offline backup command while this store owns room.lock.
+        // SQLite folds committed WAL pages into a consistent standalone database.
+        internal void BackupDatabase(string destination) {
+            using var copy = new SqliteConnection(new SqliteConnectionStringBuilder {
+                DataSource = destination, Mode = SqliteOpenMode.ReadWrite, Pooling = false
+            }.ToString());
+            copy.Open(); db.BackupDatabase(copy);
+        }
         public void Dispose() { try { db?.Dispose(); } finally { ownership.Dispose(); } }
     }
 }
