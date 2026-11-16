@@ -4,6 +4,24 @@ Use one matching catalog/helper/player release on every desktop and server. Reco
 
 Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
 
+Automated desktop connection-polish pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403):
+
+| Check | Result |
+| --- | --- |
+| CLI build | Passed with zero warnings/errors; cached packages with `NuGetAudit=false`; no current online vulnerability audit claimed |
+| Focused connection lifecycle lab | Passed 25 assertions: cooperative bootstrap encoding cancellation, pre-cancel/admission reply settlement, partial body bytes and retry attempt progress, same-identity retry, overlapping join refusal, unchanged accepted snapshot/pending receipt IDs and personal history |
+| Full collaboration lab | Passed **828 assertions**, 10 bots on each transport, original 0.7/v1 + 0.8/v2 fixtures, and two freshly rebuilt Mac players |
+| Unity connection smoke | Passed actual pointer Cancel and physical Escape during real geometry downloads, visible count/MiB progress, retained scenes/local saved bytes, same-membership retry, stale-progress isolation and canceled owned Host/Resume cleanup/retry |
+| Unity UI / collaboration / recovery / multi-room regressions | Passed modal/diagnostic/owner/viewer/export controls, editing/import/materialization/Save/export, helper kill/restart/history/revocation and separate rooms; core/recovery/multi-room used the preserved original 0.9 catalog scope |
+| Distribution artifacts | Four helpers, Mac/Windows players and six archives rebuilt; packaged/embedded catalogs, managed assemblies, SHA-256 files and Mac signatures verified |
+| Catalog | `dfd530294ce2f576ddaebdcb4915f19ea842d9b6970902955bc17c98ed260453` |
+
+This is local-only progress and cancellation behavior: protocol remains **0.9.0-alpha**, document/SQLite/archive **v2**, config/registry/registration **v1**. A candidate snapshot is hydrated and pending outcomes resolved before publication; the previous accepted snapshot survives canceled reconnect. Returned membership/sequence credentials are saved before honoring cancellation, with a ten-second admission reply bound. Cancellation retains known membership and never replays an ambiguous edit. Startup serializes on a worker with cancellation checks between output buffers, a thirty-second deadline and ownership-scoped process cleanup. Quotas and mutation authority are unchanged. Existing rooms still require their original matching catalog; no automatic catalog rewrite is performed.
+
+- [ ] **Connection polish field acceptance:** actual Windows/Mac pointer, keyboard/Escape and focus behavior during slow/interrupted joins and reconnects; native helper cancellation/process cleanup; real proxy/HTTPS retries and timeouts. Existing Windows/Linux execution, cross-OS archives, Debian/Pi service restoration and Mac↔Windows field editing/transfers remain pending.
+
+Credential-free current evidence/checksums are under ignored `Collaboration/artifacts/connection-report.json` and `connection-packages.json`. The final lab took 64.05 seconds. `Assets/Scenes/Main.unity` was retained. This validation preceded the user-requested follow-up commit; no push or deployment was performed. Notes and generated artifacts remain intentionally ignored. The earlier multi-room/geometry records below are historical, with their own catalog/checksums and assertion counts.
+
 Automated dedicated multi-room pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403):
 
 | Check | Result |

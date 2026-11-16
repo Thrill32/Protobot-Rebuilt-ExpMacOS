@@ -33,18 +33,25 @@ namespace Protobot.Collaboration {
         public Document Materialize(Document value) {
             lock (gate) { HydrateCached(value); return value; }
         }
-        private async Task HydrateAsync(Document value, CancellationToken cancellation) {
-            foreach (var reference in DocumentModel.Assets(value)) await ObtainAssetAsync(reference, cancellation).ConfigureAwait(false);
+        private async Task HydrateAsync(Document value, CancellationToken cancellation, IProgress<ConnectionProgress> progress = null) {
+            var references = DocumentModel.Assets(value);
+            for (int i = 0; i < references.Length; i++) {
+                cancellation.ThrowIfCancellationRequested(); int completed = i;
+                progress?.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, i, references.Length));
+                await ObtainAssetAsync(references[i], cancellation, progress == null ? null :
+                    (Action<long, long?, int>)((bytes, length, attempt) => progress.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, completed, references.Length, bytes, length, attempt)))).ConfigureAwait(false);
+                progress?.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, i + 1, references.Length));
+            }
             lock (gate) HydrateCached(value);
         }
-        private async Task ObtainAssetAsync(GeometryAsset reference, CancellationToken cancellation) {
+        private async Task ObtainAssetAsync(GeometryAsset reference, CancellationToken cancellation, Action<long, long?, int> progress = null) {
             GeometryTransfer.ValidateReference(reference);
             await transferGate.WaitAsync(cancellation).ConfigureAwait(false);
             try {
                 lock (gate) if (geometry.ContainsKey(reference.hash)) {
                     DocumentModel.Require(geometry[reference.hash].name == reference.name, "asset-hash-mismatch"); return;
                 }
-                byte[] bytes = await TransferAsync(HttpMethod.Get, reference.hash, null, cancellation).ConfigureAwait(false);
+                byte[] bytes = await TransferAsync(HttpMethod.Get, reference.hash, null, cancellation, progress).ConfigureAwait(false);
                 var asset = GeometryTransfer.Decode(bytes);
                 DocumentModel.Require(asset.hash == reference.hash && asset.name == reference.name, "asset-hash-mismatch");
                 Cache(asset, bytes.Length);
@@ -77,7 +84,7 @@ namespace Protobot.Collaboration {
                 chainWrites = transaction.chainWrites, chainDeletes = transaction.chainDeletes, assetWrites = refs };
             return WireJson.Clone(metadata);
         }
-        private async Task<byte[]> TransferAsync(HttpMethod method, string hash, byte[] content, CancellationToken cancellation) {
+        private async Task<byte[]> TransferAsync(HttpMethod method, string hash, byte[] content, CancellationToken cancellation, Action<long, long?, int> progress = null) {
             DocumentModel.Require(DocumentModel.ValidAssetHash(hash), "invalid-asset-hash");
             long epoch = ConnectionEpoch;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime?.Token ?? CancellationToken.None);
@@ -85,17 +92,20 @@ namespace Protobot.Collaboration {
             // Immutable PUT/GET can restart from byte zero safely. No partial server object survives a request.
             for (int attempt = 0; ; attempt++) {
                 try {
+                    progress?.Invoke(0, null, attempt + 1);
                     using var request = new HttpRequestMessage(method, new Uri(endpoint, "rooms/" + room + "/assets/" + hash));
                     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     if (content != null) request.Headers.ExpectContinue = true;
                     if (content != null) { request.Content = new ByteArrayContent(content); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
                     using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
                     DocumentModel.Require(!response.Content.Headers.ContentLength.HasValue || response.Content.Headers.ContentLength <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
+                    if (response.IsSuccessStatusCode) progress?.Invoke(0, response.Content.Headers.ContentLength, attempt + 1);
                     using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
                     using var output = new MemoryStream(); var buffer = new byte[GeometryTransfer.BufferBytes]; int read;
                     int maximum = response.IsSuccessStatusCode && method == HttpMethod.Get ? GeometryTransfer.MaxAssetBytes : 16384;
                     while ((read = await input.ReadAsync(buffer, 0, buffer.Length, timeout.Token).ConfigureAwait(false)) > 0) {
                         DocumentModel.Require(output.Length + read <= maximum, "asset-byte-limit"); output.Write(buffer, 0, read);
+                        if (response.IsSuccessStatusCode) progress?.Invoke(output.Length, response.Content.Headers.ContentLength, attempt + 1);
                     }
                     var bytes = output.ToArray();
                     if (!response.IsSuccessStatusCode) {

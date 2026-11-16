@@ -26,8 +26,13 @@ internal static partial class Program {
                 await MultiRoomChecks(directory);
                 Console.WriteLine("Multi-room passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
+            if (args.Contains("--connection-only")) {
+                await ConnectionChecks(directory);
+                Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             ModelChecks(); RoomChecks(); HistoryChecks();
             await AssetChecks(directory);
+            await ConnectionChecks(directory);
             index = Array.IndexOf(args, "--legacy-helper");
             if (index >= 0) await LegacyGeometryChecks(directory, args[index + 1]);
             await MultiRoomChecks(directory);

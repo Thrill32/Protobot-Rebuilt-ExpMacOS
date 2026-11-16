@@ -28,7 +28,7 @@ namespace Protobot {
         private InputField uiName, uiRoom, uiPassword, uiEndpoint, uiPort;
         private Toggle uiLan, uiViewer;
         private Dropdown uiTransport;
-        private Button uiReconnect, uiSave, uiSaveAs, uiLeave;
+        private Button uiReconnect, uiSave, uiSaveAs, uiLeave, uiCancelConnection;
         private Transform uiRecoveryRows;
         private ScrollRect uiScroll;
         private int uiTab;
@@ -138,7 +138,7 @@ namespace Protobot {
             var saves = UIRow(uiConnected.transform, "Local Save");
             uiSave = UIButton(saves, "Save Local", "Save local file", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().Save(); });
             uiSaveAs = UIButton(saves, "Save Local As", "Save local file as...", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().SaveAs(); });
-            UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom geometry and existing mounting points are shared; live mounting-point edits are not yet shared.", 12);
+            UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom geometry and confirmed mounting-point edits are shared. Simulation previews stay private until confirmation.", 12);
             uiReconnect = UIButton(uiConnected.transform, "Reconnect", "Reconnect", () => _ = ReconnectAsync(), true);
             uiLeave = UIButton(uiConnected.transform, "Leave", "Leave and continue offline...", () => uiLeaveConfirmation.SetActive(true));
             uiLeaveConfirmation = UIColumn(uiConnected.transform, "Confirm Leave").gameObject;
@@ -160,6 +160,11 @@ namespace Protobot {
             var footer = UIRect("Footer", uiCard); footer.anchorMin = Vector2.zero; footer.anchorMax = Vector2.right;
             footer.pivot = Vector2.zero; footer.anchoredPosition = new Vector2(22, 12); footer.sizeDelta = new Vector2(-44, 78);
             uiStatus = UIText(footer, "Status", status, 13); UIStretch(uiStatus.rectTransform);
+            uiCancelConnection = UIButton(footer, "Cancel Connection", "Cancel", CancelConnection);
+            var cancelRect = (RectTransform)uiCancelConnection.transform;
+            cancelRect.anchorMin = cancelRect.anchorMax = cancelRect.pivot = new Vector2(1, .5f);
+            cancelRect.anchoredPosition = Vector2.zero; cancelRect.sizeDelta = new Vector2(100, 36);
+            uiCancelConnection.gameObject.SetActive(false);
             SelectUITab(0); uiModal.SetActive(false);
         }
 
@@ -170,6 +175,7 @@ namespace Protobot {
         }
         private void ClosePanel() {
             connectionTest?.Cancel();
+            if (connectionAttempt != null) { connectionAttempt.ClosePanelRequested = true; CancelConnection(); }
             panel = false; ClearUIFocus();
             if (uiModal != null) uiModal.SetActive(busy);
         }
@@ -225,7 +231,10 @@ namespace Protobot {
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
             uiName.SetTextWithoutNotify(displayName); uiRoom.SetTextWithoutNotify(room); uiEndpoint.SetTextWithoutNotify(endpoint);
-            uiStatus.text = FriendlyStatus(status);
+            uiCancelConnection.gameObject.SetActive(connectionAttempt != null);
+            uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested;
+            uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null ? 0 : -116, 0);
+            uiStatus.text = ConnectionStatus();
             if (IsShared) {
                 uiConnection.text = $"{room}  |  {(client.IsConnected ? "Connected" : "Disconnected - editing paused")}\nRevision {committed.revision}  |  {client.ActiveTransport ?? "connecting"}  |  {client.Participant.role}";
                 uiReachability.text = "Server: " + endpoint + "\n" + (host != null ? host.AllowLan ? "LAN host. Share a reachable LAN address; internet access is not configured." : "Local host. Only players on this computer can connect." : "Connected to a remote host.") + "\n" + (client.IsDurable ? "Room recovery enabled." : "Temporary room. Save accepted content locally.");

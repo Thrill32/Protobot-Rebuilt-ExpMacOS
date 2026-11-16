@@ -201,7 +201,7 @@ namespace ProtobotEditorTools {
             public void OpenFolderPanelAsync(string title, string directory, bool multiselect, Action<string[]> callback) => throw new NotSupportedException();
         }
         private static Button Button(CollaborationSession session, string name) => Get<GameObject>(session, "uiRoot").GetComponentsInChildren<Button>(true).Single(b => b.name == name);
-        private static async Task Click(GameObject target) {
+        internal static async Task Click(GameObject target) {
             // Scroll the target into view before feeding actual pointer state to Main's input module.
             var scroll = target.GetComponentInParent<ScrollRect>();
             Canvas.ForceUpdateCanvases();

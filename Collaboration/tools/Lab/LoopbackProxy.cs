@@ -24,6 +24,10 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public bool CorruptAssetDownload;
     public TaskCompletionSource<bool> AssetDownloadStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource<bool> ContinueAssetDownload;
+    public int AssetPauseAfterBytes;
+    public TaskCompletionSource<bool> PartialAssetSent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<bool> JoinReplyStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<bool> ContinueJoinReply;
     public string RejectedJoinError;
     public string RejectedAdministrationError;
     public LoopbackProxy(string upstream) {
@@ -42,17 +46,28 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
             if ((context.Request.Method == "POST" || context.Request.Method == "PUT")) request.Content = new StreamContent(context.Request.Body);
             try {
                 using var response = await forward.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal) && ContinueJoinReply != null) {
+                    JoinReplyStarted.TrySetResult(true); await ContinueJoinReply.Task.WaitAsync(context.RequestAborted);
+                }
                 bool asset = context.Request.Path.Value.Contains("/assets/", StringComparison.Ordinal);
                 if (asset && context.Request.Method == "PUT" && DropNextAssetUploadResponse) { DropNextAssetUploadResponse = false; context.Abort(); return; }
                 if (asset && context.Request.Method == "GET") {
                     AssetDownloadStarted.TrySetResult(true);
-                    if (ContinueAssetDownload != null) await ContinueAssetDownload.Task.WaitAsync(context.RequestAborted);
+                    if (ContinueAssetDownload != null && AssetPauseAfterBytes == 0) await ContinueAssetDownload.Task.WaitAsync(context.RequestAborted);
                     if (DropNextAssetDownload) { DropNextAssetDownload = false; context.Abort(); return; }
                     if (CorruptAssetDownload) {
                         var corrupt = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsByteArrayAsync());
                         corrupt["vertices"][0] = 1000000;
                         await context.Response.WriteAsync(corrupt.ToJsonString()); return;
                     }
+                }
+                if (asset && context.Request.Method == "GET" && response.IsSuccessStatusCode && AssetPauseAfterBytes > 0) {
+                    var bytes = await response.Content.ReadAsByteArrayAsync(); int prefix = Math.Min(AssetPauseAfterBytes, bytes.Length);
+                    context.Response.ContentLength = bytes.Length; context.Response.ContentType = "application/json";
+                    await context.Response.Body.WriteAsync(bytes.AsMemory(0, prefix), context.RequestAborted);
+                    await context.Response.Body.FlushAsync(context.RequestAborted); PartialAssetSent.TrySetResult(true);
+                    if (ContinueAssetDownload != null) await ContinueAssetDownload.Task.WaitAsync(context.RequestAborted);
+                    await context.Response.Body.WriteAsync(bytes.AsMemory(prefix), context.RequestAborted); return;
                 }
                 bool commit = context.Request.Path.Value.EndsWith("/commit", StringComparison.Ordinal);
                 if (commit && DropNextCommitResponse) { DropNextCommitResponse = false; context.Abort(); return; }

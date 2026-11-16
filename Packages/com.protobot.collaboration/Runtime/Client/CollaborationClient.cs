@@ -35,6 +35,7 @@ namespace Protobot.Collaboration {
         private long transient = -1;
         private long sequence;
         private long connectionEpoch;
+        private int joining;
         private readonly Dictionary<string, Transaction> pending = new Dictionary<string, Transaction>();
         public Participant Participant { get; private set; }
         public bool IsConnected { get; private set; }
@@ -63,47 +64,65 @@ namespace Protobot.Collaboration {
             http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
         }
 
-        public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false, CancellationToken cancellation = default) {
-            DocumentModel.Require(lifetime == null, "already-connected");
-            DocumentModel.Require(!IsMembershipRevoked, "membership-revoked");
-            Interlocked.Increment(ref connectionEpoch);
-            var server = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
-            DocumentModel.Require(server.protocol == 1 && server.version == CollaborationProtocol.Version, "server-version-mismatch");
-            DocumentModel.Require(server.multiRoom || server.room == room, "catalog-or-room-mismatch");
-            var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, cancellation).ConfigureAwait(false);
-            DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
-            DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
-            IsDurable = capabilities.durable;
-            SupportsParticipantAdministration = capabilities.participantAdministration;
-            LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
-            var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
-                room = room, catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
-                resumeToken = resumeToken
-            }, cancellation).ConfigureAwait(false);
-            DocumentModel.Validate(joined.document, catalog);
-            DocumentModel.Require(capabilities.geometryTransfer && joined.document.schema == 2, "geometry-transfer-required");
-            DocumentModel.Require(!string.IsNullOrEmpty(joined.resumeToken) && joined.resumeToken.Length < 256 && joined.sequence >= 0 &&
-                joined.room == room && joined.document.generation == capabilities.generation, "invalid-join-response");
-            token = joined.token; resumeToken = joined.resumeToken; Participant = joined.participant;
-            // Save the identity before downloading: interruption must resume this membership.
-            lock (gate) { document = GeometryTransfer.CloneDocument(joined.document); SaveRecovery(); }
-            await HydrateAsync(joined.document, cancellation).ConfigureAwait(false);
-            lock (gate) { document = GeometryTransfer.CloneDocument(joined.document); sequence = Math.Max(sequence, joined.sequence); SaveRecovery(); }
-            string[] unresolved;
-            var recovery = new List<string>();
-            lock (gate) unresolved = pending.Keys.ToArray();
-            foreach (var operation in unresolved) {
-                var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation), cancellation).ConfigureAwait(false);
-                lock (gate) { pending.Remove(operation); SaveRecovery(); }
-                string message = receipt.accepted ? "Recovered accepted edit at revision " + receipt.revision : receipt.error ?? "Edit was not accepted; retry explicitly.";
-                recovery.Add(message); PendingResolved?.Invoke(message);
+        public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false,
+            CancellationToken cancellation = default, IProgress<ConnectionProgress> progress = null) {
+            DocumentModel.Require(Interlocked.CompareExchange(ref joining, 1, 0) == 0, "already-connecting");
+            try {
+                DocumentModel.Require(lifetime == null, "already-connected");
+                DocumentModel.Require(!IsMembershipRevoked, "membership-revoked");
+                long epoch = Interlocked.Increment(ref connectionEpoch);
+                void Check() { cancellation.ThrowIfCancellationRequested(); lock (gate) DocumentModel.Require(!disposed && ConnectionEpoch == epoch, "client-closed"); }
+                Check(); progress?.Report(new ConnectionProgress(ConnectionStage.CheckingServer));
+                var server = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
+                DocumentModel.Require(server.protocol == 1 && server.version == CollaborationProtocol.Version, "server-version-mismatch");
+                DocumentModel.Require(server.multiRoom || server.room == room, "catalog-or-room-mismatch");
+                Check(); progress?.Report(new ConnectionProgress(ConnectionStage.CheckingRoom));
+                var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, cancellation).ConfigureAwait(false);
+                DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
+                DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
+                IsDurable = capabilities.durable;
+                SupportsParticipantAdministration = capabilities.participantAdministration;
+                LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
+                Check(); progress?.Report(new ConnectionProgress(ConnectionStage.Authenticating)); Check();
+                // Admission can create durable membership. Once sent, settle its
+                // bounded reply and save the credential before honoring cancellation.
+                var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
+                    room = room, catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
+                    resumeToken = resumeToken
+                }, CancellationToken.None, 10000).ConfigureAwait(false);
+                DocumentModel.Validate(joined.document, catalog);
+                DocumentModel.Require(capabilities.geometryTransfer && joined.document.schema == 2, "geometry-transfer-required");
+                DocumentModel.Require(!string.IsNullOrEmpty(joined.resumeToken) && joined.resumeToken.Length < 256 && joined.sequence >= 0 &&
+                    joined.room == room && joined.document.generation == capabilities.generation, "invalid-join-response");
+                lock (gate) {
+                    DocumentModel.Require(!disposed && ConnectionEpoch == epoch, "client-closed");
+                    token = joined.token; resumeToken = joined.resumeToken; Participant = joined.participant;
+                    sequence = Math.Max(sequence, joined.sequence); SaveRecovery(joined.document.generation);
+                }
+                Check();
+                await HydrateAsync(joined.document, cancellation, progress).ConfigureAwait(false);
+                string[] unresolved;
+                var recovery = new List<string>();
+                lock (gate) unresolved = pending.Keys.ToArray();
+                for (int i = 0; i < unresolved.Length; i++) {
+                    Check(); progress?.Report(new ConnectionProgress(ConnectionStage.RecoveringEdits, i, unresolved.Length));
+                    string operation = unresolved[i];
+                    var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation), cancellation).ConfigureAwait(false);
+                    lock (gate) { pending.Remove(operation); SaveRecovery(joined.document.generation); }
+                    string message = receipt.accepted ? "Recovered accepted edit at revision " + receipt.revision : receipt.error ?? "Edit was not accepted; retry explicitly.";
+                    recovery.Add(message); PendingResolved?.Invoke(message);
+                }
+                Check();
+                lock (gate) {
+                    Check(); document = GeometryTransfer.CloneDocument(joined.document); SaveRecovery();
+                    RecoveryMessages = recovery.ToArray(); transient = -1; IsConnected = true;
+                    lifetime = new CancellationTokenSource(); var connectionLifetime = lifetime;
+                    pump = Task.Run(() => Pump(connectionLifetime.Token));
+                }
+                progress?.Report(new ConnectionProgress(ConnectionStage.Ready));
+                return joined;
             }
-            RecoveryMessages = recovery.ToArray();
-            transient = -1; IsConnected = true;
-            lifetime = new CancellationTokenSource();
-            var connectionLifetime = lifetime;
-            pump = Task.Run(() => Pump(connectionLifetime.Token));
-            return joined;
+            finally { Interlocked.Exchange(ref joining, 0); }
         }
 
         private void LoadRecovery(Capabilities capabilities, bool ownedLoopback) {
@@ -130,11 +149,11 @@ namespace Protobot.Collaboration {
                 catch { recoveryOwnership.Dispose(); recoveryOwnership = null; throw; }
             }
         }
-        private void SaveRecovery() {
+        private void SaveRecovery(string generation = null) {
             if (recoveryPath == null || !IsDurable) return;
             DocumentModel.Require(!disposed && resumeToken != null, "client-closed");
             RecoveryFiles.Write(recoveryPath, new RecoveryState { origin = endpoint.GetLeftPart(UriPartial.Authority), room = room,
-                catalogHash = catalog.hash, generation = document.generation, resumeToken = resumeToken, sequence = sequence, pendingIds = pending.Keys.ToArray() });
+                catalogHash = catalog.hash, generation = generation ?? document.generation, resumeToken = resumeToken, sequence = sequence, pendingIds = pending.Keys.ToArray() });
         }
         public static void ForgetRecovery(string path) {
             if (!File.Exists(path)) return;
@@ -300,12 +319,12 @@ namespace Protobot.Collaboration {
         public void Suspend(string reason) => Freeze(reason);
         private Uri EventUri() { lock (gate) return new Uri(endpoint, "rooms/" + room + "/events?after=" + document.revision + "&transient=" + transient); }
         private Task<T> Get<T>(string action, CancellationToken cancellation) => Request<T>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/" + action), null, cancellation);
-        private Task<TOut> Post<TIn, TOut>(string action, TIn value, CancellationToken cancellation) => Request<TOut>(HttpMethod.Post, new Uri(endpoint, "rooms/" + room + "/" + action), WireJson.Encode(value), cancellation);
-        private async Task<T> Request<T>(HttpMethod method, Uri uri, byte[] content, CancellationToken cancellation) {
+        private Task<TOut> Post<TIn, TOut>(string action, TIn value, CancellationToken cancellation, int timeoutMilliseconds = 30000) => Request<TOut>(HttpMethod.Post, new Uri(endpoint, "rooms/" + room + "/" + action), WireJson.Encode(value), cancellation, timeoutMilliseconds);
+        private async Task<T> Request<T>(HttpMethod method, Uri uri, byte[] content, CancellationToken cancellation, int timeoutMilliseconds = 30000) {
             long epoch = ConnectionEpoch;
             var connectionCancellation = uri.AbsolutePath.EndsWith("/leave", StringComparison.Ordinal) ? CancellationToken.None : lifetime?.Token ?? CancellationToken.None;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation, connectionCancellation);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            timeout.CancelAfter(timeoutMilliseconds);
             var requestCancellation = timeout.Token;
             try {
             using (var request = new HttpRequestMessage(method, uri)) {

@@ -62,7 +62,7 @@ namespace Protobot {
         public static bool BlocksLegacyMutation => IsShared && !IsApplying;
         public static bool BlocksUIInput => instance != null && (instance.panel || instance.busy);
         public static bool CancelPanel() {
-            if (instance == null || !instance.panel) return false;
+            if (instance == null || !instance.panel && instance.connectionAttempt == null) return false;
             instance.ClosePanel(); return true;
         }
         public static BuildData SaveSnapshot() => IsShared ? CollaborationScene.ToBuild(instance.committed) : SceneBuild.ToBuildData();
@@ -145,12 +145,12 @@ namespace Protobot {
 
         private async Task HostAsync() {
             if (busy || IsShared) return;
-            busy = true;
-            status = "Starting room…";
+            var attempt = BeginConnection("Starting room…");
             try {
                 ValidateSettings(false);
                 CancelTools();
                 await hostShutdown;
+                attempt.Token.ThrowIfCancellationRequested();
                 catalog = CollaborationScene.Catalog;
                 committed = CollaborationScene.CaptureDocument(catalog);
                 string hostedBaselineHash = DocumentModel.Hash(committed);
@@ -161,16 +161,20 @@ namespace Protobot {
                 var seed = new Bootstrap { room = room, password = password, ownerCredential = owner, catalog = catalog, document = committed };
                 hostedRoom = CollaborationRecovery.Create(seed, listenPort);
                 host = new CollaborationHost();
-                await host.StartAsync(seed, listenPort, lan, hostedRoom.directory);
+                await host.StartAsync(seed, listenPort, lan, hostedRoom.directory, attempt.Token);
                 hostedRoom.port = host.BoundPort; CollaborationRecovery.Save(hostedRoom);
                 endpoint = host.Url;
-                await ConnectAsync(owner, true);
+                await ConnectAsync(owner, true, attempt);
                 builds.BeginHostedDocument(hostedBaselineHash, wasSaved);
                 if (lan) AdvertiseLan();
                 status = lan ? "Hosting on LAN · reachability from another computer is untested." : "Hosting on loopback · other local players can join.";
             }
-            catch (Exception error) { Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null; }
-            finally { ClearPassword(); busy = false; RefreshRecoveredRooms(); }
+            catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
+                status = "Connection canceled. The current build and local file are unchanged. Recovery data is kept for retry.";
+                if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null;
+            }
+            catch (Exception error) { if (!closing) Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null; }
+            finally { ClearPassword(); EndConnection(attempt); if (!closing) RefreshRecoveredRooms(); }
         }
 
         private void RefreshRecoveredRooms() {
@@ -182,30 +186,34 @@ namespace Protobot {
             CancelTools(); ClosePanel();
             FindFirstObjectByType<BuildsManager>().RunAfterUnsavedChanges(() => _ = RecoverFromUIAsync(saved));
         }
-        private async Task RecoverFromUIAsync(CollaborationRecovery.HostedRoom saved) { await RecoverHostAsync(saved); OpenPanel(); }
+        private async Task RecoverFromUIAsync(CollaborationRecovery.HostedRoom saved) { var recovering = RecoverHostAsync(saved); var attempt = connectionAttempt; await recovering; if (!closing && attempt?.ClosePanelRequested != true) OpenPanel(); }
         private async Task RecoverHostAsync(CollaborationRecovery.HostedRoom saved) {
             if (busy || IsShared) return;
-            busy = true;
-            status = "Recovering accepted room…";
+            var attempt = BeginConnection("Recovering accepted room…");
             try {
                 CancelTools();
                 await hostShutdown;
+                attempt.Token.ThrowIfCancellationRequested();
                 hostedRoom = CollaborationRecovery.Read(saved.directory);
                 catalog = CollaborationScene.Catalog;
                 DocumentModel.Require(hostedRoom.catalogHash == catalog.hash, "recovery-catalog-mismatch-use-the-matching-build");
                 room = hostedRoom.room;
                 int listenPort = hostedRoom.port;
                 if (portEdited && (!int.TryParse(port, out listenPort) || listenPort < 0 || listenPort > 65535)) throw new ArgumentException("Use a port from 0 to 65535.");
-                host = new CollaborationHost(); await host.StartAsync(null, listenPort, lan, hostedRoom.directory);
+                host = new CollaborationHost(); await host.StartAsync(null, listenPort, lan, hostedRoom.directory, attempt.Token);
                 DocumentModel.Require(host.Recovered, "recovery-room-not-found");
                 hostedRoom.port = host.BoundPort; CollaborationRecovery.Save(hostedRoom);
                 endpoint = host.Url;
-                await ConnectAsync(hostedRoom.ownerCredential, false);
+                await ConnectAsync(hostedRoom.ownerCredential, false, attempt);
                 if (lan) AdvertiseLan();
                 status = "Recovered accepted room · local files use Save As. " + string.Join(" ", client.RecoveryMessages);
             }
-            catch (Exception error) { Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null; }
-            finally { ClearPassword(); busy = false; RefreshRecoveredRooms(); }
+            catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
+                status = "Connection canceled. The current build and local file are unchanged. Recovery data is kept for retry.";
+                if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null;
+            }
+            catch (Exception error) { if (!closing) Report(error); if (host != null) await host.StopAsync(); host = null; client?.Dispose(); client = null; hostedRoom = null; }
+            finally { ClearPassword(); EndConnection(attempt); if (!closing) RefreshRecoveredRooms(); }
         }
         private void AdvertiseLan() {
             var address = NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up)
@@ -221,18 +229,25 @@ namespace Protobot {
             var builds = FindFirstObjectByType<BuildsManager>();
             builds.RunAfterUnsavedChanges(() => _ = JoinFromUIAsync());
         }
-        private async Task JoinFromUIAsync() { await JoinAsync(); OpenPanel(); }
+        private async Task JoinFromUIAsync() { var joining = JoinAsync(); var attempt = connectionAttempt; await joining; if (!closing && attempt?.ClosePanelRequested != true) OpenPanel(); }
         private async Task JoinAsync() {
-            busy = true;
-            try { ValidateSettings(true); await hostShutdown; catalog = CollaborationScene.Catalog; await ConnectAsync(null, false); status = "Connected to " + room; }
-            catch (Exception error) { Report(error); client?.Dispose(); client = null; }
-            finally { ClearPassword(); busy = false; }
+            if (busy || IsShared) return;
+            var attempt = BeginConnection("Connecting to room…");
+            try { ValidateSettings(true); await hostShutdown; attempt.Token.ThrowIfCancellationRequested(); catalog = CollaborationScene.Catalog; await ConnectAsync(null, false, attempt); status = "Connected to " + room; }
+            catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
+                status = "Connection canceled. The current build and local file are unchanged. Saved membership is kept for retry.";
+            }
+            catch (Exception error) { if (!closing) Report(error); client?.Dispose(); client = null; }
+            finally { ClearPassword(); EndConnection(attempt); }
         }
-        private async Task ConnectAsync(string owner, bool hosting) {
+        private async Task ConnectAsync(string owner, bool hosting, ConnectionAttempt attempt) {
+            attempt.Token.ThrowIfCancellationRequested();
             string recovery = owner != null && hostedRoom != null ? CollaborationRecovery.OwnerSession(hostedRoom) : CollaborationRecovery.SessionFile(endpoint, room, catalog.hash);
             var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan, recovery);
+            attempt.Candidate = candidate;
             try {
-                await candidate.JoinAsync(displayName, password, owner, owner == null && joinAsViewer);
+                await candidate.JoinAsync(displayName, password, owner, owner == null && joinAsViewer, attempt.Token, attempt);
+                attempt.Token.ThrowIfCancellationRequested();
                 client = candidate;
                 committed = candidate.Snapshot;
                 applying = true;
@@ -632,19 +647,26 @@ namespace Protobot {
         }
         private async Task ReconnectAsync() {
             if (client == null || busy) return;
-            busy = true;
+            var attempt = BeginConnection("Reconnecting to room…");
             try {
                 await client.PrepareReconnectAsync();
-                if (host != null && !host.IsRunning) await host.RestartAsync();
-                await client.JoinAsync(displayName);
+                attempt.Token.ThrowIfCancellationRequested();
+                if (host != null && !host.IsRunning) await host.RestartAsync(attempt.Token);
+                await client.JoinAsync(displayName, cancellation: attempt.Token, progress: attempt);
+                attempt.Token.ThrowIfCancellationRequested();
                 submitting = reserving = sendingPreview = false;
                 lock (queueGate) { main.Clear(); queuedBytes = 0; latestPresence = null; presenceClient = null; }
                 committed = client.Snapshot;
                 applying = true; try { CollaborationScene.Load(committed); } finally { applying = false; }
                 status = "Reconnected and synchronized. " + string.Join(" ", client.RecoveryMessages);
             }
-            catch (Exception error) { Report(error); }
-            finally { busy = false; }
+            catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
+                await client.PrepareReconnectAsync();
+                lock (queueGate) { main.Clear(); queuedBytes = 0; latestPresence = null; presenceClient = null; }
+                status = "Reconnect canceled. The last accepted build and pending outcomes are kept. Retry reconnect to synchronize.";
+            }
+            catch (Exception error) { if (!closing) Report(error); }
+            finally { EndConnection(attempt); }
         }
 
         public static bool CancelWaitingReservation() {
@@ -653,6 +675,9 @@ namespace Protobot {
         }
 
         private void Update() {
+            // Reconnect publishes one complete snapshot on success. Until then,
+            // retain the last accepted scene; cancellation discards queued frames.
+            if (connectionAttempt != null) return;
             int count = 0;
             while (count++ < 128 && TryDequeue(out var action)) action();
             EventBatch presence; CollaborationClient source;
@@ -722,7 +747,7 @@ namespace Protobot {
             "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
             _ => error.Message
         } : error.Message; InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
-        private void OnQuitting() { host?.Dispose(); client?.Dispose(); }
+        private void OnQuitting() { closing = true; CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
         private void OnDestroy() { OnQuitting(); Application.quitting -= OnQuitting; ClearGhosts(); DisposeUI(); if (instance == this) instance = null; }
     }
 }

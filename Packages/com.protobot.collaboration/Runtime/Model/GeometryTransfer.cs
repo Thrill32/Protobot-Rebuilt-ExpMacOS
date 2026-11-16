@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Runtime.Serialization.Json;
 
 namespace Protobot.Collaboration {
@@ -59,8 +60,9 @@ namespace Protobot.Collaboration {
     public static class LocalJson {
         // 64 MiB asset budget + ordinary metadata/catalog overhead. Never used for event decoding.
         public const int MaxBytes = GeometryTransfer.MaxRoomBytes + 8 * 1024 * 1024;
-        public static byte[] Encode<T>(T value, int maximum = MaxBytes) {
-            using (var stream = new LimitedStream(maximum)) {
+        public static byte[] Encode<T>(T value, int maximum = MaxBytes, CancellationToken cancellation = default) {
+            cancellation.ThrowIfCancellationRequested();
+            using (var stream = new LimitedStream(maximum, cancellation)) {
                 Serializer<T>().WriteObject(stream, value); return stream.ToArray();
             }
         }
@@ -72,11 +74,13 @@ namespace Protobot.Collaboration {
         private static DataContractJsonSerializer Serializer<T>() => new DataContractJsonSerializer(typeof(T), new DataContractJsonSerializerSettings { MaxItemsInObjectGraph = int.MaxValue });
         private sealed class LimitedStream : MemoryStream {
             private readonly int maximum;
-            public LimitedStream(int limit) { maximum = limit; }
+            private readonly CancellationToken cancellation;
+            public LimitedStream(int limit, CancellationToken cancellation) { maximum = limit; this.cancellation = cancellation; }
             public override void Write(byte[] buffer, int offset, int count) {
+                cancellation.ThrowIfCancellationRequested();
                 DocumentModel.Require(Length + count <= maximum, "local-serialization-limit"); base.Write(buffer, offset, count);
             }
-            public override void WriteByte(byte value) { DocumentModel.Require(Length < maximum, "local-serialization-limit"); base.WriteByte(value); }
+            public override void WriteByte(byte value) { cancellation.ThrowIfCancellationRequested(); DocumentModel.Require(Length < maximum, "local-serialization-limit"); base.WriteByte(value); }
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Text;
 using Protobot.Collaboration;
 using UnityEngine;
@@ -26,7 +27,8 @@ namespace Protobot {
                     Path.GetFullPath(Path.Combine(Application.dataPath, "../Collaboration", name));
             }
         }
-        public async Task StartAsync(Bootstrap bootstrap, int port, bool lan, string dataDirectory = null) {
+        public async Task StartAsync(Bootstrap bootstrap, int port, bool lan, string dataDirectory = null, CancellationToken cancellation = default) {
+            cancellation.ThrowIfCancellationRequested();
             if (!File.Exists(HelperPath)) throw new FileNotFoundException("Publish the matching collaboration helper first; see Collaboration/README.md.");
             DataDirectory = dataDirectory == null ? null : Path.GetFullPath(dataDirectory); AllowLan = lan; lastError = null;
             var start = new ProcessStartInfo {
@@ -39,12 +41,20 @@ namespace Protobot {
             if (process == null) throw new InvalidOperationException("Could not launch the collaboration helper.");
             // Drain both channels immediately. Secrets travel exclusively over inherited stdin.
             stderr = DrainErrors(process.StandardError);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation); deadline.CancelAfter(TimeSpan.FromSeconds(30));
+            var owned = process;
+            using var stopped = deadline.Token.Register(() => {
+                try { if (!owned.HasExited) owned.Kill(); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+            });
             try {
                 var first = process.StandardOutput.ReadLineAsync();
-                await process.StandardInput.WriteLineAsync(Encoding.UTF8.GetString(LocalJson.Encode(bootstrap)));
+                string json = await Task.Run(() => Encoding.UTF8.GetString(LocalJson.Encode(bootstrap, cancellation: deadline.Token)), deadline.Token);
+                deadline.Token.ThrowIfCancellationRequested();
+                await process.StandardInput.WriteLineAsync(json);
                 await process.StandardInput.FlushAsync();
                 if (await Task.WhenAny(first, Task.Delay(30000)) != first) throw new TimeoutException("Collaboration server did not become ready.");
                 var line = await first;
+                deadline.Token.ThrowIfCancellationRequested();
                 if (line == null) { await stderr; throw new InvalidOperationException("Collaboration server exited: " + (lastError ?? "startup failed")); }
                 var ready = WireJson.Decode<Ready>(System.Text.Encoding.UTF8.GetBytes(line));
                 if (ready.type != "ready" || ready.version != CollaborationProtocol.Version || ready.multiRoom || bootstrap != null && ready.room != bootstrap.room)
@@ -54,12 +64,12 @@ namespace Protobot {
                 Url = new UriBuilder(bound) { Host = "127.0.0.1" }.Uri.GetLeftPart(UriPartial.Authority);
                 stdout = Drain(process.StandardOutput);
             }
-            catch { await StopAsync(); throw; }
+            catch { await StopAsync(); cancellation.ThrowIfCancellationRequested(); if (deadline.IsCancellationRequested) throw new TimeoutException("Collaboration server did not become ready."); throw; }
         }
-        public async Task RestartAsync() {
+        public async Task RestartAsync(CancellationToken cancellation = default) {
             if (DataDirectory == null) throw new InvalidOperationException("This temporary room has no recovery directory.");
             int port = BoundPort; bool lan = AllowLan; string directory = DataDirectory;
-            await StopAsync(); await StartAsync(null, port, lan, directory);
+            await StopAsync(); await StartAsync(null, port, lan, directory, cancellation);
         }
         private async Task DrainErrors(StreamReader reader) { string line; while ((line = await reader.ReadLineAsync()) != null) lastError = line.Substring(0, Math.Min(line.Length, 256)); }
         internal static string Quote(string value) {
@@ -75,7 +85,7 @@ namespace Protobot {
             var owned = process; process = null;
             if (owned == null) return;
             try {
-                try { owned.StandardInput.Close(); } catch (IOException) { }
+                try { owned.StandardInput.Close(); } catch (IOException) { } catch (InvalidOperationException) { }
                 var exited = Task.Run(() => owned.WaitForExit());
                 if (await Task.WhenAny(exited, Task.Delay(7000)) != exited) { owned.Kill(); await exited; }
                 if (stdout != null) await stdout;
