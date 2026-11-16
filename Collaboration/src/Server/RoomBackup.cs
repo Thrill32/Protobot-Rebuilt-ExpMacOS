@@ -58,7 +58,7 @@ namespace Protobot.Collaboration.Server {
             }
             DocumentModel.Require(File.Exists(Path.Combine(source, "room.sqlite")) && File.Exists(Path.Combine(source, "owner.json")), "backup-requires-initialized-cli-room");
             using var store = new RoomStore(source); // Same exclusive ownership as serve; never steal/unlink the lock.
-            var state = store.Load();
+            var state = store.Load(migrate: false);
             byte[] owner = ReadOwner(source, state);
             string staging = Stage(target);
             try {
@@ -69,7 +69,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(new FileInfo(database).Length <= MaxDatabaseBytes, "backup-size-limit");
                 Write(Path.Combine(staging, "owner.json"), owner);
                 var manifest = new Manifest {
-                    format = "protobot-room-backup", version = 1, storageVersion = 1, protocolVersion = CollaborationProtocol.Version,
+                    format = "protobot-room-backup", version = store.StorageVersion, storageVersion = store.StorageVersion, protocolVersion = store.StorageVersion == 1 ? "0.7.0-alpha" : CollaborationProtocol.Version,
                     room = state.info.room, generation = state.info.generation, catalogHash = state.info.catalog.hash,
                     revision = state.document.revision, documentHash = DocumentModel.Hash(state.document),
                     files = new[] { Describe(database), Describe(Path.Combine(staging, "owner.json")) }
@@ -114,7 +114,8 @@ namespace Protobot.Collaboration.Server {
                         manifest = JsonSerializer.Deserialize<Manifest>(bytes.ToArray(), Json);
                     }
                     DocumentModel.Require(manifest != null && manifest.format == "protobot-room-backup", "backup-format-mismatch");
-                    DocumentModel.Require(manifest.version == 1 && manifest.storageVersion == 1 && manifest.protocolVersion == CollaborationProtocol.Version, "backup-version-mismatch");
+                    DocumentModel.Require((manifest.version == 2 && manifest.storageVersion == 2 && manifest.protocolVersion == CollaborationProtocol.Version ||
+                        manifest.version == 1 && manifest.storageVersion == 1 && manifest.protocolVersion == "0.7.0-alpha"), "backup-version-mismatch");
                     DocumentModel.Require(manifest.files?.Length == 2 && manifest.files.All(e => e != null) &&
                         manifest.files.Select(e => e.name).OrderBy(n => n, StringComparer.Ordinal).SequenceEqual(new[] { "owner.json", "room.sqlite" }), "backup-invalid-manifest");
                     foreach (var expected in manifest.files) {
@@ -127,10 +128,12 @@ namespace Protobot.Collaboration.Server {
                     }
                 }
                 using (var store = new RoomStore(staging)) {
-                    var state = store.Load(); ReadOwner(staging, state);
+                    DocumentModel.Require(store.StorageVersion == manifest.storageVersion, "backup-state-mismatch");
+                    var state = store.Load(migrate: false); ReadOwner(staging, state);
                     DocumentModel.Require(state.info.room == manifest.room && state.info.generation == manifest.generation &&
                         state.info.catalog.hash == manifest.catalogHash && state.document.revision == manifest.revision &&
                         DocumentModel.Hash(state.document) == manifest.documentHash, "backup-state-mismatch");
+                    store.Load(); // Migrate only after original manifest/state verification.
                 }
                 PublishDirectory(staging, target);
             }

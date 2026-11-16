@@ -40,7 +40,7 @@ internal static partial class Program {
         DocumentModel.Require(!Directory.Exists(target) && !File.Exists(target), "init-requires-new-directory");
         DocumentModel.Require(options.Has("--catalog") != options.Has("--snapshot"), "use-catalog-or-snapshot");
         RoomExport content;
-        if (options.Has("--snapshot")) content = WireJson.Decode<RoomExport>(Encoding.UTF8.GetBytes(ReadText(options.Get("--snapshot"), WireJson.MaxMessageBytes)));
+        if (options.Has("--snapshot")) content = LocalJson.Decode<RoomExport>(Encoding.UTF8.GetBytes(ReadText(options.Get("--snapshot"), LocalJson.MaxBytes)));
         else {
             var catalog = WireJson.Decode<CatalogManifest>(Encoding.UTF8.GetBytes(ReadText(options.Get("--catalog"), WireJson.MaxMessageBytes)));
             content = new RoomExport { catalog = catalog, document = new Document { catalogHash = catalog.hash } };

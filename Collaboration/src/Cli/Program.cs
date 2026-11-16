@@ -7,6 +7,16 @@ using Protobot.Collaboration;
 using Protobot.Collaboration.Server;
 
 internal static partial class Program {
+    private static async Task<string> ReadBootstrapLine() {
+        var text = new StringBuilder(); var buffer = new char[8192]; int bytes = 0, count;
+        while ((count = await Console.In.ReadAsync(buffer, 0, buffer.Length)) > 0) {
+            int newline = Array.IndexOf(buffer, '\n', 0, count), used = newline >= 0 ? newline : count;
+            bytes = checked(bytes + Encoding.UTF8.GetByteCount(buffer, 0, used));
+            DocumentModel.Require(bytes <= LocalJson.MaxBytes, "invalid-bootstrap"); text.Append(buffer, 0, used);
+            if (newline >= 0) return text.ToString();
+        }
+        return text.Length == 0 ? null : text.ToString();
+    }
     public static async Task<int> Main(string[] args) {
         try {
             if (args.Length == 1 && args[0] == "--version") { Console.WriteLine(CollaborationProtocol.Version); return 0; }
@@ -45,9 +55,9 @@ internal static partial class Program {
             DocumentModel.Require(!parentOwned || config == null, "use-config-or-private-stdin");
             string publicUrl = options.Get("--public-url");
             if (publicUrl != null) { publicUrl = ConnectionDoctor.Origin(publicUrl); DocumentModel.Require(new Uri(publicUrl).Scheme == "https", "public-url-requires-https"); }
-            string json = parentOwned ? await Console.In.ReadLineAsync() : config == null ? "null" : ReadText(config, WireJson.MaxMessageBytes);
-            DocumentModel.Require(json != null && Encoding.UTF8.GetByteCount(json) <= WireJson.MaxMessageBytes, "invalid-bootstrap");
-            var seed = WireJson.Decode<Bootstrap>(Encoding.UTF8.GetBytes(json));
+            string json = parentOwned ? await ReadBootstrapLine() : config == null ? "null" : ReadText(config, LocalJson.MaxBytes);
+            DocumentModel.Require(json != null && Encoding.UTF8.GetByteCount(json) <= LocalJson.MaxBytes, "invalid-bootstrap");
+            var seed = LocalJson.Decode<Bootstrap>(Encoding.UTF8.GetBytes(json));
             using var stop = new CancellationTokenSource();
             Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
             await using var server = new CollaborationServer(seed, options.Get("--listen", "http://127.0.0.1:8787"), options.Has("--allow-lan-http"), dataDirectory);

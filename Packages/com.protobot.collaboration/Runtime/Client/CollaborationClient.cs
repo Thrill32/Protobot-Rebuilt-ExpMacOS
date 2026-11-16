@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace Protobot.Collaboration {
     public enum CollaborationTransport { Auto, WebSocket, LongPolling }
 
-    public sealed class CollaborationClient : IEditSession, IDisposable {
+    public sealed partial class CollaborationClient : IEditSession, IDisposable {
         [Serializable] private sealed class RecoveryState {
             public int schema = 1;
             public string origin, room, catalogHash, generation, resumeToken;
@@ -49,7 +49,7 @@ namespace Protobot.Collaboration {
         public event Action<EventBatch> Presence;
         public event Action<string> Disconnected;
         public event Action<string> PendingResolved;
-        public Document Snapshot { get { lock (gate) return document == null ? null : WireJson.Clone(document); } }
+        public Document Snapshot { get { lock (gate) return document == null ? null : GeometryTransfer.CloneDocument(document); } }
         public int PendingCount { get { lock (gate) return pending.Count; } }
 
         public CollaborationClient(string url, string roomId, CatalogManifest manifest, CollaborationTransport transport = CollaborationTransport.Auto, bool allowInsecureLan = false, string recoveryFile = null) {
@@ -60,7 +60,7 @@ namespace Protobot.Collaboration {
             room = roomId; catalog = WireJson.Clone(manifest); Transport = transport;
             recoveryPath = recoveryFile == null ? null : Path.GetFullPath(recoveryFile);
             // Default OS trust/proxy behavior is intentional. No certificate bypass callbacks.
-            http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
+            http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
         }
 
         public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false, CancellationToken cancellation = default) {
@@ -78,10 +78,14 @@ namespace Protobot.Collaboration {
                 resumeToken = resumeToken
             }, cancellation).ConfigureAwait(false);
             DocumentModel.Validate(joined.document, catalog);
+            DocumentModel.Require(capabilities.geometryTransfer && joined.document.schema == 2, "geometry-transfer-required");
             DocumentModel.Require(!string.IsNullOrEmpty(joined.resumeToken) && joined.resumeToken.Length < 256 && joined.sequence >= 0 &&
                 joined.document.generation == capabilities.generation, "invalid-join-response");
             token = joined.token; resumeToken = joined.resumeToken; Participant = joined.participant;
-            lock (gate) { document = WireJson.Clone(joined.document); sequence = Math.Max(sequence, joined.sequence); SaveRecovery(); }
+            // Save the identity before downloading: interruption must resume this membership.
+            lock (gate) { document = GeometryTransfer.CloneDocument(joined.document); SaveRecovery(); }
+            await HydrateAsync(joined.document, cancellation).ConfigureAwait(false);
+            lock (gate) { document = GeometryTransfer.CloneDocument(joined.document); sequence = Math.Max(sequence, joined.sequence); SaveRecovery(); }
             string[] unresolved;
             var recovery = new List<string>();
             lock (gate) unresolved = pending.Keys.ToArray();
@@ -156,6 +160,7 @@ namespace Protobot.Collaboration {
         public async Task<Receipt> SubmitAsync(Transaction transaction, CancellationToken cancellation = default) {
             DocumentModel.Require(IsConnected, IsMembershipRevoked ? "membership-revoked" : "disconnected");
             long epoch = ConnectionEpoch;
+            transaction = await PrepareAssetsAsync(transaction, cancellation).ConfigureAwait(false);
             try {
                 lock (gate) {
                     DocumentModel.Require(pending.Count < 256 || pending.ContainsKey(transaction.operationId), "pending-operation-limit");
@@ -178,7 +183,7 @@ namespace Protobot.Collaboration {
 
         public async Task WaitForRevisionAsync(long revision, CancellationToken cancellation = default) {
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation)) {
-                timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                timeout.CancelAfter(TimeSpan.FromMinutes(2));
                 while (true) {
                     Task wait;
                     lock (gate) {
@@ -251,7 +256,7 @@ namespace Protobot.Collaboration {
                                         DocumentModel.Require(received.MessageType == WebSocketMessageType.Text && stream.Length + received.Count <= WireJson.MaxMessageBytes, "invalid-event-stream");
                                         stream.Write(bytes, 0, received.Count);
                                     } while (!received.EndOfMessage);
-                                    Apply(WireJson.Decode<EventBatch>(stream.ToArray()));
+                                    await ApplyAsync(WireJson.Decode<EventBatch>(stream.ToArray()), cancellation).ConfigureAwait(false);
                                 }
                             }
                             return;
@@ -259,21 +264,23 @@ namespace Protobot.Collaboration {
                     }
                 }
                 ActiveTransport = "long-polling";
-                while (!cancellation.IsCancellationRequested) Apply(await Request<EventBatch>(HttpMethod.Get, EventUri(), null, cancellation).ConfigureAwait(false));
+                while (!cancellation.IsCancellationRequested) await ApplyAsync(await Request<EventBatch>(HttpMethod.Get, EventUri(), null, cancellation).ConfigureAwait(false), cancellation).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
             catch (Exception error) { Freeze(error is CollaborationException known ? known.Code : "Connection lost. Reconnect to synchronize."); }
         }
 
-        private void Apply(EventBatch batch) {
+        private async Task ApplyAsync(EventBatch batch, CancellationToken cancellation) {
             DocumentModel.Require(batch != null && batch.edits != null && batch.previews != null && batch.participants != null, "invalid-events");
             foreach (var edit in batch.edits) {
+                foreach (var reference in DocumentModel.AssetWrites(edit.transaction))
+                    await ObtainAssetAsync(reference, cancellation).ConfigureAwait(false);
                 lock (gate) {
                     if (edit.revision <= document.revision) continue;
                     DocumentModel.Require(edit.revision == document.revision + 1, "revision-gap");
                     var next = DocumentModel.Reduce(document, edit.transaction, catalog);
                     DocumentModel.Require(next.revision == edit.revision && DocumentModel.Hash(next) == edit.hash, "document-hash-mismatch");
-                    document = next; var old = advanced; advanced = Signal(); old.TrySetResult(true);
+                    HydrateCached(next); document = next; var old = advanced; advanced = Signal(); old.TrySetResult(true);
                 }
                 Accepted?.Invoke(edit);
             }

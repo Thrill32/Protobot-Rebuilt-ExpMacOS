@@ -103,7 +103,7 @@ namespace Protobot {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         internal Task StartProbeHostAsync() { port = "0"; return HostAsync(); }
         internal string ProbeEndpoint => endpoint;
-        internal Document ProbeDocument => committed == null ? null : WireJson.Clone(committed);
+        internal Document ProbeDocument => committed == null ? null : GeometryTransfer.CloneDocument(committed);
         internal string ProbeTransport => client?.ActiveTransport;
         internal bool ProbeConnected => client?.IsConnected == true;
 #endif
@@ -255,7 +255,7 @@ namespace Protobot {
                     try {
                         DocumentModel.Require(edit.revision == committed.revision + 1, "scene-revision-gap");
                         // Apply this revision even if the network thread has already received later edits.
-                        var next = DocumentModel.Reduce(committed, edit.transaction, catalog);
+                        var next = connected.Materialize(DocumentModel.Reduce(committed, edit.transaction, catalog));
                         var ids = edit.transaction.writes.Select(p => p.id).Concat(edit.transaction.deletes);
                         Simulation.SimulationTool.BeforeSharedEdit(edit.author == connected.Participant.id);
                         if (edit.author != connected.Participant.id && reserved.Intersect(ids).Any()) CancelSharedPreview();
@@ -579,6 +579,7 @@ namespace Protobot {
         }
         private async Task Submit(Transaction transaction, Action rejected = null) {
             submitting = true;
+            if (DocumentModel.AssetWrites(transaction).Length > 0) status = "Uploading custom geometry…";
             var connection = client;
             long epoch = connection.ConnectionEpoch;
             try {
@@ -707,7 +708,15 @@ namespace Protobot {
             var ghost = ghosts[key]; Destroy(ghost.GetComponent<MeshFilter>().sharedMesh); Destroy(ghost.GetComponent<MeshRenderer>().sharedMaterial); Destroy(ghost); ghosts.Remove(key);
         }
         private void ClearGhosts() { foreach (var key in ghosts.Keys.ToArray()) RemoveGhost(key); }
-        private void Report(Exception error) { status = error.Message; InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
+        private void Report(Exception error) { status = error is CollaborationException known ? known.Code switch {
+            "asset-unused-quota" => "The room's unused upload budget is full. Reuse an uploaded model or start a new room.",
+            "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",
+            "asset-byte-limit" or "local-serialization-limit" => "This custom geometry exceeds the collaboration size limit. Use a smaller mesh.",
+            "asset-scene-quota" => "This build has too much instanced custom geometry. Reduce mesh detail or the number of custom-model copies.",
+            "asset-transfer-busy" => "Another model is transferring. Retry when it finishes.",
+            "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
+            _ => error.Message
+        } : error.Message; InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
         private void OnQuitting() { host?.Dispose(); client?.Dispose(); }
         private void OnDestroy() { OnQuitting(); Application.quitting -= OnQuitting; ClearGhosts(); DisposeUI(); if (instance == this) instance = null; }
     }

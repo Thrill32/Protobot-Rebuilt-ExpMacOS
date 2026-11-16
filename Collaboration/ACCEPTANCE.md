@@ -1,8 +1,29 @@
-# Collaboration 0.7 manual acceptance
+# Collaboration 0.8 manual acceptance
 
 Use one matching catalog/helper/player release on every desktop and server. Record OS, transport, network, artifact checksum and result for each run. Local automated checks do not complete these field checks.
 
 Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
+
+Automated content-addressed geometry pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned .NET SDK 10.0.403):
+
+| Check | Result |
+| --- | --- |
+| CLI build | Passed, zero warnings/errors; cached packages with NuGet online audit disabled in this environment |
+| Published Mac CLI | Passed init → backup → restore → backup; v2 manifest verified; original 0.7 refuses v2 archives without publishing a destination |
+| Expanded .NET lab, both transports, asset quotas/failures/restart/backup/restore | Passed, 630 assertions, 10 bots per transport, including two freshly rebuilt Mac players |
+| Original 0.7 executable / v1 room and backup migration | Passed forward migration, original hash checks, injected rollback, owner/stable identity/password/revocation/receipt/redo/mount/route preservation |
+| Unity collaboration smoke | Passed real 90,000-vertex OBJ above 4 MiB encoded, remote materialization, copies/mount history, accepted self-contained local Save and portable export; explicit original 0.7 catalog |
+| Unity recovery smoke | Passed large geometry over private bootstrap stdin, real helper kill/restart, rehydration, persistent identity/history, independent local file and removed-cache rejection |
+| Mac / Windows development players, four helpers and six archives | Rebuilt; packaged/embedded catalogs and managed helper assemblies verified; Mac signature and two-player runtime checks passed |
+| Catalog | `97cc2730f7863f9b91f7d62f5d58e409709e5929bdf375e200648ad66192c313` |
+
+Protocol is **0.8.0-alpha**, document/SQLite/archive formats are **v2**. Original 0.7/v1 rooms and backups upgrade atomically; old clients/helpers cannot open v2. Keep original private backups for rollback and use the original matching catalog/cache scope (`--collab-catalog` on upgraded Unity) for existing rooms. The separate transfer caps are 8 MiB/asset, 64 MiB retained bytes, 128 MiB unique decoded arrays plus 128 MiB summed over live instances, 16 MiB/16 unused uploads and 256 total assets. Ordinary 2 MiB metadata snapshots and 4 MiB messages remain unchanged. The measured test mesh is 5,426,656 bytes, 90,000 vertices and 30,000 triangles. A conservative full-lab memory measurement before asset-metadata indexing was 683,474,944 bytes maximum RSS and 205,423,600 bytes peak footprint; this is local evidence, not a target-platform performance promise.
+
+- [ ] **Large geometry field acceptance:** Mac ↔ Windows import/remote mesh/mount/copy/history/accepted Save/export, slow/interrupted and revoked transfers, quotas, matching original-catalog room upgrades, and cross-OS v1/v2 recovery archives. Verify Debian/Pi service stop/restore/restart and actual HTTPS/proxy transfer behavior. Local automated results do not establish these checks.
+
+Credential-free summaries/checksums are under ignored `Collaboration/artifacts/geometry-report.json` and `geometry-packages.json`. No commit or deployment was performed. The Notes update remains in the repository’s existing ignored local Notes directory.
+
+The administration/stabilization results below are **previous records**, not tests rerun or evidence of 0.8 field acceptance.
 
 Automated participant-administration pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned .NET SDK 10.0.403):
 

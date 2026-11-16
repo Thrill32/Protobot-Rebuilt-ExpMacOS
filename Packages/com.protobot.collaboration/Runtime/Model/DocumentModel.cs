@@ -14,14 +14,14 @@ namespace Protobot.Collaboration {
         public const int MaxWriteSet = 256;
 
         public static void Validate(Document document, CatalogManifest catalog) {
-            Require(document != null && catalog != null && document.schema == 1 && catalog.protocol == 1, "schema-mismatch");
+            Require(document != null && catalog != null && (document.schema == 1 || document.schema == 2) && catalog.protocol == 1, "schema-mismatch");
             Require(ValidId(document.generation) && document.revision >= 0, "invalid-document");
             Require(!string.IsNullOrEmpty(catalog.hash) && document.catalogHash == catalog.hash, "catalog-mismatch");
             Require(document.parts != null && document.parts.Length <= MaxParts && document.tombstones != null &&
                 Chains(document).Length <= MaxChains && Assets(document).Length <= MaxAssets, "document-limit");
             var assets = new Dictionary<string, GeometryAsset>(StringComparer.Ordinal);
             foreach (var asset in Assets(document)) {
-                ValidateAsset(asset);
+                if (document.schema == 1 || GeometryTransfer.HasGeometry(asset)) ValidateAsset(asset); else GeometryTransfer.ValidateReference(asset);
                 Require(assets.TryAdd(asset.hash, asset), "duplicate-asset");
             }
             var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -40,7 +40,7 @@ namespace Protobot.Collaboration {
                 "duplicate-chain");
             foreach (var tombstone in ChainTombstones(document))
                 Require(tombstone != null && ValidId(tombstone.id) && tombstone.version > 0 && ids.Add(tombstone.id), "invalid-chain-tombstone");
-            Require(WireJson.Encode(document).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
+            Require(WireJson.Encode(document.schema == 2 ? GeometryTransfer.References(document) : document).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
         }
 
         public static Document Reduce(Document current, Transaction tx, CatalogManifest catalog) {
@@ -70,9 +70,12 @@ namespace Protobot.Collaboration {
             var chainTombstones = ChainTombstones(current).ToDictionary(c => c.id, c => c.version, StringComparer.Ordinal);
             var assets = Assets(current).ToDictionary(a => a.hash, StringComparer.Ordinal);
             foreach (var write in assetWrites) {
-                ValidateAsset(write);
+                if (current.schema == 1 || GeometryTransfer.HasGeometry(write)) ValidateAsset(write); else GeometryTransfer.ValidateReference(write);
+                if (current.schema == 2 && !GeometryTransfer.HasGeometry(write) && assets.TryGetValue(write.hash, out var known)) {
+                    Require(known.name == write.name, "asset-hash-mismatch"); continue;
+                }
                 Require(!assets.ContainsKey(write.hash), "asset-already-exists");
-                assets.Add(write.hash, WireJson.Clone(write));
+                assets.Add(write.hash, LocalJson.Clone(write));
             }
             var expected = new Dictionary<string, long>(StringComparer.Ordinal);
             foreach (var dependency in tx.expected) {
@@ -168,7 +171,7 @@ namespace Protobot.Collaboration {
                 chainTombstones = chainTombstones.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new VersionRef { id = c.Key, version = c.Value }).ToArray(),
                 assets = assets.Values.OrderBy(a => a.hash, StringComparer.Ordinal).ToArray()
             };
-            Require(WireJson.Encode(next).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
+            Require(WireJson.Encode(next.schema == 2 ? GeometryTransfer.References(next) : next).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
             return next;
         }
 
@@ -252,9 +255,7 @@ namespace Protobot.Collaboration {
             Require(asset.vertices.All(v => Finite(v) && Math.Abs(v) <= 1000000) &&
                 asset.triangles.All(i => i >= 0 && i < asset.vertices.Length / 3), "invalid-asset");
             Require(GeometryHash(asset) == asset.hash, "asset-hash-mismatch");
-            // Geometry is currently carried once in the bounded document snapshot.
-            // A later asset endpoint can raise this without changing part references.
-            Require(WireJson.Encode(asset).Length <= 1536 * 1024, "asset-byte-limit");
+            Require(LocalJson.Encode(asset, GeometryTransfer.MaxAssetBytes).Length <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
         }
 
         public static void ValidateMount(CustomMount mount) {
@@ -287,7 +288,7 @@ namespace Protobot.Collaboration {
             NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.diameter == b.diameter && a.depth == b.depth && a.threaded == b.threaded;
         private static CustomMount NormalizeMount(CustomMount mount) { var copy = WireJson.Clone(mount); copy.rotation = NormalizeRotation(copy.rotation); return copy; }
         private static bool IsCustom(Part part) => part?.catalogId == "CUSTOM";
-        private static bool ValidAssetHash(string hash) => hash != null && hash.Length == 64 && hash.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f');
+        public static bool ValidAssetHash(string hash) => hash != null && hash.Length == 64 && hash.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f');
 
         private static void ValidateParameter(ParameterRule rule, string value) {
             if (rule.custom) {
@@ -335,7 +336,9 @@ namespace Protobot.Collaboration {
                     foreach (var dead in ChainTombstones(document).OrderBy(c => c.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }
                     writer.Write(Assets(document).Length);
                     foreach (var asset in Assets(document).OrderBy(a => a.hash, StringComparer.Ordinal)) {
-                        writer.Write(asset.hash); writer.Write(asset.name); writer.Write(asset.vertices.Length);
+                        writer.Write(asset.hash); writer.Write(asset.name);
+                        if (document.schema == 2) continue;
+                        writer.Write(asset.vertices.Length);
                         foreach (var n in asset.vertices) writer.Write(n == 0 ? 0.0 : n);
                         writer.Write(asset.triangles.Length); foreach (var index in asset.triangles) writer.Write(index);
                     }
@@ -410,9 +413,9 @@ namespace Protobot.Collaboration {
         private Document document;
         private readonly CatalogManifest catalog;
         public OfflineEditSession(Document initial, CatalogManifest manifest) {
-            DocumentModel.Validate(initial, manifest); document = WireJson.Clone(initial); catalog = WireJson.Clone(manifest);
+            DocumentModel.Validate(initial, manifest); document = GeometryTransfer.CloneDocument(initial); catalog = WireJson.Clone(manifest);
         }
-        public Document Snapshot => WireJson.Clone(document);
+        public Document Snapshot => GeometryTransfer.CloneDocument(document);
         public System.Threading.Tasks.Task<Receipt> SubmitAsync(Transaction transaction, System.Threading.CancellationToken cancellation = default) {
             cancellation.ThrowIfCancellationRequested();
             document = DocumentModel.Reduce(document, transaction, catalog);

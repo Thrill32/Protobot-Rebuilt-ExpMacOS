@@ -11,6 +11,7 @@ namespace Protobot.Collaboration.Server {
         public int schema = 1;
         public string room, generation, ownerHash;
         public long initialRevision;
+        [System.Runtime.Serialization.OptionalField] public long migrationRevision;
         public CatalogManifest catalog;
         public byte[] salt, passwordHash;
     }
@@ -39,16 +40,18 @@ namespace Protobot.Collaboration.Server {
         public List<AcceptedEdit> events;
         public Dictionary<string, LoadedMember> members;
         public long historyBytes;
+        public Dictionary<string, byte[]> assets = new Dictionary<string, byte[]>(StringComparer.Ordinal);
     }
 
     // Exactly one server/connection owns a room directory. No Unity or legacy build deserializer lives here.
-    public sealed class RoomStore : IDisposable {
+    public sealed partial class RoomStore : IDisposable {
         private readonly FileStream ownership;
         private readonly SqliteConnection db;
         private readonly bool isNew;
         private readonly int checkpointInterval;
         private long checkpointRevision, checkpointBytes;
         public string DirectoryPath { get; }
+        internal int StorageVersion => Convert.ToInt32(Scalar("PRAGMA user_version;"));
         // Process-local failure injection for the lab; never exposed by the network or CLI.
         public Action<string> BeforeCommit { get; set; }
 
@@ -70,14 +73,14 @@ namespace Protobot.Collaboration.Server {
                 Execute("PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;");
                 DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA synchronous;")) == 2, "durable-sync-unavailable");
                 if (!isNew) {
-                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA user_version;")) == 1, "room-storage-version-mismatch");
+                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA user_version;")) is 1 or 2, "room-storage-version-mismatch");
                     DocumentModel.Require(Convert.ToString(Scalar("PRAGMA quick_check;")) == "ok", "room-storage-corrupt");
                 }
             }
             catch { db?.Dispose(); ownership.Dispose(); throw; }
         }
 
-        internal void Initialize(StoredRoomInfo info, Document document) {
+        internal void Initialize(StoredRoomInfo info, Document document, Dictionary<string, byte[]> assets) {
             DocumentModel.Require(isNew, "room-already-initialized");
             using var transaction = db.BeginTransaction();
             Execute(@"CREATE TABLE info(id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL);
@@ -87,19 +90,24 @@ namespace Protobot.Collaboration.Server {
                 CREATE TABLE receipts(member TEXT NOT NULL REFERENCES members(id), operation TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY(member,operation));
                 CREATE TABLE history(member TEXT NOT NULL REFERENCES members(id), position INTEGER NOT NULL, blocked INTEGER NOT NULL CHECK(blocked IN (0,1)), data BLOB NOT NULL, PRIMARY KEY(member,position));
                 CREATE TABLE journal(revision INTEGER PRIMARY KEY, data BLOB NOT NULL, cost INTEGER NOT NULL);
-                PRAGMA user_version=1;", transaction);
+                CREATE TABLE assets(hash TEXT PRIMARY KEY, data BLOB NOT NULL);
+                PRAGMA user_version=2;", transaction);
             Execute("INSERT INTO info VALUES(1,$data)", transaction, ("$data", WireJson.Encode(info)));
             Execute("INSERT INTO state VALUES(1,$revision,0)", transaction, ("$revision", document.revision));
+            foreach (var asset in assets) InsertAsset(asset.Key, asset.Value, transaction);
             Checkpoint(document, transaction);
             Finish(transaction, "initialize"); checkpointRevision = document.revision;
         }
 
-        internal RoomArchive Load() {
-            try { return LoadCore(); }
+        internal RoomArchive Load(bool migrate = true) {
+            RoomArchive archive;
+            try { archive = LoadCore(); }
             catch (Exception error) when (error is CollaborationException || error is SqliteException || error is System.Runtime.Serialization.SerializationException ||
                 error is ArgumentException || error is InvalidOperationException || error is KeyNotFoundException) {
                 throw new CollaborationException("room-storage-corrupt");
             }
+            if (archive != null && migrate && StorageVersion == 1) Migrate(archive);
+            return archive;
         }
         private RoomArchive LoadCore() {
             if (isNew) return null;
@@ -165,7 +173,21 @@ namespace Protobot.Collaboration.Server {
                 history.entry.blocked = history.blocked; list.Add(history.entry);
             }
             DocumentModel.Require(members.Values.All(m => m.member.historyCursor <= m.history.Count) && journal.All(j => members.ContainsKey(j.edit.author)), "room-storage-corrupt");
-            return new RoomArchive { info = info, document = document, events = journal.Select(j => j.edit).ToList(), members = members, historyBytes = state.bytes };
+            var archive = new RoomArchive { info = info, document = document, events = journal.Select(j => j.edit).ToList(), members = members, historyBytes = state.bytes };
+            if (Convert.ToInt64(Scalar("PRAGMA user_version;")) == 2) {
+                DocumentModel.Require(document.schema == 2 && info.migrationRevision >= 0 && info.migrationRevision <= document.revision, "room-storage-corrupt");
+                RequireCount("assets", DocumentModel.MaxAssets);
+                DocumentModel.Require(Convert.ToInt64(Scalar("SELECT COALESCE(SUM(length(data)),0) FROM assets")) <= GeometryTransfer.MaxRoomBytes, "asset-room-quota");
+                foreach (var item in Query("SELECT hash,data FROM assets", r => {
+                    DocumentModel.Require(r.GetBytes(1, 0, null, 0, 0) <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
+                    return (hash: r.GetString(0), bytes: (byte[])r.GetValue(1));
+                })) {
+                    var asset = GeometryTransfer.Decode(item.bytes);
+                    DocumentModel.Require(item.hash == asset.hash, "asset-hash-mismatch"); archive.assets.Add(item.hash, item.bytes);
+                }
+                ValidateStoredAssets(archive);
+            }
+            return archive;
         }
 
         internal void AddMember(StoredMember member) {

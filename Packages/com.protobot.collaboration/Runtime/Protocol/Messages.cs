@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
-        public const string Version = "0.7.0-alpha";
+        public const string Version = "0.8.0-alpha";
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -23,7 +23,7 @@ namespace Protobot.Collaboration {
         public CustomMount[] mounts = Array.Empty<CustomMount>();
     }
     [Serializable] public sealed class Document {
-        public int schema = 1;
+        public int schema = 2;
         public string generation = Guid.NewGuid().ToString("N");
         public string catalogHash;
         public long revision;
@@ -151,6 +151,7 @@ namespace Protobot.Collaboration {
         public bool durable = false;
         // Optional additive capability; absent on earlier 0.7 helpers.
         [System.Runtime.Serialization.OptionalField] public bool participantAdministration;
+        [System.Runtime.Serialization.OptionalField] public bool geometryTransfer = true;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {

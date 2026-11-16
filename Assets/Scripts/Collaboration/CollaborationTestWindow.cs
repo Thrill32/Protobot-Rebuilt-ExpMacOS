@@ -19,6 +19,7 @@ namespace Protobot {
                 FileName = executable, UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(executable),
                 Arguments = "--collaboration --collab-profile " + CollaborationHost.Quote(profile) +
                     " --collab-server " + CollaborationHost.Quote(endpoint) + " --collab-room " + CollaborationHost.Quote(room) +
+                    (CollaborationArguments.Get("--collab-catalog") is string catalog ? " --collab-catalog " + CollaborationHost.Quote(catalog) : "") +
                     " --collab-name " + CollaborationHost.Quote(Environment.UserName + " (test)") +
                     " -logFile " + CollaborationHost.Quote(Path.Combine(profile, "Player.log"))
             };

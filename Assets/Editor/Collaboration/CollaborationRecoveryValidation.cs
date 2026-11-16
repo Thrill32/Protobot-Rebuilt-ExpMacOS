@@ -49,7 +49,11 @@ namespace ProtobotEditorTools {
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
             var part = PartsManager.GeneratePart("CCHL-1x2-5", Vector3.zero, Quaternion.identity);
             string id = part.GetComponent<SavedObject>().ConnectionId;
-            PartsManager.GeneratePart("PLTE-3-3", Vector3.right * 20, Quaternion.Euler(12, 27, 9));
+            string largePath = Path.Combine(LocalPreferences.ProfileDirectory ?? Path.GetTempPath(), "large-recovery.obj");
+            CollaborationValidation.WriteLargeModel(largePath);
+            var geometry = CustomModelImporter.Read(largePath, 1); File.Delete(largePath);
+            var custom = CustomModel.Create(geometry, Vector3.right * 20, Quaternion.identity);
+            string customId = custom.GetComponent<SavedObject>().ConnectionId;
             CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
             Set(session, "port", "0"); Set(session, "password", "recovery-test-password");

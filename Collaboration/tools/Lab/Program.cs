@@ -23,6 +23,9 @@ internal static partial class Program {
         var timer = Stopwatch.StartNew();
         try {
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await AssetChecks(directory);
+            index = Array.IndexOf(args, "--legacy-helper");
+            if (index >= 0) await LegacyGeometryChecks(directory, args[index + 1]);
             await AdministrationChecks(directory);
             await DurabilityChecks(directory);
             await DeploymentChecks(directory);

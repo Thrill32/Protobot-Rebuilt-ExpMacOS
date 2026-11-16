@@ -23,6 +23,15 @@ namespace Protobot {
         public static VersionRef[] EndReads() { var result = reads?.Values.ToArray() ?? Array.Empty<VersionRef>(); reads = null; return result; }
         public static CatalogManifest Catalog {
             get {
+                // An explicit original catalog keeps existing room identities/cache scope during a protocol upgrade.
+                string original = CollaborationArguments.Get("--collab-catalog");
+                if (original != null) {
+                    var file = new System.IO.FileInfo(original);
+                    DocumentModel.Require(file.Length <= WireJson.MaxMessageBytes, "catalog-byte-limit");
+                    var manifest = WireJson.Decode<CatalogManifest>(System.IO.File.ReadAllBytes(file.FullName));
+                    DocumentModel.Require(manifest != null && manifest.protocol == 1 && !string.IsNullOrEmpty(manifest.hash) && manifest.entries != null && manifest.entries.Length <= 1000, "invalid-catalog");
+                    return manifest;
+                }
                 var text = Resources.Load<TextAsset>("Collaboration/catalog");
                 if (text == null) throw new InvalidOperationException("Export the collaboration catalog through Tools → Protobot → Collaboration before hosting.");
                 return WireJson.Decode<CatalogManifest>(text.bytes);
@@ -99,7 +108,7 @@ namespace Protobot {
         }
         private static CustomModelData ToCustomModel(Part part, IEnumerable<GeometryAsset> geometry) {
             var asset = (geometry ?? Array.Empty<GeometryAsset>()).FirstOrDefault(value => value.hash == part.assetHash);
-            if (asset == null) throw new InvalidOperationException("The shared custom model geometry is unavailable.");
+            if (asset == null || !GeometryTransfer.HasGeometry(asset)) throw new InvalidOperationException("The shared custom model geometry is unavailable.");
             return new CustomModelData { name = asset.name, vertices = asset.vertices.Select(value => (float)value).ToArray(), triangles = asset.triangles.ToArray(),
                 mounts = DocumentModel.Mounts(part).Select(mount => new CustomMountData {
                     x = (float)mount.position[0], y = (float)mount.position[1], z = (float)mount.position[2],

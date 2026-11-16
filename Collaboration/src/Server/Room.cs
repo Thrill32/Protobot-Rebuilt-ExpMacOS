@@ -10,7 +10,7 @@ using Protobot.Collaboration;
 
 namespace Protobot.Collaboration.Server {
     // Every room transition is serialized under one gate, including snapshot/event handoff.
-    public sealed class Room {
+    public sealed partial class Room {
         private sealed class Member : StoredMember {
             public long lastSeen;
             public string accessHash;
@@ -59,6 +59,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(seed == null || seed.room == archive.info.room && seed.catalog?.hash == archive.info.catalog.hash, "recovery-catalog-or-room-mismatch");
                 Name = archive.info.room; catalog = archive.info.catalog; document = archive.document;
                 salt = archive.info.salt; passwordHash = archive.info.passwordHash; ownerHash = archive.info.ownerHash;
+                assetBytes = archive.assets; foreach (var bytes in assetBytes.Values) IndexAsset(GeometryTransfer.Decode(bytes)); minimumCursor = archive.info.migrationRevision;
                 events.AddRange(archive.events); historyBytes = archive.historyBytes; Recovered = true;
                 foreach (var loaded in archive.members.Values) {
                     var data = loaded.member;
@@ -71,10 +72,12 @@ namespace Protobot.Collaboration.Server {
             else {
                 DocumentModel.Require(seed != null, "recovery-room-not-found");
                 DocumentModel.Validate(seed.document, seed.catalog);
-                Name = seed.room; document = WireJson.Clone(seed.document); catalog = WireJson.Clone(seed.catalog);
+                GeometryTransfer.RequireHydrated(seed.document);
+                foreach (var asset in DocumentModel.Assets(seed.document)) { assetBytes.Add(asset.hash, GeometryTransfer.Encode(asset)); IndexAsset(asset); }
+                Name = seed.room; document = WireJson.Clone(GeometryTransfer.References(seed.document)); document.schema = 2; minimumCursor = document.revision; catalog = WireJson.Clone(seed.catalog);
                 passwordHash = Password(seed.password ?? ""); ownerHash = string.IsNullOrEmpty(seed.ownerCredential) ? null : TokenHash(seed.ownerCredential);
-                store?.Initialize(new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision,
-                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash }, document);
+                store?.Initialize(new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision, migrationRevision = minimumCursor,
+                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash }, document, assetBytes);
             }
         }
 
@@ -209,7 +212,17 @@ namespace Protobot.Collaboration.Server {
                                 DocumentModel.ChainTombstones(document).FirstOrDefault(c => c.id == id)?.version ?? 0 }).ToArray() };
                     }
                     else DocumentModel.Require(transaction.kind != "RestoreParts", "authority-only-mutation");
+                    // The in-process adapter also supports small inline callers; HTTP commits require references.
+                    if (DocumentModel.AssetWrites(command).Any(GeometryTransfer.HasGeometry)) {
+                        foreach (var asset in DocumentModel.AssetWrites(command)) if (GeometryTransfer.HasGeometry(asset)) PutAsset(token, asset.hash, GeometryTransfer.Encode(asset));
+                        command = LocalJson.Clone(command); command.assetWrites = command.assetWrites.Select(GeometryTransfer.Reference).ToArray();
+                    }
+                    foreach (var reference in DocumentModel.AssetWrites(command)) {
+                        GeometryTransfer.ValidateReference(reference);
+                        DocumentModel.Require(assetNames.TryGetValue(reference.hash, out var name) && name == reference.name, "missing-asset");
+                    }
                     var next = DocumentModel.Reduce(document, command, catalog);
+                    GeometryTransfer.RequireSceneBudget(next, hash => assetArrayBytes[hash]);
                     var changedPartIds = command.writes.Select(p => p.id).Concat(command.deletes).ToArray();
                     var changedChainIds = DocumentModel.ChainWrites(command).Select(c => c.id).Concat(DocumentModel.ChainDeletes(command)).ToArray();
                     var changedIds = changedPartIds.Concat(changedChainIds).ToArray();
@@ -284,7 +297,7 @@ namespace Protobot.Collaboration.Server {
             Task wake;
             lock (gate) {
                 Expire(); Authenticate(token);
-                DocumentModel.Require(after >= 0 && after <= document.revision, "resync-required");
+                DocumentModel.Require(after >= minimumCursor && after <= document.revision, "resync-required");
                 if (events.Any(e => e.revision > after) || transient != transientVersion) return Batch(after);
                 wake = changed.Task;
             }

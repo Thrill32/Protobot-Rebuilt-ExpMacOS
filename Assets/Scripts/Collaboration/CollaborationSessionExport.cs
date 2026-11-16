@@ -12,7 +12,7 @@ namespace Protobot {
         private CancellationTokenSource connectionTest;
         private RoomExport CaptureRoomExport() {
             var manifest = CollaborationScene.Catalog;
-            var content = new RoomExport { catalog = WireJson.Clone(manifest), document = IsShared ? WireJson.Clone(committed) : CollaborationScene.CaptureDocument(manifest) };
+            var content = new RoomExport { catalog = WireJson.Clone(manifest), document = IsShared ? GeometryTransfer.CloneDocument(committed) : CollaborationScene.CaptureDocument(manifest) };
             content.Validate(); return content;
         }
         private async Task ExportRoomAsync() {
@@ -27,7 +27,7 @@ namespace Protobot {
                 string path = await NativeFileDialogs.SaveFileAsync("Export Room for CLI", LocalPreferences.GetString("collaborationExportDirectory", ""), "room-export", "json");
                 if (string.IsNullOrEmpty(path)) return;
                 if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) path += ".json";
-                await Task.Run(() => RecoveryFiles.Write(path, content));
+                await Task.Run(() => RecoveryFiles.Write(path, content, LocalJson.MaxBytes));
                 LocalPreferences.SetString("collaborationExportDirectory", Path.GetDirectoryName(path));
                 status = "Exported accepted content for CLI initialization. Your local file and save status are unchanged.";
             }

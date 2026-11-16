@@ -17,14 +17,14 @@ namespace Protobot.Collaboration {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && chmod(path, mode) != 0)
                 throw new IOException("Could not protect the local recovery file.", new Win32Exception(Marshal.GetLastWin32Error()));
         }
-        public static void Write<T>(string path, T value) {
+        public static void Write<T>(string path, T value, int maximum = WireJson.MaxMessageBytes) {
             path = Path.GetFullPath(path);
             CreateDirectory(Path.GetDirectoryName(path));
             var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try {
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
                     PrivateFile(temporary);
-                    var bytes = WireJson.Encode(value); stream.Write(bytes, 0, bytes.Length); stream.Flush(true);
+                    var bytes = LocalJson.Encode(value, maximum); stream.Write(bytes, 0, bytes.Length); stream.Flush(true);
                 }
                 if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
             }

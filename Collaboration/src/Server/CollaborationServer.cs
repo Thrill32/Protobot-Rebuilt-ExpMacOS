@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +47,7 @@ namespace Protobot.Collaboration.Server {
                 try { await next(context); }
                 catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
                 catch (CollaborationException error) {
+                    if (context.Response.HasStarted) context.Abort();
                     if (!context.Response.HasStarted) {
                         context.Response.StatusCode = error.Code == "owner-required" ? 403 :
                             error.Code == "invalid-session" || error.Code == "membership-revoked" ? 401 : 409;
@@ -78,7 +80,45 @@ namespace Protobot.Collaboration.Server {
             app.MapPost(path + "/preview", async context => {
                 Room.Preview(Token(context), await Read<Preview>(context)); await Write(context, new WireError());
             });
-            app.MapPost(path + "/commit", async context => await Write(context, Room.Commit(Token(context), await Read<Transaction>(context))));
+            app.MapPost(path + "/commit", async context => {
+                var transaction = await Read<Transaction>(context);
+                foreach (var reference in DocumentModel.AssetWrites(transaction)) GeometryTransfer.ValidateReference(reference);
+                await Write(context, Room.Commit(Token(context), transaction));
+            });
+            // One active transfer per room; refuse excess requests instead of queueing unbounded bodies.
+            var transferGate = new SemaphoreSlim(1, 1);
+            app.MapMethods(path + "/assets/{hash}", new[] { "PUT", "GET", "HEAD" }, async context => {
+                string token = Token(context), hash = context.Request.RouteValues["hash"]?.ToString();
+                bool upload = context.Request.Method == "PUT";
+                Room.AuthorizeAsset(token, hash, upload);
+                if (context.Request.Method == "HEAD") { context.Response.ContentLength = Room.AssetLength(token, hash); return; }
+                DocumentModel.Require(await transferGate.WaitAsync(0, context.RequestAborted), "asset-transfer-busy");
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+                timeout.CancelAfter(TimeSpan.FromMinutes(2));
+                try {
+                    if (upload) {
+                        var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+                        if (limit != null && !limit.IsReadOnly) limit.MaxRequestBodySize = GeometryTransfer.MaxAssetBytes;
+                        DocumentModel.Require(!context.Request.ContentLength.HasValue || context.Request.ContentLength <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
+                        using var bytes = new MemoryStream(); var buffer = new byte[GeometryTransfer.BufferBytes]; int read;
+                        while ((read = await context.Request.Body.ReadAsync(buffer, timeout.Token)) > 0) {
+                            Room.AuthorizeAsset(token, hash, true);
+                            DocumentModel.Require(bytes.Length + read <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit"); bytes.Write(buffer, 0, read);
+                        }
+                        timeout.Token.ThrowIfCancellationRequested(); Room.PutAsset(token, hash, bytes.ToArray());
+                        await Write(context, new WireError());
+                    }
+                    else {
+                        byte[] bytes = Room.GetAsset(token, hash);
+                        context.Response.ContentType = "application/json"; context.Response.ContentLength = bytes.Length;
+                        for (int offset = 0; offset < bytes.Length; offset += GeometryTransfer.BufferBytes) {
+                            Room.AuthorizeAsset(token, hash, false);
+                            await context.Response.Body.WriteAsync(bytes.AsMemory(offset, Math.Min(GeometryTransfer.BufferBytes, bytes.Length - offset)), timeout.Token);
+                        }
+                    }
+                }
+                finally { transferGate.Release(); }
+            });
             app.MapGet(path + "/receipt", context => Write(context, Room.Outcome(Token(context), context.Request.Query["operationId"])));
             app.MapPost(path + "/leave", async context => { Room.Leave(Token(context)); await Write(context, new WireError()); });
             app.MapGet(path + "/participants", context => Write(context, Room.Memberships(Token(context))));

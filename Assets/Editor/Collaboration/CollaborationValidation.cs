@@ -376,13 +376,27 @@ namespace ProtobotEditorTools {
 
             string modelPath = Path.Combine(LocalPreferences.ProfileDirectory ?? Path.GetTempPath(), "shared-import-" + Guid.NewGuid().ToString("N") + ".obj");
             try {
-                File.WriteAllText(modelPath, "v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n");
+                WriteLargeModel(modelPath);
                 rev = Document().revision;
                 Require(await customTool.ImportPathAsync(modelPath, 1) == null, "Connected custom import must submit rather than retain a private object.");
                 await Changed(rev);
                 var importedCustom = PartsManager.FindLoadedObjects().Single(part => part.GetComponent<CustomModel>() != null);
-                Require(DocumentModel.Assets(Document()).Length == 2 && importedCustom.GetComponent<MeshFilter>().sharedMesh.vertexCount == 3,
+                Require(DocumentModel.Assets(Document()).Length == 2 && importedCustom.GetComponent<MeshFilter>().sharedMesh.vertexCount == 90000,
                     "Custom import did not publish its immutable geometry.");
+                var importedAsset = Document().assets.Last(value => value.hash == Document().parts.Single(p => p.id == importedCustom.GetComponent<SavedObject>().ConnectionId).assetHash);
+                Require(GeometryTransfer.Encode(importedAsset).Length > WireJson.MaxMessageBytes, "Large import did not exceed the ordinary wire bound.");
+                var portable = (RoomExport)Invoke(session, "CaptureRoomExport");
+                var portableBytes = LocalJson.Encode(portable); LocalJson.Decode<RoomExport>(portableBytes).Validate();
+                Require(portableBytes.Length > WireJson.MaxMessageBytes && portable.document.assets.All(GeometryTransfer.HasGeometry), "Portable export lost self-contained geometry.");
+                var largeSave = CollaborationSession.SaveSnapshot();
+                var largeBuild = largeSave.parts.Single(p => p.connectionId == importedCustom.GetComponent<SavedObject>().ConnectionId);
+                Require(largeBuild.customModel.vertices.Length == 270000, "Accepted local build omitted large geometry.");
+                byte[] earlierSave = File.ReadAllBytes(savedPath);
+                var manager = Object.FindFirstObjectByType<BuildsManager>(); manager.buildPath = savedPath;
+                Require(await (Task<bool>)Invoke(manager, "SaveAsync", false), "Large accepted local save failed.");
+                Require(BuildsManager.ParsePath(savedPath).parts.Single(p => p.connectionId == largeBuild.connectionId).customModel.vertices.SequenceEqual(largeBuild.customModel.vertices), "Large .pbb is not self-contained.");
+                // Return the test's earlier file fixture for its final independent-save assertions.
+                File.WriteAllBytes(savedPath, earlierSave);
                 rev = Document().revision; CollaborationSession.Delete(new[] { importedCustom }); await Changed(rev);
                 Require(PartsManager.FindLoadedObjects().Count == count, "Custom import cleanup did not return to the accepted catalog scene.");
             }
@@ -416,6 +430,12 @@ namespace ProtobotEditorTools {
                 Invoke(session, "Detach");
             }
             finally { await host.StopAsync(); }
+        }
+        internal static void WriteLargeModel(string path) {
+            var random = new System.Random(773);
+            using var writer = new StreamWriter(path);
+            for (int i = 0; i < 90000; i++) writer.WriteLine("v " + string.Join(" ", Enumerable.Range(0, 3).Select(_ => ((float)(random.NextDouble() * 100)).ToString("R", System.Globalization.CultureInfo.InvariantCulture))));
+            for (int i = 1; i <= 90000; i += 3) writer.WriteLine("f " + i + " " + (i + 1) + " " + (i + 2));
         }
         private static async Task<Part> WaitPart(CollaborationClient client, string id, double y) {
             await Until(() => client.Snapshot.parts.Single(p => p.id == id).position[1] == y);

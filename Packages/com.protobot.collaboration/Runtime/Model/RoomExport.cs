@@ -11,14 +11,14 @@ namespace Protobot.Collaboration {
         public Document document;
         public void Validate() {
             DocumentModel.Require(schema == 1 && version == CollaborationProtocol.Version, "room-export-version-mismatch");
-            DocumentModel.Validate(document, catalog);
+            DocumentModel.Validate(document, catalog); GeometryTransfer.RequireHydrated(document);
             DocumentModel.Require(catalog.entries != null && catalog.entries.Length > 0 && catalog.entries.Length <= 1000 &&
                 catalog.entries.All(e => e != null && DocumentModel.ValidId(e.id) && e.first != null && e.second != null && e.variants != null) &&
                 catalog.entries.Select(e => e.id).Distinct(StringComparer.Ordinal).Count() == catalog.entries.Length, "invalid-catalog");
         }
         public Bootstrap CreateRoom(string room, string password, string ownerCredential) {
             Validate(); DocumentModel.Require(DocumentModel.ValidId(room), "invalid-room");
-            var copy = WireJson.Clone(document);
+            var copy = GeometryTransfer.CloneDocument(document);
             copy.generation = Guid.NewGuid().ToString("N"); copy.revision = 0; copy.tombstones = Array.Empty<VersionRef>();
             copy.chainTombstones = Array.Empty<VersionRef>();
             foreach (var part in copy.parts) part.version = 1;

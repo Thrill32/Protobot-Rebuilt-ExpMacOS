@@ -41,7 +41,7 @@ namespace Protobot {
             stderr = DrainErrors(process.StandardError);
             try {
                 var first = process.StandardOutput.ReadLineAsync();
-                await process.StandardInput.WriteLineAsync(WireJson.Text(bootstrap));
+                await process.StandardInput.WriteLineAsync(Encoding.UTF8.GetString(LocalJson.Encode(bootstrap)));
                 await process.StandardInput.FlushAsync();
                 if (await Task.WhenAny(first, Task.Delay(30000)) != first) throw new TimeoutException("Collaboration server did not become ready.");
                 var line = await first;

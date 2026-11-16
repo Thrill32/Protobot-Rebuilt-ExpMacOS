@@ -118,7 +118,7 @@ internal static partial class Program {
         await Refuse("corrupt owner", zip => ReplaceZip(zip, "owner.json", Encoding.UTF8.GetBytes("{}")));
         await Refuse("wrong hash", zip => ChangeManifest(zip, node => node["files"][0]["sha256"] = new string('0', 64)));
         await Refuse("wrong length", zip => ChangeManifest(zip, node => node["files"][0]["length"] = 1));
-        await Refuse("future format", zip => ChangeManifest(zip, node => node["version"] = 2));
+        await Refuse("future format", zip => ChangeManifest(zip, node => node["version"] = 999));
         await Refuse("wrong protocol", zip => ChangeManifest(zip, node => node["protocolVersion"] = "future"));
         await Refuse("wrong storage", zip => ChangeManifest(zip, node => node["storageVersion"] = 99));
         await Refuse("wrong state", zip => ChangeManifest(zip, node => node["generation"] = "wrong-generation"));
