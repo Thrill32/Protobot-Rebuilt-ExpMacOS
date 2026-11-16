@@ -37,6 +37,7 @@ namespace Protobot.Collaboration.Server {
         private TaskCompletionSource<bool> changed = Signal();
         private Document document;
         private long transientVersion;
+        private string diagnosticHash;
         private long historyBytes;
         private int receiptCount;
         private readonly Func<long> clock;
@@ -61,7 +62,7 @@ namespace Protobot.Collaboration.Server {
         public bool Recovered { get; }
         public long Revision { get { lock (gate) return document.revision; } }
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
-        public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, room = Name, generation = document.generation, catalogHash = catalog.hash };
+        public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, diagnosticsVersion = DiagnosticExport.Version, room = Name, generation = document.generation, catalogHash = catalog.hash };
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
         public const int LeaseMilliseconds = 10000;
 
@@ -95,6 +96,7 @@ namespace Protobot.Collaboration.Server {
                 store?.Initialize(new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision, migrationRevision = minimumCursor,
                     catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash }, document, assetBytes);
             }
+            diagnosticHash = DocumentModel.Hash(document);
         }
 
         public JoinResponse Join(JoinRequest request) {
@@ -280,7 +282,7 @@ namespace Protobot.Collaboration.Server {
                     receipt.accepted = true; receipt.revision = next.revision;
                     // Commit document journal, receipt, identity sequence and undo state together before publication/acknowledgment.
                     Persist(() => store.Commit(recorded, receipt, edit, next, entry, member.historyCursor, blocked, transactionBytes, historyBytes + transactionBytes));
-                    document = next; capacity?.Commit();
+                    document = next; diagnosticHash = edit.hash; capacity?.Commit();
                     if (sceneDelta < 0) { using var release = processBudget?.Reserve(0, 0, sceneDelta); release?.Commit(); }
                     historyBytes += transactionBytes;
                     // Only the authority supplies inverse content. Another participant touching any of its

@@ -76,6 +76,11 @@ internal static partial class Program {
         await participant.PrepareReconnectAsync();
         string accepted = DocumentModel.Hash(participant.Snapshot); long revision = server.Room.Revision;
         Check(participant.PendingCount == 1, "lost acknowledgment leaves a durable pending outcome for reconnect");
+        string diagnosticPath = Path.Combine(directory, "pending-operation-diagnostics.json");
+        var diagnostic = participant.CaptureDiagnostics(); string diagnosticHash = DocumentModel.Hash(participant.Snapshot);
+        await DiagnosticExport.WriteAsync(diagnosticPath, diagnostic);
+        Check(DiagnosticExport.Decode(File.ReadAllBytes(diagnosticPath)).pendingOperations == 1 && participant.PendingCount == 1 &&
+            DocumentModel.Hash(participant.Snapshot) == diagnosticHash, "export reports ambiguous pending operation count without resolving or replaying it");
         var later = Asset("Later remote model"); server.Room.PutAsset(owner.token, later.hash, GeometryTransfer.Encode(later));
         Check(server.Room.Commit(owner.token, Tx(server.Room.Snapshot, "AddParts", new[] { Custom("later-model", later) }, sequence: 2, assets: new[] { GeometryTransfer.Reference(later) })).accepted, "another participant edits while a canceled peer is disconnected");
         proxy.AssetPauseAfterBytes = 32; proxy.PartialAssetSent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

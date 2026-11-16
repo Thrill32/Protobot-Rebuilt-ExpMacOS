@@ -18,7 +18,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 
 namespace Protobot.Collaboration.Server {
-    public sealed class CollaborationServer : IAsyncDisposable {
+    public sealed partial class CollaborationServer : IAsyncDisposable {
         private readonly WebApplication app;
         private readonly RoomStore storage;
         private readonly RoomRegistry registry;
@@ -30,6 +30,9 @@ namespace Protobot.Collaboration.Server {
             public int attempts;
             public readonly SemaphoreSlim transfers = new SemaphoreSlim(1, 1), events = new SemaphoreSlim(10, 10), requests = new SemaphoreSlim(ProcessBudget.MaxRoomRequests, ProcessBudget.MaxRoomRequests);
         }
+        private long connections;
+        private readonly SemaphoreSlim requests = new SemaphoreSlim(ProcessBudget.MaxRequests, ProcessBudget.MaxRequests);
+        private readonly SemaphoreSlim eventRequests = new SemaphoreSlim(ProcessBudget.MaxEvents, ProcessBudget.MaxEvents);
         public RoomRegistry Registry => registry;
         public bool MultiRoom => registry != null;
         private Room Resolve(HttpContext context) {
@@ -61,11 +64,13 @@ namespace Protobot.Collaboration.Server {
             builder.WebHost.ConfigureKestrel(options => {
                 options.Limits.MaxRequestBodySize = WireJson.MaxMessageBytes;
                 options.Limits.MaxConcurrentConnections = 128;
+                options.ConfigureEndpointDefaults(listener => listener.Use(next => async connection => {
+                    Interlocked.Increment(ref connections);
+                    try { await next(connection); } finally { Interlocked.Decrement(ref connections); }
+                }));
                 options.Limits.MaxConcurrentUpgradedConnections = ProcessBudget.MaxEvents;
             });
             app = builder.Build();
-            var requests = new SemaphoreSlim(ProcessBudget.MaxRequests, ProcessBudget.MaxRequests);
-            var eventRequests = new SemaphoreSlim(ProcessBudget.MaxEvents, ProcessBudget.MaxEvents);
             app.Use(async (context, next) => {
                 if (context.Request.Headers.ContainsKey("Origin")) { context.Response.StatusCode = 403; return; }
                 context.Response.Headers.CacheControl = "no-store";
@@ -98,14 +103,14 @@ namespace Protobot.Collaboration.Server {
                 finally { if (roomAdmitted) roomRequests.Release(); requests.Release(); }
             });
             app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
-            var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version };
+            var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version, diagnosticsVersion = DiagnosticExport.Version };
             app.MapGet("/capabilities", context => Write(context, rootCapabilities));
             app.MapGet("/health", context => { context.Response.StatusCode = registry != null || Room.IsHealthy ? 200 : 503; return Write(context, rootCapabilities); });
             const string path = "/rooms/{room}";
             app.MapGet(path + "/capabilities", context => Write(context, Resolve(context).Capabilities));
             app.MapGet(path + "/health", context => { var room = Resolve(context); context.Response.StatusCode = room.IsHealthy ? 200 : 503; return Write(context, room.Capabilities); });
             if (registry != null) {
-                app.MapGet("/admin/rooms", context => { registry.Authenticate(Token(context)); return Write(context, registry.List()); });
+                app.MapGet("/admin/rooms", context => { registry.Authenticate(Token(context)); return Write(context, RoomList()); });
                 app.MapPost("/admin/rooms", async context => {
                     registry.Authenticate(Token(context));
                     DocumentModel.Require(await registry.Creation.WaitAsync(0, context.RequestAborted), "server-creation-busy");
@@ -121,6 +126,13 @@ namespace Protobot.Collaboration.Server {
                     finally { registry.Creation.Release(); }
                 });
             }
+            app.MapGet(path + "/diagnostics", context => {
+                var selected = Resolve(context); selected.AuthorizeDiagnostics(Token(context));
+                return Write(context, new DiagnosticReport { source = "room-owner", durable = selected.IsDurable, selectedRoom = RoomMetrics(selected) });
+            });
+            if (registry != null) app.MapGet("/admin/diagnostics", context => {
+                registry.Authenticate(Token(context)); return Write(context, OperatorDiagnostics());
+            });
             app.MapPost(path + "/join", async context => {
                 var room = Resolve(context);
                 var limits = roomLimits.GetOrAdd(room.Name, _ => new RouteLimits());

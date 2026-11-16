@@ -134,6 +134,8 @@ namespace Protobot {
             uiConfirmRemove = UIButton(removeActions, "Confirm Remove Participant", "Remove membership", () => _ = RemoveMembershipAsync(), true);
             UIButton(removeActions, "Cancel Remove Participant", "Keep membership", () => { pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); });
             uiRemoveConfirmation.SetActive(false);
+            uiRefreshResources = UIButton(uiConnected.transform, "Refresh Room Usage", "Refresh room resource usage", () => _ = RefreshResourcesAsync());
+            uiResources = UIText(uiConnected.transform, "Room Resources", "", 12);
             uiSaveStatus = UIText(uiConnected.transform, "Local File", "");
             var saves = UIRow(uiConnected.transform, "Local Save");
             uiSave = UIButton(saves, "Save Local", "Save local file", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().Save(); });
@@ -154,13 +156,14 @@ namespace Protobot {
             var another = UIButton(testing, "Open Local Player", "Open another local test window", OpenLocalPlayer);
             another.interactable = !Application.isEditor;
             UIText(testing, "Help", Application.isEditor ? "Additional test windows are available in the built desktop app." : "Uses a separate local profile. In that window, choose Join and enter the password if required.", 12);
+            UIButton(testing, "Export Diagnostics", "Export diagnostics...", () => _ = ExportDiagnosticsAsync());
             UIButton(testing, "Diagnostics", "Show / hide connection details", () => uiDiagnosticsVisible = !uiDiagnosticsVisible);
             uiDiagnostics = UIText(testing, "Details", "", 12); uiDiagnostics.gameObject.SetActive(false);
 
             var footer = UIRect("Footer", uiCard); footer.anchorMin = Vector2.zero; footer.anchorMax = Vector2.right;
             footer.pivot = Vector2.zero; footer.anchoredPosition = new Vector2(22, 12); footer.sizeDelta = new Vector2(-44, 78);
             uiStatus = UIText(footer, "Status", status, 13); UIStretch(uiStatus.rectTransform);
-            uiCancelConnection = UIButton(footer, "Cancel Connection", "Cancel", CancelConnection);
+            uiCancelConnection = UIButton(footer, "Cancel Connection", "Cancel", () => { CancelConnection(); CancelDiagnosticExport(); });
             var cancelRect = (RectTransform)uiCancelConnection.transform;
             cancelRect.anchorMin = cancelRect.anchorMax = cancelRect.pivot = new Vector2(1, .5f);
             cancelRect.anchoredPosition = Vector2.zero; cancelRect.sizeDelta = new Vector2(100, 36);
@@ -174,7 +177,7 @@ namespace Protobot {
             panel = true; nextUIRefresh = 0; RefreshUI();
         }
         private void ClosePanel() {
-            connectionTest?.Cancel();
+            connectionTest?.Cancel(); CancelDiagnosticExport();
             if (connectionAttempt != null) { connectionAttempt.ClosePanelRequested = true; CancelConnection(); }
             panel = false; ClearUIFocus();
             if (uiModal != null) uiModal.SetActive(busy);
@@ -231,16 +234,16 @@ namespace Protobot {
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
             uiName.SetTextWithoutNotify(displayName); uiRoom.SetTextWithoutNotify(room); uiEndpoint.SetTextWithoutNotify(endpoint);
-            uiCancelConnection.gameObject.SetActive(connectionAttempt != null);
-            uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested;
-            uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null ? 0 : -116, 0);
+            uiCancelConnection.gameObject.SetActive(connectionAttempt != null || diagnosticExport != null);
+            uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested || diagnosticExport != null && !diagnosticExport.IsCancellationRequested;
+            uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null && diagnosticExport == null ? 0 : -116, 0);
             uiStatus.text = ConnectionStatus();
             if (IsShared) {
                 uiConnection.text = $"{room}  |  {(client.IsConnected ? "Connected" : "Disconnected - editing paused")}\nRevision {committed.revision}  |  {client.ActiveTransport ?? "connecting"}  |  {client.Participant.role}";
                 uiReachability.text = "Server: " + endpoint + "\n" + (host != null ? host.AllowLan ? "LAN host. Share a reachable LAN address; internet access is not configured." : "Local host. Only players on this computer can connect." : "Connected to a remote host.") + "\n" + (client.IsDurable ? "Room recovery enabled." : "Temporary room. Save accepted content locally.");
                 var members = participants.Length == 0 ? new[] { client.Participant } : participants;
                 uiMembers.text = $"Participants ({members.Length}/10)\n" + string.Join("\n", members.Select(p => p.name + (p.id == client.Participant.id ? " (you)" : "") + "  -  " + p.role));
-                RefreshAdministrationUI();
+                RefreshAdministrationUI(); RefreshResourcesUI();
                 uiRemovedNotice.gameObject.SetActive(client.IsMembershipRevoked);
                 var builds = FindFirstObjectByType<BuildsManager>();
                 bool fileBusy = builds == null || builds.IsFileOperationInProgress || NativeFileDialogs.IsOpen;
@@ -267,7 +270,7 @@ namespace Protobot {
             }
             uiRecoveryNotice.text = (recoveredRooms.Length == 0 ? "No local recovered rooms yet." : recoveredRooms.Length + " local room(s). Use the build that originally hosted each room.") + (unreadableRecovery ? "\nSome records could not be read; their files were retained." : "");
             uiDiagnostics.gameObject.SetActive(uiDiagnosticsVisible);
-            if (uiDiagnosticsVisible) uiDiagnostics.text = "Protocol: " + CollaborationProtocol.Version + "\nCatalog: " + CollaborationScene.Catalog.hash + "\nTransport: " + (client?.ActiveTransport ?? transport.ToString()) + "\n" + (LocalPreferences.ProfileDirectory == null ? "Default local profile" : "Isolated local test profile") + "\nDetails: " + status;
+            if (uiDiagnosticsVisible) uiDiagnostics.text = "Protocol: " + CollaborationProtocol.Version + "\nCatalog: " + CollaborationScene.Catalog.hash + "\nTransport: " + (client?.ActiveTransport ?? transport.ToString()) + "\n" + (LocalPreferences.ProfileDirectory == null ? "Default local profile" : "Isolated local test profile") + "\nLast connection code: " + (lastDiagnostic?.code ?? "none");
             // Tab/arrow navigation stays within the modal, including the first and
             // last fields. A dropdown owns its own option navigation while expanded.
             if (uiTransport.transform.Find("Dropdown List") == null) {

@@ -30,10 +30,14 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public TaskCompletionSource<bool> ContinueJoinReply;
     public string RejectedJoinError;
     public string RejectedAdministrationError;
+    public string RejectedDiagnosticsError;
     public LoopbackProxy(string upstream) {
         var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
         app = builder.Build();
         app.Run(async context => {
+            if (RejectedDiagnosticsError != null && context.Request.Path.Value.EndsWith("/diagnostics", StringComparison.Ordinal)) {
+                context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedDiagnosticsError })); return;
+            }
             if (RejectedAdministrationError != null && context.Request.Path.Value.EndsWith("/participants", StringComparison.Ordinal)) {
                 context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedAdministrationError })); return;
             }

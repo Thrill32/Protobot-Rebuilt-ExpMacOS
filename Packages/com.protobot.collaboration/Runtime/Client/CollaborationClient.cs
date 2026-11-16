@@ -72,18 +72,20 @@ namespace Protobot.Collaboration {
                 DocumentModel.Require(!IsMembershipRevoked, "membership-revoked");
                 long epoch = Interlocked.Increment(ref connectionEpoch);
                 void Check() { cancellation.ThrowIfCancellationRequested(); lock (gate) DocumentModel.Require(!disposed && ConnectionEpoch == epoch, "client-closed"); }
-                Check(); progress?.Report(new ConnectionProgress(ConnectionStage.CheckingServer));
+                Check(); lock (gate) { diagnosticClock.Restart(); diagnosticCode = null; diagnosticStage = null; diagnosticTransfer = null; diagnosticEvents.Clear(); }
+                DiagnosticProgress(new ConnectionProgress(ConnectionStage.CheckingServer), progress);
                 var server = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
                 DocumentModel.Require(server.protocol == 1 && server.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(server.multiRoom || server.room == room, "catalog-or-room-mismatch");
-                Check(); progress?.Report(new ConnectionProgress(ConnectionStage.CheckingRoom));
+                Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.CheckingRoom), progress);
                 var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, cancellation).ConfigureAwait(false);
                 DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
+                SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
                 LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
-                Check(); progress?.Report(new ConnectionProgress(ConnectionStage.Authenticating)); Check();
+                Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.Authenticating), progress); Check();
                 // Admission can create durable membership. Once sent, settle its
                 // bounded reply and save the credential before honoring cancellation.
                 var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
@@ -100,12 +102,12 @@ namespace Protobot.Collaboration {
                     sequence = Math.Max(sequence, joined.sequence); SaveRecovery(joined.document.generation);
                 }
                 Check();
-                await HydrateAsync(joined.document, cancellation, progress).ConfigureAwait(false);
+                await HydrateAsync(joined.document, cancellation, new DiagnosticProgressRelay(value => DiagnosticProgress(value, progress))).ConfigureAwait(false);
                 string[] unresolved;
                 var recovery = new List<string>();
                 lock (gate) unresolved = pending.Keys.ToArray();
                 for (int i = 0; i < unresolved.Length; i++) {
-                    Check(); progress?.Report(new ConnectionProgress(ConnectionStage.RecoveringEdits, i, unresolved.Length));
+                    Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.RecoveringEdits, i, unresolved.Length), progress);
                     string operation = unresolved[i];
                     var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation), cancellation).ConfigureAwait(false);
                     lock (gate) { pending.Remove(operation); SaveRecovery(joined.document.generation); }
@@ -114,14 +116,15 @@ namespace Protobot.Collaboration {
                 }
                 Check();
                 lock (gate) {
-                    Check(); document = GeometryTransfer.CloneDocument(joined.document); SaveRecovery();
+                    Check(); document = GeometryTransfer.CloneDocument(joined.document); diagnosticHash = DocumentModel.Hash(GeometryTransfer.References(joined.document)); SaveRecovery();
                     RecoveryMessages = recovery.ToArray(); transient = -1; IsConnected = true;
                     lifetime = new CancellationTokenSource(); var connectionLifetime = lifetime;
                     pump = Task.Run(() => Pump(connectionLifetime.Token));
                 }
-                progress?.Report(new ConnectionProgress(ConnectionStage.Ready));
+                DiagnosticProgress(new ConnectionProgress(ConnectionStage.Ready), progress);
                 return joined;
             }
+            catch (Exception error) { DiagnosticEvent(DiagnosticExport.Code(error)); throw; }
             finally { Interlocked.Exchange(ref joining, 0); }
         }
 
@@ -302,7 +305,7 @@ namespace Protobot.Collaboration {
                     DocumentModel.Require(edit.revision == document.revision + 1, "revision-gap");
                     var next = DocumentModel.Reduce(document, edit.transaction, catalog);
                     DocumentModel.Require(next.revision == edit.revision && DocumentModel.Hash(next) == edit.hash, "document-hash-mismatch");
-                    HydrateCached(next); document = next; var old = advanced; advanced = Signal(); old.TrySetResult(true);
+                    HydrateCached(next); document = next; diagnosticHash = edit.hash; var old = advanced; advanced = Signal(); old.TrySetResult(true);
                 }
                 Accepted?.Invoke(edit);
             }
@@ -310,6 +313,7 @@ namespace Protobot.Collaboration {
         }
 
         private void Freeze(string reason) {
+            DiagnosticEvent(DiagnosticExport.SafeCode(reason));
             if (reason == "membership-revoked") IsMembershipRevoked = true;
             if (IsMembershipRevoked) reason = "membership-revoked";
             bool notify = IsConnected; IsConnected = false; lifetime?.Cancel();

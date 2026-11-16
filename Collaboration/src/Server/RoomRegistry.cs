@@ -23,10 +23,14 @@ namespace Protobot.Collaboration.Server {
     }
     [Serializable] public sealed class HostedRoomStatus {
         public string room, generation, catalogHash, status, action;
-        public long revision;
+        public long? revision;
+        public string documentHash;
+        public RoomUsage usage;
     }
     [Serializable] public sealed class HostedRoomList {
         public int registryVersion = 1;
+        public int diagnosticsVersion = DiagnosticExport.Version;
+        public ProcessUsage process;
         public HostedRoomStatus[] rooms = Array.Empty<HostedRoomStatus>();
     }
 
@@ -143,13 +147,14 @@ namespace Protobot.Collaboration.Server {
         }
         public HostedRoomList List() {
             Entry[] snapshot; lock (gate) snapshot = entries.Values.ToArray();
-            return new HostedRoomList { rooms = snapshot.OrderBy(e => e.name, StringComparer.Ordinal).Select(e => new HostedRoomStatus {
-                room = e.name, generation = e.registration?.generation, catalogHash = e.registration?.catalogHash,
-                status = e.failure ?? (e.room.IsHealthy ? "ready" : "room-storage-failed-restart-required"),
-                action = e.failure == null && e.room.IsHealthy ? null : "Stop service; inspect room data/lock and matching release, restore a private backup if damaged; restart. Never initialize over it.",
-                revision = e.room?.Revision ?? 0
+            return new HostedRoomList { rooms = snapshot.OrderBy(e => e.name, StringComparer.Ordinal).Select(e => {
+                var data = e.room?.Diagnostics() ?? DiagnosticExport.Room(new RoomDiagnostic {
+                    room = e.name, generation = e.registration?.generation, catalogHash = e.registration?.catalogHash, status = e.failure });
+                return new HostedRoomStatus { room = data.room, generation = data.generation, catalogHash = data.catalogHash,
+                    documentHash = data.documentHash, status = data.status, action = data.action, revision = data.revision, usage = data.usage };
             }).ToArray() };
         }
+
         private void Admission(string name, string generation, string ownerHash) {
             lock (gate) {
                 DocumentModel.Require(entries.Count < ProcessBudget.MaxRooms, "server-room-limit");
@@ -212,7 +217,7 @@ namespace Protobot.Collaboration.Server {
         private static void ValidateRegistration(RoomRegistration value, string name) => DocumentModel.Require(value != null && value.schema == 1 &&
             value.room == name && DocumentModel.ValidId(value.room) && DocumentModel.ValidId(value.generation) &&
             value.catalogHash != null && value.catalogHash.Length <= 128 && !value.catalogHash.Any(char.IsControl) && DocumentModel.ValidAssetHash(value.ownerHash), "invalid-room-registration");
-        private static string Failure(Exception error) => error is CollaborationException known ? known.Code :
+        private static string Failure(Exception error) => error is CollaborationException known ? DiagnosticExport.SafeCode(known.Code) :
             error is IOException || error is UnauthorizedAccessException ? "room-data-unreadable-or-locked" : "room-storage-corrupt";
         public static string Hash(string value) => DocumentModel.Hex(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
         public static T Read<T>(string path) {

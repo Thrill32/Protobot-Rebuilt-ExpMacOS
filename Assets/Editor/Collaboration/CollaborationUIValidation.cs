@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration UI validation passed: modal input, Host, owner-only participant removal/confirmation, removed-member feedback/offline retention, participants/viewers/save state, credential-free CLI export and accepted snapshot isolation, sustained Unity request diagnostics/cancellation, reconnect and deliberate leave/recovery controls.");
+                Debug.Log("Collaboration UI validation passed: modal input, diagnostic export/Cancel/Escape/failure and usage controls, Host, owner-only participant removal/confirmation, removed-member feedback/offline retention, participants/viewers/save state, credential-free CLI export and accepted snapshot isolation, sustained Unity request diagnostics/cancellation, reconnect and deliberate leave/recovery controls.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -91,6 +91,7 @@ namespace ProtobotEditorTools {
             Button(session, "Copy Invite").onClick.Invoke(); CollaborationInvite.Parse(GUIUtility.systemCopyBuffer, out origin, out room);
             Require(origin == Get<CollaborationHost>(session, "host").Url && room == "ui-room", "Copied invite did not use the bound port and current room.");
             await CheckExport(session, origin, room);
+            await CheckDiagnostics(session);
             using (var peer = new CollaborationClient(origin, room, CollaborationScene.Catalog, CollaborationTransport.LongPolling)) {
                 await peer.JoinAsync("Read-only peer", viewer: true);
                 await Until(() => Get<Participant[]>(session, "participants").Length == 2); Invoke(session, "RefreshUI");
@@ -190,6 +191,49 @@ namespace ProtobotEditorTools {
                 Require(!Get<bool>(session, "busy") && builds.buildPath == localPath, "Canceling export left the session busy or changed its local file.");
             }
             finally { wrapper.SetValue(null, previous); if (File.Exists(path)) File.Delete(path); }
+        }
+        private static async Task CheckDiagnostics(CollaborationSession session) {
+            var wrapper = typeof(StandaloneFileBrowser).GetField("_platformWrapper", BindingFlags.Static | BindingFlags.NonPublic);
+            var previous = wrapper.GetValue(null); var fake = new ExportDialog(); wrapper.SetValue(null, fake);
+            string root = LocalPreferences.ProfileDirectory, output = Path.Combine(root, "diagnostics.json"), canceledPath = Path.Combine(root, "canceled-diagnostics.json");
+            var builds = Object.FindFirstObjectByType<BuildsManager>(); builds.buildPath = Path.Combine(root, "diagnostic-accepted.pbb");
+            Require(await (Task<bool>)Invoke(builds, "SaveAsync", false), "Diagnostic fixture save failed.");
+            byte[] fileBefore = File.ReadAllBytes(builds.buildPath); string pathBefore = builds.buildPath, hashBefore = CollaborationSession.CommittedHash;
+            var client = Get<CollaborationClient>(session, "client"); string identity = client.Participant.id;
+            try {
+                await Click(Button(session, "Refresh Room Usage").gameObject);
+                await Until(() => Get<RoomDiagnostic>(session, "roomResources") != null && !Get<bool>(session, "loadingResources")); Invoke(session, "RefreshUI");
+                Require(Get<Text>(session, "uiResources").text.Contains("not measured memory") && Get<RoomDiagnostic>(session, "roomResources").usage.receipts.limit == 20000,
+                    "Owner usage controls did not show real usage/limits or distinguish logical memory costs.");
+                await Click(Button(session, "Export Diagnostics").gameObject); await Until(() => fake.Complete != null);
+                fake.Complete(output); await Until(() => !Get<bool>(session, "busy"));
+                var report = DiagnosticExport.Decode(File.ReadAllBytes(output));
+                Require(report.schema == 1 && report.source == "unity" && report.selectedRoom.documentHash == hashBefore && report.rooms.Single().usage != null && report.process == null,
+                    "Actual Unity diagnostic export omitted accepted metadata/owner usage or exceeded its scope.");
+                string json = File.ReadAllText(output);
+                Require(!json.Contains(root) && !json.Contains("credential") && !json.Contains("resumeToken") && !json.Contains("vertices") && !json.Contains("UI tester"), "Unity diagnostics exported private data.");
+                await Click(Button(session, "Export Diagnostics").gameObject); await Until(() => fake.Complete != null); fake.Complete(""); await Until(() => !Get<bool>(session, "busy"));
+                await Click(Button(session, "Export Diagnostics").gameObject); await Until(() => fake.Complete != null); Invoke(session, "RefreshUI");
+                await Click(Get<Button>(session, "uiCancelConnection").gameObject); fake.Complete(canceledPath); await Until(() => !Get<bool>(session, "busy"));
+                Require(!File.Exists(canceledPath) && Get<string>(session, "status").Contains("canceled"), "Pointer Cancel published diagnostics.");
+                await Click(Button(session, "Export Diagnostics").gameObject); await Until(() => fake.Complete != null);
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(UnityEngine.InputSystem.Key.Escape)); await Task.Delay(80);
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState()); await Task.Delay(80);
+                // The native panel owns the first Escape. Its cancellation callback
+                // is modeled here; OS-native focus/keys remain a field check.
+                fake.Complete(""); await Until(() => !Get<bool>(session, "busy"));
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(UnityEngine.InputSystem.Key.Escape)); await Task.Delay(80);
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState()); await Task.Delay(80);
+                Require(!File.Exists(canceledPath) && !Get<bool>(session, "panel"), "Dialog cancellation or subsequent collaboration Escape failed.");
+                Invoke(session, "OpenPanel", -1);
+                byte[] existing = File.ReadAllBytes(output);
+                await Click(Button(session, "Export Diagnostics").gameObject); await Until(() => fake.Complete != null); fake.Complete(output); await Until(() => !Get<bool>(session, "busy"));
+                Require(existing.SequenceEqual(File.ReadAllBytes(output)) && Get<string>(session, "status").Contains("failed"), "Failed diagnostic write replaced an existing file or lacked feedback.");
+                Require(client.IsConnected && client.Participant.id == identity && client.PendingCount == 0 && CollaborationSession.CommittedHash == hashBefore &&
+                    builds.buildPath == pathBefore && builds.CurrentBuildIsSaved && fileBefore.SequenceEqual(File.ReadAllBytes(pathBefore)),
+                    "Diagnostic controls changed the scene, local file/save state, membership or connection.");
+            }
+            finally { wrapper.SetValue(null, previous); }
         }
         private sealed class ExportDialog : IStandaloneFileBrowser {
             public Action<string> Complete;

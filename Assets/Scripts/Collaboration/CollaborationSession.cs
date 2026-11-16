@@ -747,7 +747,7 @@ namespace Protobot {
             "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
             _ => error.Message
         } : error.Message; InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
-        private void OnQuitting() { closing = true; CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
+        private void OnQuitting() { closing = true; CancelDiagnosticExport(); CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
         private void OnDestroy() { OnQuitting(); Application.quitting -= OnQuitting; ClearGhosts(); DisposeUI(); if (instance == this) instance = null; }
     }
 }

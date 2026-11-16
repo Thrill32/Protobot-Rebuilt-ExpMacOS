@@ -156,6 +156,7 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public bool geometryTransfer = true;
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
+        [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {

@@ -26,6 +26,12 @@ internal static partial class Program {
                 await MultiRoomChecks(directory);
                 Console.WriteLine("Multi-room passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
+            if (args.Contains("--diagnostics-only")) {
+                await DiagnosticChecks(directory);
+                index = Array.IndexOf(args, "--current-helper");
+                if (index >= 0) await CurrentDiagnosticCompatibility(directory, args[index + 1]);
+                Console.WriteLine("Diagnostics passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--connection-only")) {
                 await ConnectionChecks(directory);
                 Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -33,6 +39,9 @@ internal static partial class Program {
             ModelChecks(); RoomChecks(); HistoryChecks();
             await AssetChecks(directory);
             await ConnectionChecks(directory);
+            await DiagnosticChecks(directory);
+            index = Array.IndexOf(args, "--current-helper");
+            if (index >= 0) await CurrentDiagnosticCompatibility(directory, args[index + 1]);
             index = Array.IndexOf(args, "--legacy-helper");
             if (index >= 0) await LegacyGeometryChecks(directory, args[index + 1]);
             await MultiRoomChecks(directory);

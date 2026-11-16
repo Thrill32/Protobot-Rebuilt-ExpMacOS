@@ -4,6 +4,26 @@ Use one matching catalog/helper/player release on every desktop and server. Reco
 
 Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
 
+Automated bounded-diagnostics/resource pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403; base `1f403f3`):
+
+| Check | Result |
+| --- | --- |
+| CLI / Lab builds | Passed with zero warnings/errors; cached packages and `NuGetAudit=false`; online vulnerability audit unavailable |
+| Focused diagnostics and current compatibility | Passed **72 assertions**: version/byte/event bounds; reflected malicious errors and credential/path/payload exclusion; owner/admin/participant/cross-room scopes; exact retained/decoded/live/unused/history/receipt quotas; exclusive export/cancel/failure; frozen, locked, corrupt, incompatible and process-over-budget status beside healthy editing; actual CLI commands; real original 0.9 helper/backup and absent-capability export |
+| Full collaboration lab | Passed **903 assertions**, **69.13 seconds**, ten bots per transport, original 0.7/v1 + 0.8/v2 + 0.9/v2 fixtures and two freshly rebuilt Mac players; includes unresolved-pending-operation export without receipt resolution/replay and real active transfer/event gauges |
+| Actual Unity controls | Passed pointer resource refresh/export/Cancel, native-panel cancellation callbacks, collaboration-window physical Escape, existing-file failure and unchanged accepted scene/local file bytes/saved status/membership/connection; native OS panel focus/keys are not established by the injected dialog wrapper |
+| Unity regressions | UI, connection cancellation/progress, editing/import/materialization/Save/portable export, recovery/helper restart and multi-room smokes passed with fresh profiles |
+| Published Mac CLI | Passed two-room creation/listing, scoped owner/admin diagnostics, versioned doctor, stopped backup and offline registry restore |
+| Builds / distribution verification | Four helpers, Mac/Windows players and six archives rebuilt; embedded/packaged catalogs, diagnostic managed assemblies, archive hashes and Mac signatures verified (see ignored package report) |
+
+The new diagnostic format is `protobot-diagnostics` **schema 1** (64 KiB; eight rooms; 32 fixed-size recent events), with optional `diagnosticsVersion: 1`. Doctor adds `protobot-connection-report` schema 1 while retaining existing fields/exit codes. Wire stays **0.9.0-alpha**, document/SQLite/archive **v2**, configuration/registry/registration/admin **v1**. Original 0.9 helper/catalog was preserved before publication at a private temporary location; old helpers without diagnostics still join/export local metadata. Matching release catalog is `7e344d8590e5a1f2c83291e5990848a1511d6e6eb4859e19758c262f0fa62ba5`. Existing rooms keep their original catalog scope; no arbitrary migration was introduced.
+
+Reports expose logical encoded/decoded/live-instance geometry costs separately from admin-only measured managed/working-set memory. Gauges are sampled, not a globally atomic snapshot or runtime memory guarantee. Unavailable registrations have null metrics/revision and fixed actionable status; collection never implicitly opens, initializes, migrates, repairs or replaces their data. General GC, compaction, online backup and destructive live deletion remain separate work.
+
+- [ ] **Diagnostics field acceptance:** Windows/Linux execution and permissions; Mac↔Windows usage/exports/editing/transfers/cancellation/focus; real native save-panel Escape/focus; cross-OS archives; Debian/Pi service restart/restore and observed resource behavior; trusted public HTTPS/proxy access and failures. These remain pending alongside earlier field gates.
+
+Current credential-free evidence is under ignored `Collaboration/artifacts/diagnostics-report.json`, `diagnostics-unity.json`, `diagnostics-builds.json`, `diagnostics-published-cli.json` and `diagnostics-packages.json`. The production `Assets/Scenes/Main.unity` was retained; Unity-generated font/default-setting serialization was removed after inspection. No commit, push or deployment was performed. Notes and generated artifacts remain intentionally ignored. Earlier connection/multi-room/geometry results below are historical, not tests rerun by inference.
+
 Automated desktop connection-polish pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403):
 
 | Check | Result |

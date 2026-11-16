@@ -15,6 +15,9 @@ namespace Protobot.Collaboration {
         public long milliseconds;
     }
     [Serializable] public sealed class ConnectionReport {
+        public string format = "protobot-connection-report";
+        public int schema = 1;
+        public DiagnosticReport[] diagnostics = Array.Empty<DiagnosticReport>();
         public bool passed;
         public string version = CollaborationProtocol.Version;
         public string room, serverVersion, catalogHash;
@@ -41,7 +44,9 @@ namespace Protobot.Collaboration {
         public static async Task<ConnectionReport> RunAsync(string origin, CatalogManifest catalog = null, string room = null, string password = "",
             CollaborationTransport[] transports = null, bool allowInsecureLan = false, bool checkIdle = true, Action<string> progress = null, CancellationToken cancellation = default) {
             origin = Origin(origin, allowInsecureLan);
-            var report = new ConnectionReport(); var checks = new List<ConnectionCheck>();
+            DocumentModel.Require(transports == null || transports.Length > 0 && transports.Length <= 3 && transports.Distinct().Count() == transports.Length &&
+                transports.All(t => Enum.IsDefined(typeof(CollaborationTransport), t)), "invalid-transport");
+            var report = new ConnectionReport(); var checks = new List<ConnectionCheck>(); var diagnostics = new List<DiagnosticReport>();
             async Task<bool> Check(string name, Func<Task> action) {
                 progress?.Invoke("Checking " + name + "..."); var timer = Stopwatch.StartNew();
                 try { await action().ConfigureAwait(false); checks.Add(new ConnectionCheck { name = name, status = "passed", milliseconds = timer.ElapsedMilliseconds }); return true; }
@@ -65,7 +70,7 @@ namespace Protobot.Collaboration {
                     DocumentModel.Require(caps.room == selected && caps.protocol == 1 && caps.version == CollaborationProtocol.Version, "endpoint-changed");
                     healthPath = "/rooms/" + selected + "/health";
                     DocumentModel.Require(DocumentModel.ValidId(caps.room) && !string.IsNullOrEmpty(caps.catalogHash) && caps.catalogHash.Length <= 128 && !caps.catalogHash.Any(char.IsControl), "invalid-capabilities");
-                    report.room = caps.room; report.serverVersion = caps.version; report.catalogHash = caps.catalogHash; report.durable = caps.durable;
+                    report.room = caps.room; report.serverVersion = caps.version; report.catalogHash = DiagnosticExport.Catalog(caps.catalogHash); report.durable = caps.durable;
                 }).ConfigureAwait(false)) {
                     await Check("health", async () => {
                         var health = await Get<Capabilities>(http, origin + healthPath, cancellation).ConfigureAwait(false);
@@ -101,6 +106,7 @@ namespace Protobot.Collaboration {
                                     if (connected && transport == CollaborationTransport.Auto) checks.Add(new ConnectionCheck { name = "auto-selected-transport", status = "passed", code = client.ActiveTransport });
                                 }
                                 finally {
+                                    var diagnostic = client.CaptureDiagnostics(); diagnostic.source = "doctor"; diagnostics.Add(diagnostic);
                                     if (joined) await Check(label + "-leave", () => client.LeaveAsync()).ConfigureAwait(false);
                                 }
                             }
@@ -109,7 +115,7 @@ namespace Protobot.Collaboration {
                 }
             }
             if (catalog == null) checks.Add(new ConnectionCheck { name = "authenticated-transports", status = "skipped", code = "provide-matching-catalog" });
-            report.checks = checks.ToArray(); report.passed = checks.All(c => c.status != "failed"); return report;
+            report.diagnostics = diagnostics.ToArray(); report.checks = checks.ToArray(); report.passed = checks.All(c => c.status != "failed"); return report;
         }
         private static async Task Wait(Task task, int milliseconds, CancellationToken cancellation) {
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation)) {

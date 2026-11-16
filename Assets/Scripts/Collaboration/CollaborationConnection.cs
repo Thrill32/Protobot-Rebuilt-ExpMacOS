@@ -26,6 +26,7 @@ namespace Protobot {
             busy = true; status = message; nextUIRefresh = 0; return attempt;
         }
         private void EndConnection(ConnectionAttempt attempt) {
+            if (attempt.Candidate != null) lastDiagnostic = attempt.Candidate.CaptureDiagnostics();
             if (connectionAttempt == attempt) { connectionAttempt = null; busy = false; nextUIRefresh = 0; }
             attempt.Dispose();
         }
