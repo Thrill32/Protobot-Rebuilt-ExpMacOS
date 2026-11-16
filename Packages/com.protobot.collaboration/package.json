@@ -1,6 +1,6 @@
 {
   "name": "com.protobot.collaboration",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "displayName": "Protobot Collaboration (Development Alpha)",
   "description": "Shared protocol, document reducer and transport for the desktop editor and standalone server.",
   "unity": "6000.0"

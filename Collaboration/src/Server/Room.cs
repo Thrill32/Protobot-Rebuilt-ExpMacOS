@@ -41,20 +41,36 @@ namespace Protobot.Collaboration.Server {
         private int receiptCount;
         private readonly Func<long> clock;
         private readonly RoomStore store;
-        private bool storageFailed;
+        private volatile bool storageFailed;
+        private ProcessBudget processBudget;
+        private long SceneBytes(Document value) => value.parts.Where(p => p.catalogId == "CUSTOM").Sum(p => assetArrayBytes[p.assetHash]);
+        internal (long bytes, long arrays, long instances) GeometryUsage => (assetBytes.Values.Sum(b => (long)b.Length), assetArrayBytes.Values.Sum(), SceneBytes(document));
+        internal void AdoptBudget(ProcessBudget budget) => processBudget = budget;
+        internal void AttachBudget(ProcessBudget budget) {
+            using var reservation = budget.Reserve(assetBytes.Values.Sum(b => (long)b.Length), assetArrayBytes.Values.Sum(), SceneBytes(document));
+            processBudget = budget; reservation.Commit();
+        }
+        internal void DetachBudget() {
+            if (processBudget == null) return;
+            using var release = processBudget.Reserve(-assetBytes.Values.Sum(b => (long)b.Length), -assetArrayBytes.Values.Sum(), -SceneBytes(document));
+            release.Commit(); processBudget = null;
+        }
         public string Name { get; }
         public bool IsDurable => store != null;
         public bool IsHealthy => !storageFailed;
         public bool Recovered { get; }
+        public long Revision { get { lock (gate) return document.revision; } }
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
         public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, room = Name, generation = document.generation, catalogHash = catalog.hash };
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
         public const int LeaseMilliseconds = 10000;
 
-        public Room(Bootstrap seed, Func<long> monotonicMilliseconds = null, RoomStore storage = null) {
+        internal static Room Recover(RoomStore storage, RoomArchive archive) => new Room(null, null, storage, archive);
+        public Room(Bootstrap seed, Func<long> monotonicMilliseconds = null, RoomStore storage = null) : this(seed, monotonicMilliseconds, storage, null) { }
+        private Room(Bootstrap seed, Func<long> monotonicMilliseconds, RoomStore storage, RoomArchive archive) {
             clock = monotonicMilliseconds ?? (() => (long)(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency));
             store = storage;
-            var archive = store?.Load();
+            archive ??= store?.Load();
             if (archive != null) {
                 DocumentModel.Require(seed == null || seed.room == archive.info.room && seed.catalog?.hash == archive.info.catalog.hash, "recovery-catalog-or-room-mismatch");
                 Name = archive.info.room; catalog = archive.info.catalog; document = archive.document;
@@ -85,6 +101,7 @@ namespace Protobot.Collaboration.Server {
             lock (gate) {
                 Healthy(); Expire();
                 DocumentModel.Require(request != null && request.protocol == 1, "protocol-mismatch");
+                DocumentModel.Require(request.room == null || request.room == Name, "catalog-or-room-mismatch");
                 DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 Member member;
@@ -113,7 +130,7 @@ namespace Protobot.Collaboration.Server {
                     Pulse();
                 }
                 string token = NewToken(); member.accessHash = TokenHash(token); sessions.Add(member.accessHash, member);
-                return new JoinResponse { token = token, resumeToken = resume, sequence = member.sequence,
+                return new JoinResponse { room = Name, token = token, resumeToken = resume, sequence = member.sequence,
                     incarnation = Incarnation, participant = WireJson.Clone(member.participant), document = WireJson.Clone(document) };
             }
         }
@@ -257,10 +274,15 @@ namespace Protobot.Collaboration.Server {
                         .Where(h => !h.entry.blocked && h.entry.ids.Concat(h.entry.chainIds ?? Array.Empty<string>()).Intersect(changedIds).Any()).Select(h => (h.member, h.index)).ToArray();
                     var recorded = member.Record(); recorded.sequence = transaction.sequence;
                     recorded.historyCursor = inverse != null ? member.historyCursor + (undo ? -1 : 1) : member.historyCursor + 1;
+                    // Reserve process capacity before disk publication; roll it back on a failed commit.
+                    long sceneDelta = SceneBytes(next) - SceneBytes(document);
+                    using var capacity = processBudget?.Reserve(0, 0, Math.Max(0, sceneDelta));
                     receipt.accepted = true; receipt.revision = next.revision;
                     // Commit document journal, receipt, identity sequence and undo state together before publication/acknowledgment.
                     Persist(() => store.Commit(recorded, receipt, edit, next, entry, member.historyCursor, blocked, transactionBytes, historyBytes + transactionBytes));
-                    document = next; historyBytes += transactionBytes;
+                    document = next; capacity?.Commit();
+                    if (sceneDelta < 0) { using var release = processBudget?.Reserve(0, 0, sceneDelta); release?.Commit(); }
+                    historyBytes += transactionBytes;
                     // Only the authority supplies inverse content. Another participant touching any of its
                     // entities permanently fences an older inverse, even if they later restore equal values.
                     foreach (var other in members.Values.Where(m => m != member))

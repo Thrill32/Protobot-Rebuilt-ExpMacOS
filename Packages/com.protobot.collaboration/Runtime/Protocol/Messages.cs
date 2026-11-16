@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
-        public const string Version = "0.8.0-alpha";
+        public const string Version = "0.9.0-alpha";
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -107,6 +107,7 @@ namespace Protobot.Collaboration {
     [Serializable] public sealed class JoinRequest {
         public int protocol = 1;
         public string version = CollaborationProtocol.Version;
+        public string room;
         public string catalogHash;
         public string name;
         public string password;
@@ -123,6 +124,7 @@ namespace Protobot.Collaboration {
     [Serializable] public sealed class RemoveParticipant { public string participantId; }
     [Serializable] public sealed class RemovalResult { public string participantId; public bool alreadyRevoked; }
     [Serializable] public sealed class JoinResponse {
+        [System.Runtime.Serialization.OptionalField] public string room;
         public string token;
         public string resumeToken;
         public long sequence;
@@ -152,6 +154,8 @@ namespace Protobot.Collaboration {
         // Optional additive capability; absent on earlier 0.7 helpers.
         [System.Runtime.Serialization.OptionalField] public bool participantAdministration;
         [System.Runtime.Serialization.OptionalField] public bool geometryTransfer = true;
+        [System.Runtime.Serialization.OptionalField] public bool multiRoom;
+        [System.Runtime.Serialization.OptionalField] public int registryVersion;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {
@@ -164,6 +168,8 @@ namespace Protobot.Collaboration {
     [Serializable] public sealed class Ready {
         public string type = "ready";
         public string url, room, version = CollaborationProtocol.Version;
+        [System.Runtime.Serialization.OptionalField] public bool multiRoom;
+        [System.Runtime.Serialization.OptionalField] public int registryVersion;
         public bool durable, recovered;
         public long revision;
     }

@@ -107,7 +107,7 @@ namespace Protobot.Collaboration {
                         }
                         string reason; try { reason = WireJson.Decode<WireError>(bytes)?.error; } catch { reason = null; }
                         if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
-                        if (reason == "asset-transfer-busy" && attempt < 30) { await Task.Delay(250, timeout.Token).ConfigureAwait(false); continue; }
+                        if ((reason == "asset-transfer-busy" || reason == "server-transfer-busy") && attempt < 30) { await Task.Delay(250, timeout.Token).ConfigureAwait(false); continue; }
                         throw new CollaborationException(reason ?? "asset-http-" + (int)response.StatusCode);
                     }
                     return bytes;

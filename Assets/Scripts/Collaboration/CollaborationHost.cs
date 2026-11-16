@@ -47,7 +47,7 @@ namespace Protobot {
                 var line = await first;
                 if (line == null) { await stderr; throw new InvalidOperationException("Collaboration server exited: " + (lastError ?? "startup failed")); }
                 var ready = WireJson.Decode<Ready>(System.Text.Encoding.UTF8.GetBytes(line));
-                if (ready.type != "ready" || ready.version != CollaborationProtocol.Version || bootstrap != null && ready.room != bootstrap.room)
+                if (ready.type != "ready" || ready.version != CollaborationProtocol.Version || ready.multiRoom || bootstrap != null && ready.room != bootstrap.room)
                     throw new InvalidOperationException("Collaboration helper version mismatch. Republish the matching helper; this build requires " + CollaborationProtocol.Version + ".");
                 var bound = new Uri(ready.url);
                 BoundPort = bound.Port; Recovered = ready.recovered;

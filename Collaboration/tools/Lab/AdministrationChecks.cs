@@ -135,11 +135,15 @@ internal static partial class Program {
             transport + " target commits accepted content before removal");
         await owner.WaitForRevisionAsync(1); await viewer.WaitForRevisionAsync(1);
         EventBatch latest = null; owner.Presence += batch => latest = batch;
-        string reason = null; target.Disconnected += message => reason = message;
+        var disconnected = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        target.Disconnected += message => disconnected.TrySetResult(message);
         var held = await target.ReserveAsync(new[] { "network-retained" });
         await target.PreviewAsync(new Preview { lease = held.token, sequence = 1, parts = new[] { Cube("network-retained", 12) } });
         await Until(() => latest?.previews.Length == 1);
         Check(!(await owner.RemoveParticipantAsync(target.Participant.id)).alreadyRevoked, transport + " authenticated owner removal succeeds");
+        // Freeze clears IsConnected before invoking Disconnected. Await the actual
+        // feedback rather than racing that property write on another thread.
+        string reason = await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await Until(() => !target.IsConnected && latest?.previews.Length == 0 && !latest.participants.Any(p => p.id == target.Participant.id));
         Check(reason == "membership-revoked" && target.IsMembershipRevoked && owner.IsConnected && viewer.IsConnected,
             transport + " event connection terminates promptly with removed-member feedback while peers remain connected");

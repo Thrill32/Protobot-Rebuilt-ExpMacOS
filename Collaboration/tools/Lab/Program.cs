@@ -22,10 +22,17 @@ internal static partial class Program {
         if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
+            if (args.Contains("--multi-room-only")) {
+                await MultiRoomChecks(directory);
+                Console.WriteLine("Multi-room passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             ModelChecks(); RoomChecks(); HistoryChecks();
             await AssetChecks(directory);
             index = Array.IndexOf(args, "--legacy-helper");
             if (index >= 0) await LegacyGeometryChecks(directory, args[index + 1]);
+            await MultiRoomChecks(directory);
+            index = Array.IndexOf(args, "--previous-helper");
+            if (index >= 0) await PreviousRoomChecks(directory, args[index + 1]);
             await AdministrationChecks(directory);
             await DurabilityChecks(directory);
             await DeploymentChecks(directory);

@@ -94,6 +94,13 @@ internal static partial class Program {
         new FileInfo(path).SetAccessControl(acl);
     }
     private static OwnerFile ReadOwnerFile(string path) {
+        RequirePrivateCredential(path);
+        var owner = WireJson.Decode<OwnerFile>(Encoding.UTF8.GetBytes(ReadText(path, 16384)));
+        DocumentModel.Require(owner != null && owner.schema == 1 && DocumentModel.ValidId(owner.room) &&
+            !string.IsNullOrEmpty(owner.credential) && owner.credential.Length < 256 && !owner.credential.Any(char.IsControl), "invalid-owner-file");
+        return owner;
+    }
+    private static void RequirePrivateCredential(string path) {
         DocumentModel.Require((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0, "owner-file-link-refused");
         // Refuse broad permissions rather than silently repairing a credential already exposed.
         if (OperatingSystem.IsWindows()) {
@@ -105,11 +112,8 @@ internal static partial class Program {
         }
         else DocumentModel.Require((File.GetUnixFileMode(path) & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
             UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) == 0, "owner-file-must-be-private");
-        var owner = WireJson.Decode<OwnerFile>(Encoding.UTF8.GetBytes(ReadText(path, 16384)));
-        DocumentModel.Require(owner != null && owner.schema == 1 && DocumentModel.ValidId(owner.room) &&
-            !string.IsNullOrEmpty(owner.credential) && owner.credential.Length < 256 && !owner.credential.Any(char.IsControl), "invalid-owner-file");
-        return owner;
     }
+
     private static async Task<int> Administer(string operation, Options options) {
         string origin = ConnectionDoctor.Origin(options.Required("--url"), options.Has("--allow-lan-http"));
         var owner = ReadOwnerFile(options.Required("--owner-file"));
@@ -134,7 +138,7 @@ internal static partial class Program {
             }
             return WireJson.Decode<T>(output.ToArray());
         }
-        var capabilities = await Request<Capabilities>(HttpMethod.Get, "/capabilities", authenticate: false);
+        var capabilities = await Request<Capabilities>(HttpMethod.Get, "/rooms/" + owner.room + "/capabilities", authenticate: false);
         DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version && capabilities.room == owner.room, "owner-room-or-version-mismatch");
         DocumentModel.Require(capabilities.participantAdministration, "participant-administration-unavailable-update-helper");
         string path = "/rooms/" + owner.room + "/participants";

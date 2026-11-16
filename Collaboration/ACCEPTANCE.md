@@ -1,8 +1,30 @@
-# Collaboration 0.8 manual acceptance
+# Collaboration 0.9 manual acceptance
 
 Use one matching catalog/helper/player release on every desktop and server. Record OS, transport, network, artifact checksum and result for each run. Local automated checks do not complete these field checks.
 
 Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
+
+Automated dedicated multi-room pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403):
+
+| Check | Result |
+| --- | --- |
+| CLI build | Passed with pinned SDK, zero warnings/errors; cached packages with `NuGetAudit=false`, no online vulnerability audit established |
+| Full .NET collaboration lab | Passed **803 assertions**, 10 bots per transport and two freshly rebuilt Mac players; multi-room isolation/limits/failures/restart/restore, single-room regressions and actual original 0.7/v1 + 0.8/v2 fixtures |
+| Unity multi-room smoke | Passed real dedicated helper, room-ID joins on both transports, independent custom meshes and accepted local saves, scoped caches and restart |
+| Unity single-room collaboration / recovery smokes | Passed real large OBJ/import/materialization/Save/export, private-stdin helper kill/restart, identities/history/revocation and independent local files, using the preserved original 0.8 catalog scope |
+| Published Mac CLI | Passed two custom-geometry room creations, read-only quick doctor on both transports, offline per-room backup, registry restore and restart with unchanged room/generation/catalog |
+| Distribution artifacts | Four helpers, Mac/Windows players and six archives rebuilt; packaged/embedded catalogs, managed assemblies and SHA-256 manifests verified; Mac helper/app signatures verified |
+| Catalog | `68319de357050098df126047268b73747749354c409c88e009b592a1b81e59f4` |
+
+Protocol **0.9.0-alpha**, server config/registry/registration/admin **schema 1**; document/SQLite/archive remain **v2**. Original 0.8/v2 rooms reopen without storage migration and their archives restore as standalone or registered rooms. Original 0.7/v1 forward migration remains atomic. Use matching 0.9 helper/clients and each room's original matching catalog; retain original private backups/builds for rollback. There is no automatic catalog rewrite.
+
+Process limits: eight rooms including unavailable registrations; 128 MiB loaded encoded geometry, 256 MiB unique decoded-array cost, 256 MiB live-instance array cost; at most 512 MiB registered disk geometry from eight per-room quotas. Two transfers total/one per room; 64 requests/32 per room; 32 event streams/10 per room; 128 listener connections/32 upgrades; one 72 MiB admin seed with a 30-second body deadline. Existing room quotas and ordinary 2 MiB snapshots/4 MiB messages remain. One candidate is temporarily validated within per-room bounds before admission. These content/work limits are not a runtime RSS or Pi performance promise.
+
+- [ ] **Multi-room field acceptance:** Windows/Linux execution and native permissions/rename; Mac↔Windows separate-room joins/editing/custom transfers/saves/reconnect; cross-OS v1/v2 per-room archives; Debian/Pi stopped-service backup, registry restore and restart; trusted public HTTPS/proxy simultaneous transfers and room diagnostics. Listener readiness does not establish healthy status for every room. Keep original/restore copies stopped except the selected service. Local tests do not establish these field results.
+
+Credential-free results and checksums are under ignored `Collaboration/artifacts/multiroom-report.json`, `multiroom-packages.json` and `multiroom-published-cli.json`. The final lab took 63.16 seconds on this machine. The revocation test now awaits its asynchronous feedback callback instead of racing the disconnected flag; authority/peer assertions remain intact. `Assets/Scenes/Main.unity` was retained. This validation preceded the user-requested source commit; no deployment was performed. The local Notes update and generated artifacts remain intentionally ignored.
+
+The following 0.8 geometry record is historical; its earlier assertion/player/package results are not tests run for 0.9.
 
 Automated content-addressed geometry pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned .NET SDK 10.0.403):
 

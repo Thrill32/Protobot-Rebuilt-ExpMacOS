@@ -114,7 +114,7 @@ namespace Protobot.Collaboration.Server {
                         manifest = JsonSerializer.Deserialize<Manifest>(bytes.ToArray(), Json);
                     }
                     DocumentModel.Require(manifest != null && manifest.format == "protobot-room-backup", "backup-format-mismatch");
-                    DocumentModel.Require((manifest.version == 2 && manifest.storageVersion == 2 && manifest.protocolVersion == CollaborationProtocol.Version ||
+                    DocumentModel.Require((manifest.version == 2 && manifest.storageVersion == 2 && (manifest.protocolVersion == "0.8.0-alpha" || manifest.protocolVersion == CollaborationProtocol.Version) ||
                         manifest.version == 1 && manifest.storageVersion == 1 && manifest.protocolVersion == "0.7.0-alpha"), "backup-version-mismatch");
                     DocumentModel.Require(manifest.files?.Length == 2 && manifest.files.All(e => e != null) &&
                         manifest.files.Select(e => e.name).OrderBy(n => n, StringComparer.Ordinal).SequenceEqual(new[] { "owner.json", "room.sqlite" }), "backup-invalid-manifest");
@@ -142,7 +142,7 @@ namespace Protobot.Collaboration.Server {
             finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
         }
 
-        private static byte[] ReadOwner(string directory, RoomArchive state) {
+        internal static byte[] ReadOwner(string directory, RoomArchive state) {
             string path = Path.Combine(directory, "owner.json");
             using var file = File.OpenRead(path); using var bytes = new MemoryStream();
             Copy(file, bytes, file.Length, MaxMetadataBytes);
@@ -191,7 +191,7 @@ namespace Protobot.Collaboration.Server {
         private static void RequireNew(string path, string code) => DocumentModel.Require(!Exists(path), code);
         private static void Regular(string path) => DocumentModel.Require((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0, "backup-source-link-refused");
 
-        private static string Stage(string target) {
+        internal static string Stage(string target) {
             string parent = Path.GetDirectoryName(target); Directory.CreateDirectory(parent);
             string staging = Path.Combine(parent, ".protobot-backup-" + Guid.NewGuid().ToString("N"));
             if (OperatingSystem.IsWindows()) {
@@ -204,7 +204,7 @@ namespace Protobot.Collaboration.Server {
             else Directory.CreateDirectory(staging, FileModePrivate | UnixFileMode.UserExecute);
             return staging;
         }
-        private static FileStream PrivateFile(string path) {
+        internal static FileStream PrivateFile(string path) {
             if (OperatingSystem.IsWindows()) {
                 using var identity = WindowsIdentity.GetCurrent();
                 var acl = new FileSecurity(); acl.SetAccessRuleProtection(true, false); acl.SetOwner(identity.User);
@@ -216,7 +216,7 @@ namespace Protobot.Collaboration.Server {
         }
         [DllImport("libc", SetLastError = true)] private static extern int renamex_np(string from, string to, uint flags);
         [DllImport("libc", SetLastError = true)] private static extern int renameat2(int fromDir, string from, int toDir, string to, uint flags);
-        private static void PublishDirectory(string staging, string target) {
+        internal static void PublishDirectory(string staging, string target) {
             // Directory.Move on Unix may replace an empty destination in a race.
             // Native exclusive rename makes the no-overwrite contract atomic too.
             if (OperatingSystem.IsWindows()) { Directory.Move(staging, target); return; }

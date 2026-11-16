@@ -39,8 +39,9 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(assetArrayBytes.Values.Sum() + GeometryTransfer.MaterializedBytes(asset) <= GeometryTransfer.MaxMaterializedBytes, "asset-materialization-quota");
                 DocumentModel.Require(assetBytes.Count < DocumentModel.MaxAssets && assetBytes.Values.Sum(b => (long)b.Length) + canonical.Length <= GeometryTransfer.MaxRoomBytes, "asset-room-quota");
                 DocumentModel.Require(unused.Length < GeometryTransfer.MaxUnusedAssets && unused.Sum(a => (long)a.Value.Length) + canonical.Length <= GeometryTransfer.MaxUnusedBytes, "asset-unused-quota");
+                using var capacity = processBudget?.Reserve(canonical.Length, GeometryTransfer.MaterializedBytes(asset), 0);
                 Persist(() => store.PutAsset(hash, canonical));
-                assetBytes.Add(hash, canonical); IndexAsset(asset);
+                assetBytes.Add(hash, canonical); IndexAsset(asset); capacity?.Commit();
             }
         }
     }

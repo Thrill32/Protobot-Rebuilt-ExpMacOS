@@ -23,13 +23,28 @@ internal static partial class Program {
             if (args.Length == 0 || args[0] == "--help") {
                 Console.WriteLine("protobot-collab init --data-dir <new-directory> --room <id> (--catalog <catalog.json> | --snapshot <room-export.json>) [--password-prompt | --password-file <file>]\n" +
                     "protobot-collab serve --data-dir <local-directory> [--config <initial-bootstrap.json>] [--listen http://127.0.0.1:8787] [--public-url <https-origin>] [--allow-lan-http]\n" +
+                    "protobot-collab server-init --data-dir <new-server-directory>\n" +
+                    "protobot-collab serve --multi-room --config <server-directory/server.json> [--listen <origin>] [--public-url <https-origin>]\n" +
+                    "protobot-collab room create --url <origin> --admin-file <private-admin.json> --room <id> (--catalog <file> | --snapshot <file>) --owner-output <new-private-file> [--password-file <file> | --password-prompt]\n" +
+                    "protobot-collab room list --url <origin> --admin-file <private-admin.json>\n" +
+                    "protobot-collab room restore --config <server.json> --admin-file <private-admin.json> --input <archive.zip> # stopped server\n" +
                     "protobot-collab serve --ephemeral --config <protected-bootstrap.json>\n" +
                     "protobot-collab backup --data-dir <stopped-room> --output <new-archive.zip>\n" +
                     "protobot-collab restore --input <archive.zip> --data-dir <new-directory>\n" +
                     "protobot-collab participants --url <origin> --owner-file <protected-owner.json> [--allow-lan-http]\n" +
                     "protobot-collab remove-participant --url <origin> --owner-file <protected-owner.json> --participant <stable-id> [--allow-lan-http]\n" +
                     "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests] [--quick] [--output <report.json>]\n" +
-                    "Development alpha: one room; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
+                    "Development alpha: bounded rooms; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
+            }
+            if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir" }, Array.Empty<string>()));
+            if (args[0] == "room") {
+                DocumentModel.Require(args.Length >= 2, "missing-room-operation"); string operation = args[1];
+                DocumentModel.Require(operation == "create" || operation == "list" || operation == "restore", "unknown-room-operation");
+                var roomArgs = new string[args.Length - 1]; roomArgs[0] = "room"; Array.Copy(args, 2, roomArgs, 1, args.Length - 2);
+                return await Hosting(operation, new Options(roomArgs,
+                    operation == "list" ? new[] { "--url", "--admin-file" } : operation == "restore" ? new[] { "--config", "--admin-file", "--input" } :
+                        new[] { "--url", "--admin-file", "--room", "--catalog", "--snapshot", "--password-file", "--owner-output" },
+                    operation == "restore" ? Array.Empty<string>() : operation == "list" ? new[] { "--allow-lan-http" } : new[] { "--password-prompt", "--allow-lan-http" }));
             }
             if (args[0] == "init") return Initialize(new Options(args, new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
             if (args[0] == "doctor") return await Doctor(new Options(args, new[] { "--url", "--catalog", "--room", "--password-file", "--transport", "--output" }, new[] { "--password-prompt", "--quick", "--allow-lan-http" }));
@@ -46,26 +61,27 @@ internal static partial class Program {
                 Console.WriteLine("Restore completed."); return 0;
             }
             DocumentModel.Require(args[0] == "serve", "unknown-command");
-            var options = new Options(args, new[] { "--data-dir", "--config", "--listen", "--public-url" }, new[] { "--bootstrap-stdin", "--ephemeral", "--allow-lan-http" });
+            var options = new Options(args, new[] { "--data-dir", "--config", "--listen", "--public-url" }, new[] { "--bootstrap-stdin", "--ephemeral", "--allow-lan-http", "--multi-room" });
+            bool multiRoom = options.Has("--multi-room");
             bool parentOwned = options.Has("--bootstrap-stdin");
             string dataDirectory = options.Get("--data-dir");
             bool ephemeral = options.Has("--ephemeral");
-            DocumentModel.Require((dataDirectory != null) != ephemeral, "use-data-dir-or-explicit-ephemeral");
+            DocumentModel.Require(multiRoom ? dataDirectory == null && !ephemeral && !parentOwned && options.Has("--config") : (dataDirectory != null) != ephemeral, "use-data-dir-or-explicit-ephemeral");
             string config = options.Get("--config");
             DocumentModel.Require(!parentOwned || config == null, "use-config-or-private-stdin");
             string publicUrl = options.Get("--public-url");
             if (publicUrl != null) { publicUrl = ConnectionDoctor.Origin(publicUrl); DocumentModel.Require(new Uri(publicUrl).Scheme == "https", "public-url-requires-https"); }
-            string json = parentOwned ? await ReadBootstrapLine() : config == null ? "null" : ReadText(config, LocalJson.MaxBytes);
+            string json = multiRoom ? "null" : parentOwned ? await ReadBootstrapLine() : config == null ? "null" : ReadText(config, LocalJson.MaxBytes);
             DocumentModel.Require(json != null && Encoding.UTF8.GetByteCount(json) <= LocalJson.MaxBytes, "invalid-bootstrap");
             var seed = LocalJson.Decode<Bootstrap>(Encoding.UTF8.GetBytes(json));
             using var stop = new CancellationTokenSource();
             Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-            await using var server = new CollaborationServer(seed, options.Get("--listen", "http://127.0.0.1:8787"), options.Has("--allow-lan-http"), dataDirectory);
+            await using var server = new CollaborationServer(seed, options.Get("--listen", "http://127.0.0.1:8787"), options.Has("--allow-lan-http"), dataDirectory, multiRoom ? config : null);
             await server.StartAsync(stop.Token);
-            var ready = new Ready { url = server.Url, room = server.Room.Name, durable = server.Room.IsDurable,
-                recovered = server.Room.Recovered, revision = server.Room.Snapshot.revision };
+            var ready = new Ready { url = server.Url, room = server.Room?.Name, durable = multiRoom || server.Room.IsDurable, multiRoom = multiRoom, registryVersion = multiRoom ? RoomRegistry.Version : 0,
+                recovered = multiRoom || server.Room.Recovered, revision = server.Room?.Snapshot.revision ?? 0 };
             Console.WriteLine(publicUrl == null ? WireJson.Text(ready) : System.Text.Json.JsonSerializer.Serialize(new {
-                ready.type, ready.url, ready.room, ready.version, ready.durable, ready.recovered, ready.revision, publicUrl }));
+                ready.type, ready.url, ready.room, ready.version, ready.durable, ready.recovered, ready.revision, ready.multiRoom, ready.registryVersion, publicUrl }));
             await Console.Out.FlushAsync();
             if (parentOwned) {
                 // EOF (including a crashed parent) or an explicit line closes only this owned server.

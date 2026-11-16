@@ -26,6 +26,7 @@ namespace Protobot.Collaboration {
             "invalid-endpoint", "https-required-use-explicit-lan-http", "server-version-mismatch", "invalid-capabilities", "endpoint-changed",
             "catalog-or-room-mismatch", "diagnostic-role-mismatch", "event-stream-timeout", "event-stream-disconnected", "wrong-password",
             "invalid-session", "room-full", "join-rate-limit", "invalid-name", "invalid-request", "message-too-large", "schema-mismatch",
+            "room-required", "room-not-found", "room-unavailable", "server-request-limit", "server-event-limit", "room-event-limit",
             "catalog-mismatch", "room-storage-failed-restart-required", "protocol-mismatch", "catalog-protocol-mismatch"
         };
         public static string Origin(string value, bool allowInsecureLan = false) {
@@ -47,16 +48,27 @@ namespace Protobot.Collaboration {
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw; }
                 catch (Exception error) { checks.Add(new ConnectionCheck { name = name, status = "failed", code = Code(error), milliseconds = timer.ElapsedMilliseconds }); return false; }
             }
-            Capabilities caps = null;
+            DocumentModel.Require(room == null || DocumentModel.ValidId(room), "invalid-room");
+            Capabilities caps = null; string healthPath = "/health";
             using (var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) }) {
                 if (await Check("capabilities", async () => {
                     caps = await Get<Capabilities>(http, origin + "/capabilities", cancellation).ConfigureAwait(false);
                     DocumentModel.Require(caps != null && caps.protocol == 1 && caps.version == CollaborationProtocol.Version, "server-version-mismatch");
+                    if (caps.multiRoom && room == null) {
+                        DocumentModel.Require(catalog == null, "room-required");
+                        report.serverVersion = caps.version; report.durable = caps.durable; return;
+                    }
+                    DocumentModel.Require(caps.multiRoom || room == null || room == caps.room, "catalog-or-room-mismatch");
+                    string selected = room ?? caps.room;
+                    DocumentModel.Require(DocumentModel.ValidId(selected), "invalid-capabilities");
+                    caps = await Get<Capabilities>(http, origin + "/rooms/" + selected + "/capabilities", cancellation).ConfigureAwait(false);
+                    DocumentModel.Require(caps.room == selected && caps.protocol == 1 && caps.version == CollaborationProtocol.Version, "endpoint-changed");
+                    healthPath = "/rooms/" + selected + "/health";
                     DocumentModel.Require(DocumentModel.ValidId(caps.room) && !string.IsNullOrEmpty(caps.catalogHash) && caps.catalogHash.Length <= 128 && !caps.catalogHash.Any(char.IsControl), "invalid-capabilities");
                     report.room = caps.room; report.serverVersion = caps.version; report.catalogHash = caps.catalogHash; report.durable = caps.durable;
                 }).ConfigureAwait(false)) {
                     await Check("health", async () => {
-                        var health = await Get<Capabilities>(http, origin + "/health", cancellation).ConfigureAwait(false);
+                        var health = await Get<Capabilities>(http, origin + healthPath, cancellation).ConfigureAwait(false);
                         DocumentModel.Require(health.room == caps.room && health.catalogHash == caps.catalogHash && health.version == caps.version, "endpoint-changed");
                     }).ConfigureAwait(false);
                     if (catalog != null && await Check("compatibility", () => {
@@ -110,12 +122,15 @@ namespace Protobot.Collaboration {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             timeout.CancelAfter(TimeSpan.FromSeconds(12)); cancellation = timeout.Token;
             using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false)) {
-                DocumentModel.Require(response.IsSuccessStatusCode, "http-" + (int)response.StatusCode);
                 using (var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
                 using (var output = new MemoryStream()) {
                     var buffer = new byte[4096]; int count;
                     while ((count = await input.ReadAsync(buffer, 0, buffer.Length, cancellation).ConfigureAwait(false)) > 0) {
                         DocumentModel.Require(output.Length + count <= 65536, "invalid-capabilities"); output.Write(buffer, 0, count);
+                    }
+                    if (!response.IsSuccessStatusCode) {
+                        string reason = null; try { reason = WireJson.Decode<WireError>(output.ToArray())?.error; } catch { }
+                        throw new CollaborationException(reason != null && KnownCodes.Contains(reason) ? reason : "http-" + (int)response.StatusCode);
                     }
                     return WireJson.Decode<T>(output.ToArray());
                 }

@@ -713,6 +713,11 @@ namespace Protobot {
             "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",
             "asset-byte-limit" or "local-serialization-limit" => "This custom geometry exceeds the collaboration size limit. Use a smaller mesh.",
             "asset-scene-quota" => "This build has too much instanced custom geometry. Reduce mesh detail or the number of custom-model copies.",
+            "room-not-found" => "That room ID is not registered on this server. Check the invitation's room ID.",
+            "room-unavailable" or "room-storage-failed-restart-required" => "This room is unavailable. Ask the server operator to inspect its status and recovery data.",
+            "server-geometry-quota" => "The server's shared geometry budget is full. Ask the operator to check room usage.",
+            "server-transfer-busy" => "The server is transferring models for other rooms. Retry when a slot is available.",
+            "room-request-limit" or "room-event-limit" or "server-request-limit" or "server-event-limit" => "The room or server has reached its connection limit. Close extra sessions and retry.",
             "asset-transfer-busy" => "Another model is transferring. Retry when it finishes.",
             "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
             _ => error.Message

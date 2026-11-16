@@ -67,20 +67,23 @@ namespace Protobot.Collaboration {
             DocumentModel.Require(lifetime == null, "already-connected");
             DocumentModel.Require(!IsMembershipRevoked, "membership-revoked");
             Interlocked.Increment(ref connectionEpoch);
-            var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
+            var server = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
+            DocumentModel.Require(server.protocol == 1 && server.version == CollaborationProtocol.Version, "server-version-mismatch");
+            DocumentModel.Require(server.multiRoom || server.room == room, "catalog-or-room-mismatch");
+            var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, cancellation).ConfigureAwait(false);
             DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
             DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
             IsDurable = capabilities.durable;
             SupportsParticipantAdministration = capabilities.participantAdministration;
             LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
             var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
-                catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
+                room = room, catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
                 resumeToken = resumeToken
             }, cancellation).ConfigureAwait(false);
             DocumentModel.Validate(joined.document, catalog);
             DocumentModel.Require(capabilities.geometryTransfer && joined.document.schema == 2, "geometry-transfer-required");
             DocumentModel.Require(!string.IsNullOrEmpty(joined.resumeToken) && joined.resumeToken.Length < 256 && joined.sequence >= 0 &&
-                joined.document.generation == capabilities.generation, "invalid-join-response");
+                joined.room == room && joined.document.generation == capabilities.generation, "invalid-join-response");
             token = joined.token; resumeToken = joined.resumeToken; Participant = joined.participant;
             // Save the identity before downloading: interruption must resume this membership.
             lock (gate) { document = GeometryTransfer.CloneDocument(joined.document); SaveRecovery(); }

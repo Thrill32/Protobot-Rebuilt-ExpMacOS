@@ -1,6 +1,6 @@
-# Dedicated Debian room
+# Dedicated Debian hosting
 
-This is the single-room deployment path for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Bounded custom geometry, confirmed live mounting layouts and sprocket chains are accepted room content. Bounded geometry uses authenticated transfer endpoints and SQLite-v2 content storage; multi-room administration remains unfinished. Offline single-room backup/restore is supported.
+This documents single-room and bounded multi-room deployment for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Bounded custom geometry, confirmed live mounting layouts and sprocket chains are accepted room content. Bounded geometry uses authenticated transfer endpoints and SQLite-v2 content storage; one dedicated listener can host up to eight isolated rooms. Offline per-room backup/restore and registration are supported.
 
 Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux-arm64` for `aarch64`/`arm64` systems such as a 64-bit Raspberry Pi 4. These self-contained .NET 10 publishes include the managed runtime, but still require the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. A 32-bit `armv7l` operating system is not supported by the supplied artifacts.
 
@@ -50,6 +50,43 @@ sudo journalctl -u protobot-collab -n 30 --no-pager
 ```
 
 The unit runs an unprivileged process, restarts failures and uses the same SQLite room on restart. The readiness JSON's `url` is its **loopback listener**, not an internet invite. Standalone `serve` also accepts `--public-url https://cad.example.org` to label an advertised origin in readiness; this does not test reachability. The service lifecycle follows the normal [ASP.NET Core systemd hosting model](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/linux-nginx?view=aspnetcore-10.0).
+
+## Serve multiple rooms through one listener
+
+Use the same artifact, service account, HTTPS origin and Caddy configuration. Keep the single-room unit for existing installations, or install `protobot-collab-multi.service` for a registry at `/var/lib/protobot-collab/server`:
+
+```sh
+sudo -u protobot /opt/protobot-collab/protobot-collab server-init \
+  --data-dir /var/lib/protobot-collab/server
+sudo install -m 0644 protobot-collab-multi.service /etc/systemd/system/protobot-collab.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now protobot-collab
+sudo -u protobot /opt/protobot-collab/protobot-collab room create \
+  --url http://127.0.0.1:8787 --admin-file /var/lib/protobot-collab/server/admin.json \
+  --room team --catalog /opt/protobot-collab/catalog.json --password-prompt \
+  --owner-output /var/lib/protobot-collab/team-owner.json
+sudo -u protobot /opt/protobot-collab/protobot-collab room list \
+  --url http://127.0.0.1:8787 --admin-file /var/lib/protobot-collab/server/admin.json
+```
+
+For another room, choose another room ID and a new owner-output file, plus that room's matching catalog or portable snapshot. Share the same public HTTPS origin with its exact room ID. Players use the existing Join room field; `doctor` must receive `--room <id>` for authenticated checks. Room owners manage only their room using `server/rooms/<id>/owner.json` (or the private owner-output copy); server `admin.json` is separate and grants no membership. Keep these files out of service arguments, invites and logs. The CLI retains its owner-output file after a refused/interrupted create; list rooms before retrying.
+
+The service reopens all registered rooms after restart. Check both listener `/health` and each `/rooms/<id>/health`; listener readiness does not claim every room recovered. Protected `room list` reports actionable per-room failures. Never run `init` over unavailable room data. Stop the service before backup/restore:
+
+```sh
+sudo systemctl stop protobot-collab
+sudo -u protobot /opt/protobot-collab/protobot-collab backup \
+  --data-dir /var/lib/protobot-collab/server/rooms/team \
+  --output /var/lib/protobot-collab/backups/team-new.zip
+sudo -u protobot /opt/protobot-collab/protobot-collab room restore \
+  --config /var/lib/protobot-collab/new-server/server.json \
+  --admin-file /var/lib/protobot-collab/new-server/admin.json \
+  --input /var/lib/protobot-collab/backups/team-new.zip
+```
+
+Initialize the new registry first with `server-init`. Restore registers the archived room ID/generation/catalog/credentials/history atomically, without making a new membership or resetting content. Existing IDs/duplicate identities are refused, even for failed rooms. To restore a damaged room in the current stopped registry, preserve/quarantine its entire `rooms/<id>` directory outside `rooms/` first, then use `room restore` with the current config/admin file. Keep every original/quarantined copy stopped. Update the unit config path when moving registries, preserve the public endpoint and matching catalog, then start and run authenticated sustained doctor and player recovery checks for each room. Single-room stores can move into a registry by stopped backup followed by `room restore`; direct filesystem-path registration is not an HTTP operation.
+
+See [multi-room contracts and process limits](../README.md#dedicated-multi-room-hosting). In brief: eight rooms, loaded geometry budgets of 128 MiB encoded / 256 MiB decoded cost / 256 MiB live-instance cost, two transfers total, 64 requests and 32 event streams. Each room keeps its original quotas. Corrupt/locked/over-budget rooms remain unavailable while healthy rooms continue. Room count, identity and catalog are never changed automatically. Debian/Pi execution, systemd restoration, Windows/Linux permission/rename behavior, cross-OS archives and trusted public HTTPS/proxy transfers remain field/CI acceptance checks.
 
 ## Choose the listening ports
 
@@ -125,7 +162,7 @@ python3 validate-https-config.py --caddy /path/to/caddy
 
 The check provisions the exact template for ports 1, 80, 443, 2019, 8443 and 65535 without binding those ports, then verifies HTTPS proxy traffic using a temporary loopback listener and certificate trusted only inside the test.
 
-## Manage single-room memberships
+## Manage room memberships
 
 Run the matching helper as the service account (or use a private operator copy of `owner.json`). The service stays running:
 
@@ -192,6 +229,6 @@ sudo -u protobot /opt/protobot-collab/protobot-collab restore \
   --data-dir /var/lib/protobot-collab/restored-team
 ```
 
-Adjust paths to the installed helper and room. Backup refuses a running/locked room and never overwrites an archive. Restore refuses every existing destination, including an empty directory, validates in private staging, then publishes atomically. Do not copy individual SQLite/WAL files or remove `room.lock` to bypass ownership. Archive v1 contains a consistent standalone SQLite snapshot, versioned integrity manifest and matching `owner.json`; it preserves room identity, password verification, memberships/revocations, receipts, assets, mounts, explicit chains and undo/redo history. Keep the matching helper/catalog release with the archive. Archives contain credentials and remain unencrypted, with 0600 files and 0700 restored directories on Unix. Back up service configuration and TLS material separately.
+Adjust paths to the installed helper and room. Backup refuses a running/locked room and never overwrites an archive. Restore refuses every existing destination, including an empty directory, validates in private staging, then publishes atomically. Do not copy individual SQLite/WAL files or remove `room.lock` to bypass ownership. Archive v2 contains a consistent standalone SQLite snapshot, versioned integrity manifest and matching `owner.json`; it preserves room identity, password verification, memberships/revocations, receipts, assets, mounts, explicit chains and undo/redo history. Keep the matching helper/catalog release with the archive. Archives contain credentials and remain unencrypted, with 0600 files and 0700 restored directories on Unix. Back up service configuration and TLS material separately.
 
-To use the restore, update the systemd unit's `--data-dir` to `/var/lib/protobot-collab/restored-team`, run `sudo systemctl daemon-reload`, then `sudo systemctl start protobot-collab`. Keep the original stopped; never serve both copies. Verify authenticated sustained `doctor` checks and both participants' identity/history recovery through the original endpoint. Do not run `init` over recovered data. See [format, bounds and compatibility](../README.md#offline-backup-and-restore); online backup, general storage/catalog migration and multi-room administration remain future work; the README documents the atomic 0.7/v1 upgrade and original-catalog client option.
+To use the restore, update the systemd unit's `--data-dir` to `/var/lib/protobot-collab/restored-team`, run `sudo systemctl daemon-reload`, then `sudo systemctl start protobot-collab`. Keep the original stopped; never serve both copies. Verify authenticated sustained `doctor` checks and both participants' identity/history recovery through the original endpoint. Do not run `init` over recovered data. See [format, bounds and compatibility](../README.md#offline-backup-and-restore); online backup and arbitrary catalog migration remain future work; the README documents the atomic 0.7/v1 upgrade and original-catalog client option.
