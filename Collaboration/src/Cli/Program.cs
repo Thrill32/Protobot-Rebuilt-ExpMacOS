@@ -16,11 +16,15 @@ internal static partial class Program {
                     "protobot-collab serve --ephemeral --config <protected-bootstrap.json>\n" +
                     "protobot-collab backup --data-dir <stopped-room> --output <new-archive.zip>\n" +
                     "protobot-collab restore --input <archive.zip> --data-dir <new-directory>\n" +
+                    "protobot-collab participants --url <origin> --owner-file <protected-owner.json> [--allow-lan-http]\n" +
+                    "protobot-collab remove-participant --url <origin> --owner-file <protected-owner.json> --participant <stable-id> [--allow-lan-http]\n" +
                     "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests] [--quick] [--output <report.json>]\n" +
                     "Development alpha: one room; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
             }
             if (args[0] == "init") return Initialize(new Options(args, new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
             if (args[0] == "doctor") return await Doctor(new Options(args, new[] { "--url", "--catalog", "--room", "--password-file", "--transport", "--output" }, new[] { "--password-prompt", "--quick", "--allow-lan-http" }));
+            if (args[0] == "participants" || args[0] == "remove-participant") return await Administer(args[0],
+                new Options(args, args[0] == "participants" ? new[] { "--url", "--owner-file" } : new[] { "--url", "--owner-file", "--participant" }, new[] { "--allow-lan-http" }));
             if (args[0] == "backup") {
                 var backup = new Options(args, new[] { "--data-dir", "--output" }, Array.Empty<string>());
                 RoomBackup.Backup(backup.Required("--data-dir"), backup.Required("--output"));

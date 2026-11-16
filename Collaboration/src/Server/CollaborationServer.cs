@@ -47,7 +47,8 @@ namespace Protobot.Collaboration.Server {
                 catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
                 catch (CollaborationException error) {
                     if (!context.Response.HasStarted) {
-                        context.Response.StatusCode = error.Code == "invalid-session" ? 401 : 409;
+                        context.Response.StatusCode = error.Code == "owner-required" ? 403 :
+                            error.Code == "invalid-session" || error.Code == "membership-revoked" ? 401 : 409;
                         await Write(context, new WireError { error = error.Code });
                     }
                 }
@@ -80,6 +81,8 @@ namespace Protobot.Collaboration.Server {
             app.MapPost(path + "/commit", async context => await Write(context, Room.Commit(Token(context), await Read<Transaction>(context))));
             app.MapGet(path + "/receipt", context => Write(context, Room.Outcome(Token(context), context.Request.Query["operationId"])));
             app.MapPost(path + "/leave", async context => { Room.Leave(Token(context)); await Write(context, new WireError()); });
+            app.MapGet(path + "/participants", context => Write(context, Room.Memberships(Token(context))));
+            app.MapPost(path + "/participants/remove", async context => await Write(context, Room.RemoveParticipant(Token(context), await Read<RemoveParticipant>(context))));
             app.MapGet(path + "/events", async context => {
                 string token = Token(context);
                 DocumentModel.Require(long.TryParse(context.Request.Query["after"], out var after) && long.TryParse(context.Request.Query["transient"], out _), "invalid-cursor");
@@ -100,6 +103,14 @@ namespace Protobot.Collaboration.Server {
                         transient = batch.transientVersion;
                         batch = await Room.ReadAsync(token, after, transient, lifetime.Token);
                     }
+                }
+                catch (CollaborationException error) {
+                    // A wake from durable revocation must terminate this event connection with
+                    // the same reason as held requests. Bound the close even for a stalled peer.
+                    using var close = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                    try { await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, error.Code, close.Token); }
+                    catch (WebSocketException) { }
+                    catch (OperationCanceledException) { }
                 }
                 catch (WebSocketException) { }
                 catch (OperationCanceledException) { }

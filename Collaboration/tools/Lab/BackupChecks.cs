@@ -25,7 +25,8 @@ internal static partial class Program {
         using (var store = new RoomStore(data)) {
             var room = new Room(null, storage: store);
             owner = room.Join(new JoinRequest { name = "Backup owner", catalogHash = seed.catalog.hash, ownerCredential = ownerCredential });
-            revoked = room.Join(new JoinRequest { name = "Revoked member", catalogHash = seed.catalog.hash, password = seed.password }); room.Leave(revoked.token);
+            revoked = room.Join(new JoinRequest { name = "Removed member", catalogHash = seed.catalog.hash, password = seed.password });
+            room.RemoveParticipant(owner.token, new RemoveParticipant { participantId = revoked.participant.id });
             var asset = Asset();
             var route = new ChainRecord { id = "backup-chain", members = new[] { "a", "c", "b" }, routeVersion = 1, wraps = new[] { 0, 1, 0 } };
             accepted = Tx(room.Snapshot, "AddParts", new[] { Cube("a"), Cube("b", 3), Cube("c", 6), Custom("custom", asset) },
@@ -70,7 +71,10 @@ internal static partial class Program {
             Check(room.Recovered && DocumentModel.Hash(room.Snapshot) == hash && room.Snapshot.parts.Any(p => p.id == "wal-tail"), "restored database recovers the exact accepted document including committed WAL state");
             Check(room.Snapshot.chains.Single().routeVersion == 1 && room.Snapshot.chains.Single().wraps.Contains(1) &&
                 room.Snapshot.parts.Single(p => p.id == "custom").mounts.Length == 2 && room.Snapshot.assets.Length == 1, "restored chains, ordered mounts and deduplicated geometry are retained");
-            Reject(() => room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = revoked.resumeToken }), "invalid-session");
+            Reject(() => room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = revoked.resumeToken }), "membership-revoked");
+            Check(room.RemoveParticipant(ownerCredential, new RemoveParticipant { participantId = revoked.participant.id }).alreadyRevoked &&
+                room.Memberships(ownerCredential).memberships.Single(m => m.participant.id == revoked.participant.id).revoked,
+                "restored owner administration retains revocation and duplicate removal outcomes without creating a membership");
             var resumed = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = owner.resumeToken });
             Check(resumed.participant.id == owner.participant.id && resumed.participant.role == "owner" && resumed.token != owner.token, "restored room retains stable identity and fences prior access tokens");
             Check(room.Outcome(resumed.token, rejected.operationId).error != null && room.Commit(resumed.token, accepted).revision == 1 && DocumentModel.Hash(room.Snapshot) == hash,

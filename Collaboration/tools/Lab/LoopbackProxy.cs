@@ -18,12 +18,17 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     private readonly HttpClient forward = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     public string Url { get; private set; }
     public bool DropNextCommitResponse;
+    public bool DropNextRemovalResponse;
     public int CommitDelayMilliseconds;
     public string RejectedJoinError;
+    public string RejectedAdministrationError;
     public LoopbackProxy(string upstream) {
         var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
         app = builder.Build();
         app.Run(async context => {
+            if (RejectedAdministrationError != null && context.Request.Path.Value.EndsWith("/participants", StringComparison.Ordinal)) {
+                context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedAdministrationError })); return;
+            }
             if (RejectedJoinError != null && context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal)) {
                 context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedJoinError })); return;
             }
@@ -35,6 +40,7 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
                 using var response = await forward.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
                 bool commit = context.Request.Path.Value.EndsWith("/commit", StringComparison.Ordinal);
                 if (commit && DropNextCommitResponse) { DropNextCommitResponse = false; context.Abort(); return; }
+                if (context.Request.Path.Value.EndsWith("/participants/remove", StringComparison.Ordinal) && DropNextRemovalResponse) { DropNextRemovalResponse = false; context.Abort(); return; }
                 if (commit && CommitDelayMilliseconds > 0) await Task.Delay(CommitDelayMilliseconds, context.RequestAborted);
                 context.Response.StatusCode = (int)response.StatusCode;
                 context.Response.ContentType = "application/json";

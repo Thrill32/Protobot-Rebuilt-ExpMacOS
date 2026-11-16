@@ -67,7 +67,7 @@ internal static partial class Program {
             var room = new Room(null, storage: store);
             var resumed = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = alice.resumeToken });
             Check(room.Commit(resumed.token, Tx(room.Snapshot, "Redo", Array.Empty<Part>(), sequence: ++sequence)).error == "history-changed-by-another-participant", "inverse invalidation survives a second restart");
-            Reject(() => room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = bob.resumeToken }), "invalid-session");
+            Reject(() => room.Join(new JoinRequest { catalogHash = seed.catalog.hash, resumeToken = bob.resumeToken }), "membership-revoked");
             Reject(() => room.Join(new JoinRequest { catalogHash = seed.catalog.hash, name = "Wrong password", password = "wrong" }), "wrong-password");
         }
         using (var db = new SqliteConnection("Data Source=" + database + ";Pooling=False")) {

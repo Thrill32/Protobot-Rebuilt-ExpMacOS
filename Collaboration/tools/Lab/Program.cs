@@ -23,6 +23,7 @@ internal static partial class Program {
         var timer = Stopwatch.StartNew();
         try {
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await AdministrationChecks(directory);
             await DurabilityChecks(directory);
             await DeploymentChecks(directory);
             await BackupChecks(directory);
@@ -234,7 +235,7 @@ internal static partial class Program {
         Check(receipt.accepted && receipt.revision == 1, "all-or-none reservation commit");
         Check(authority.Commit(bob.token, accepted).revision == 1 && authority.Outcome(bob.token, accepted.operationId).accepted, "lost ack retry and outcome lookup");
         authority.Leave(bob.token);
-        Reject(() => authority.Outcome(bob.token, accepted.operationId), "invalid-session");
+        Reject(() => authority.Outcome(bob.token, accepted.operationId), "membership-revoked");
         seed.password = "secret";
         var protectedRoom = new Room(seed);
         Reject(() => protectedRoom.Join(Join("Wrong")), "wrong-password");

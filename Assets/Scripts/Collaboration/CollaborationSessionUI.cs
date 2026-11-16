@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Protobot.Builds;
 using Protobot.Collaboration;
 using Protobot.Tools;
@@ -12,6 +13,14 @@ namespace Protobot {
     // Runtime-only UI: the production scene and ordinary offline builds need no migration.
     public sealed partial class CollaborationSession {
         private GameObject uiRoot, uiModal, uiTabs, uiHost, uiJoin, uiRecovery, uiConnected, uiLeaveConfirmation;
+        private GameObject uiAdministration, uiRemoveConfirmation;
+        private Transform uiMembershipRows;
+        private Text uiRemoveWarning, uiRemovedNotice;
+        private Button uiRefreshMembers, uiConfirmRemove;
+        private Membership[] managedMemberships = Array.Empty<Membership>();
+        private CollaborationClient administrationClient;
+        private bool loadingMembers;
+        private string membershipSignature, pendingRemovalId, pendingRemovalName;
         private RectTransform uiCard, uiContent, uiBadge;
         private CanvasGroup uiFormGroup, uiUtilityGroup;
         private Text uiBadgeText, uiStatus, uiConnection, uiMembers, uiSaveStatus, uiRecoveryNotice, uiLeaveWarning, uiReachability;
@@ -114,6 +123,17 @@ namespace Protobot {
             UIButton(invite, "Copy Invite", "Copy invite", () => { GUIUtility.systemCopyBuffer = CollaborationInvite.Format(endpoint, room); status = "Invite copied. Send the password separately, if required."; });
             UIButton(invite, "Copy Server", "Copy server address", () => { GUIUtility.systemCopyBuffer = endpoint; status = "Server address copied."; });
             uiMembers = UIText(uiConnected.transform, "Participants", "");
+            uiRemovedNotice = UIText(uiConnected.transform, "Removed Membership", "Your membership was removed. Shared editing and reconnect are disabled. Continue offline to keep the last received accepted build. This revokes one membership; it does not ban a person.");
+            uiAdministration = UIColumn(uiConnected.transform, "Participant Administration").gameObject;
+            uiRefreshMembers = UIButton(uiAdministration.transform, "Manage Participants", "Refresh participant management", () => _ = RefreshMembershipsAsync());
+            UIText(uiAdministration.transform, "Administration Help", "Owner controls include offline memberships. Removal ends access and personal history for that membership; accepted content stays. Anyone with the room password can create a fresh membership.", 12);
+            uiMembershipRows = UIColumn(uiAdministration.transform, "Memberships");
+            uiRemoveConfirmation = UIColumn(uiAdministration.transform, "Confirm Participant Removal").gameObject;
+            uiRemoveWarning = UIText(uiRemoveConfirmation.transform, "Removal Warning", "");
+            var removeActions = UIRow(uiRemoveConfirmation.transform, "Removal Actions");
+            uiConfirmRemove = UIButton(removeActions, "Confirm Remove Participant", "Remove membership", () => _ = RemoveMembershipAsync(), true);
+            UIButton(removeActions, "Cancel Remove Participant", "Keep membership", () => { pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); });
+            uiRemoveConfirmation.SetActive(false);
             uiSaveStatus = UIText(uiConnected.transform, "Local File", "");
             var saves = UIRow(uiConnected.transform, "Local Save");
             uiSave = UIButton(saves, "Save Local", "Save local file", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().Save(); });
@@ -144,7 +164,7 @@ namespace Protobot {
         }
 
         private void OpenPanel(int tab = -1) {
-            if (!panel) { CancelTools(); ClearUIFocus(); uiLeaveConfirmation.SetActive(false); }
+            if (!panel) { CancelTools(); ClearUIFocus(); uiLeaveConfirmation.SetActive(false); pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); }
             if (tab >= 0) SelectUITab(tab);
             panel = true; nextUIRefresh = 0; RefreshUI();
         }
@@ -211,17 +231,20 @@ namespace Protobot {
                 uiReachability.text = "Server: " + endpoint + "\n" + (host != null ? host.AllowLan ? "LAN host. Share a reachable LAN address; internet access is not configured." : "Local host. Only players on this computer can connect." : "Connected to a remote host.") + "\n" + (client.IsDurable ? "Room recovery enabled." : "Temporary room. Save accepted content locally.");
                 var members = participants.Length == 0 ? new[] { client.Participant } : participants;
                 uiMembers.text = $"Participants ({members.Length}/10)\n" + string.Join("\n", members.Select(p => p.name + (p.id == client.Participant.id ? " (you)" : "") + "  -  " + p.role));
+                RefreshAdministrationUI();
+                uiRemovedNotice.gameObject.SetActive(client.IsMembershipRevoked);
                 var builds = FindFirstObjectByType<BuildsManager>();
                 bool fileBusy = builds == null || builds.IsFileOperationInProgress || NativeFileDialogs.IsOpen;
                 uiSaveStatus.text = "Your local file: " + (string.IsNullOrEmpty(builds?.buildPath) ? "Unsaved - first save uses Save As" : builds.GetFileName() + (builds.CurrentBuildIsSaved ? " - saved" : " - unsaved changes")) + (client.PendingCount > 0 ? $"\n{client.PendingCount} edit(s) awaiting an outcome." : "");
                 uiSave.interactable = uiSaveAs.interactable = !busy && !fileBusy && client.PendingCount == 0;
-                uiReconnect.gameObject.SetActive(!client.IsConnected); uiReconnect.interactable = !busy;
+                uiReconnect.gameObject.SetActive(!client.IsConnected && !client.IsMembershipRevoked); uiReconnect.interactable = !busy;
                 uiReconnect.GetComponentInChildren<Text>().text = host != null && !host.IsRunning ? "Restart host and reconnect" : "Reconnect";
                 uiLeave.interactable = !busy && !fileBusy;
                 uiLeave.GetComponentInChildren<Text>().text = host != null ? "Stop hosting and continue offline..." : "Leave and continue offline...";
                 uiLeaveWarning.text = (host != null ? "This disconnects everyone and stops the hosted room. Recovery data stays on this computer. " : "This ends your membership and its personal undo history. ") + "The last accepted document stays open offline; leaving does not save a local file." + (client.PendingCount > 0 ? " Pending edit outcomes are unresolved. Reconnect first to learn whether they were accepted." : "");
+                if (client.IsMembershipRevoked) uiLeaveWarning.text = "Your membership is revoked. Continue offline keeps only the last received accepted build. Any pending edit outcomes are unavailable through this membership; check with the owner before recreating them. This does not save a local file.";
                 // Never abandon an ambiguous submitted edit through the UI.
-                uiLeaveConfirmation.GetComponentsInChildren<Button>().First().interactable = !busy && client.PendingCount == 0;
+                uiLeaveConfirmation.GetComponentsInChildren<Button>().First().interactable = !busy && (client.PendingCount == 0 || client.IsMembershipRevoked);
             }
             string signature = string.Join("|", recoveredRooms.Select(r => r.directory));
             if (signature != recoverySignature) {
@@ -247,6 +270,63 @@ namespace Protobot {
             }
         }
 
+        private void RefreshAdministrationUI() {
+            if (administrationClient != client) {
+                administrationClient = client; managedMemberships = Array.Empty<Membership>(); membershipSignature = null;
+                pendingRemovalId = null; uiRemoveConfirmation.SetActive(false);
+            }
+            bool owner = client.Participant.role == "owner" && client.SupportsParticipantAdministration;
+            uiAdministration.SetActive(owner);
+            if (!owner) return;
+            uiRefreshMembers.interactable = !busy && !loadingMembers && client.IsConnected;
+            uiConfirmRemove.interactable = !busy && client.IsConnected && pendingRemovalId != null;
+            string signature = string.Join("|", managedMemberships.Where(m => !m.revoked).Select(m => m.participant.id + ":" + m.active)) + ":" + busy + ":" + client.IsConnected;
+            if (signature == membershipSignature) return;
+            membershipSignature = signature;
+            foreach (Transform child in uiMembershipRows) { child.gameObject.SetActive(false); Destroy(child.gameObject); }
+            foreach (var membership in managedMemberships.Where(m => !m.revoked)) {
+                var participant = membership.participant;
+                var row = UIColumn(uiMembershipRows, "Member " + participant.id);
+                UIText(row, "Identity", participant.name + "  -  " + participant.role + (membership.active ? " (online)" : " (offline)") + "\nID: " + participant.id, 12);
+                if (participant.role == "owner") continue;
+                var remove = UIButton(row, "Remove " + participant.id, "Remove " + participant.name + "...", () => {
+                    pendingRemovalId = participant.id; pendingRemovalName = participant.name;
+                    uiRemoveWarning.text = "Remove " + pendingRemovalName + "?\nMembership ID: " + pendingRemovalId + "\nTheir active and saved access will be revoked and their previews canceled. Accepted edits remain. This does not ban the person; the room password still permits a fresh membership.";
+                    uiRemoveConfirmation.SetActive(true);
+                });
+                remove.interactable = !busy && client.IsConnected;
+            }
+        }
+
+        private async Task RefreshMembershipsAsync() {
+            var connection = client;
+            if (connection?.IsConnected != true || connection.Participant.role != "owner" || loadingMembers || busy) return;
+            long epoch = connection.ConnectionEpoch; loadingMembers = true;
+            try {
+                var result = await connection.MembershipsAsync();
+                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                administrationClient = connection; managedMemberships = result.memberships; membershipSignature = null;
+                status = "Participant management refreshed.";
+            }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
+            finally { loadingMembers = false; }
+        }
+
+        private async Task RemoveMembershipAsync() {
+            var connection = client; string target = pendingRemovalId, name = pendingRemovalName;
+            if (connection?.IsConnected != true || connection.Participant.role != "owner" || target == null || busy) return;
+            long epoch = connection.ConnectionEpoch; busy = true;
+            try {
+                var result = await connection.RemoveParticipantAsync(target);
+                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                foreach (var member in managedMemberships.Where(m => m.participant.id == target)) member.revoked = true;
+                status = name + (result.alreadyRevoked ? " membership was already revoked." : " membership removed. Accepted content is unchanged.");
+                pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); membershipSignature = null;
+            }
+            catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
+            finally { busy = false; }
+        }
+
         private static string FriendlyStatus(string value) => value switch {
             "wrong-password" => "The room password was not accepted. Check it with the host and try again.",
             "catalog-or-room-mismatch" => "Room ID or catalog differs. Check the room ID and use the same build as the host.",
@@ -255,6 +335,10 @@ namespace Protobot {
             "room-full" => "This room has reached its participant limit.",
             "saved-room-does-not-match" => "This address now refers to a different room. Check the host, or forget the saved membership before joining anew.",
             "invalid-session" => "The saved membership is no longer valid. Forget it to join as a new member.",
+            "membership-revoked" => "Your membership was removed or ended. Shared editing and reconnect are disabled. Continue offline to keep the last received accepted build.",
+            "owner-required" => "Only a room owner can manage memberships.",
+            "owner-removal-protected" => "Owner memberships cannot be removed through participant management.",
+            "participant-administration-unavailable" => "This helper needs an update before participant management is available.",
             "recovery-catalog-mismatch-use-the-matching-build" => "This recovered room needs the original matching build and catalog.",
             _ => value
         };

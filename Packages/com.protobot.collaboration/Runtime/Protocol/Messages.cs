@@ -115,6 +115,13 @@ namespace Protobot.Collaboration {
         public bool viewer;
     }
     [Serializable] public sealed class Participant { public string id, name, role; }
+    [Serializable] public sealed class Membership {
+        public Participant participant;
+        public bool active, revoked;
+    }
+    [Serializable] public sealed class MembershipList { public Membership[] memberships = Array.Empty<Membership>(); }
+    [Serializable] public sealed class RemoveParticipant { public string participantId; }
+    [Serializable] public sealed class RemovalResult { public string participantId; public bool alreadyRevoked; }
     [Serializable] public sealed class JoinResponse {
         public string token;
         public string resumeToken;
@@ -142,6 +149,8 @@ namespace Protobot.Collaboration {
         public string version = CollaborationProtocol.Version;
         public string[] transports = new[] { "websocket", "long-polling" };
         public bool durable = false;
+        // Optional additive capability; absent on earlier 0.7 helpers.
+        [System.Runtime.Serialization.OptionalField] public bool participantAdministration;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {

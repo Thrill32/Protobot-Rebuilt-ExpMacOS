@@ -39,6 +39,8 @@ namespace Protobot.Collaboration {
         public Participant Participant { get; private set; }
         public bool IsConnected { get; private set; }
         public bool IsDurable { get; private set; }
+        public bool SupportsParticipantAdministration { get; private set; }
+        public bool IsMembershipRevoked { get; private set; }
         public string ActiveTransport { get; private set; }
         public CollaborationTransport Transport { get; }
         public long ConnectionEpoch => Interlocked.Read(ref connectionEpoch);
@@ -63,11 +65,13 @@ namespace Protobot.Collaboration {
 
         public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false, CancellationToken cancellation = default) {
             DocumentModel.Require(lifetime == null, "already-connected");
+            DocumentModel.Require(!IsMembershipRevoked, "membership-revoked");
             Interlocked.Increment(ref connectionEpoch);
             var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
             DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
             DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
             IsDurable = capabilities.durable;
+            SupportsParticipantAdministration = capabilities.participantAdministration;
             LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
             var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
                 catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
@@ -150,7 +154,7 @@ namespace Protobot.Collaboration {
         }
 
         public async Task<Receipt> SubmitAsync(Transaction transaction, CancellationToken cancellation = default) {
-            DocumentModel.Require(IsConnected, "disconnected");
+            DocumentModel.Require(IsConnected, IsMembershipRevoked ? "membership-revoked" : "disconnected");
             long epoch = ConnectionEpoch;
             try {
                 lock (gate) {
@@ -166,7 +170,7 @@ namespace Protobot.Collaboration {
         }
 
         public Task<LeaseResponse> ReserveAsync(string[] ids, string lease = null, CancellationToken cancellation = default) {
-            DocumentModel.Require(IsConnected, "disconnected");
+            DocumentModel.Require(IsConnected, IsMembershipRevoked ? "membership-revoked" : "disconnected");
             return Post<LeaseRequest, LeaseResponse>("lease", new LeaseRequest { ids = ids, token = lease }, cancellation);
         }
         public Task ReleaseAsync(string lease, CancellationToken cancellation = default) => Post<LeaseRequest, WireError>("release", new LeaseRequest { token = lease }, cancellation);
@@ -201,6 +205,15 @@ namespace Protobot.Collaboration {
         }
         public async Task PrepareReconnectAsync() => await StopPump().ConfigureAwait(false);
 
+        public Task<MembershipList> MembershipsAsync(CancellationToken cancellation = default) {
+            DocumentModel.Require(SupportsParticipantAdministration, "participant-administration-unavailable");
+            return Get<MembershipList>("participants", cancellation);
+        }
+        public Task<RemovalResult> RemoveParticipantAsync(string participantId, CancellationToken cancellation = default) {
+            DocumentModel.Require(SupportsParticipantAdministration, "participant-administration-unavailable");
+            return Post<RemoveParticipant, RemovalResult>("participants/remove", new RemoveParticipant { participantId = participantId }, cancellation);
+        }
+
         private async Task StopPump() {
             IsConnected = false;
             var old = lifetime; old?.Cancel();
@@ -233,6 +246,8 @@ namespace Protobot.Collaboration {
                                             heartbeat.CancelAfter(TimeSpan.FromSeconds(45));
                                             received = await socket.ReceiveAsync(new ArraySegment<byte>(bytes), heartbeat.Token).ConfigureAwait(false);
                                         }
+                                        if (received.MessageType == WebSocketMessageType.Close && received.CloseStatus == WebSocketCloseStatus.PolicyViolation)
+                                            throw new CollaborationException(received.CloseStatusDescription == "membership-revoked" ? "membership-revoked" : "event-session-ended");
                                         DocumentModel.Require(received.MessageType == WebSocketMessageType.Text && stream.Length + received.Count <= WireJson.MaxMessageBytes, "invalid-event-stream");
                                         stream.Write(bytes, 0, received.Count);
                                     } while (!received.EndOfMessage);
@@ -266,6 +281,8 @@ namespace Protobot.Collaboration {
         }
 
         private void Freeze(string reason) {
+            if (reason == "membership-revoked") IsMembershipRevoked = true;
+            if (IsMembershipRevoked) reason = "membership-revoked";
             bool notify = IsConnected; IsConnected = false; lifetime?.Cancel();
             lock (gate) advanced.TrySetResult(true);
             if (notify) Disconnected?.Invoke(reason);
@@ -295,6 +312,7 @@ namespace Protobot.Collaboration {
                         if (!response.IsSuccessStatusCode) {
                             string reason;
                             try { reason = WireJson.Decode<WireError>(bytes)?.error; } catch { reason = null; }
+                            if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
                             throw new CollaborationException(reason ?? "http-" + (int)response.StatusCode);
                         }
                         return WireJson.Decode<T>(bytes);

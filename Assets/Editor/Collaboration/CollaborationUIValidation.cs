@@ -40,12 +40,15 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration UI validation passed: modal input, Host, participants/viewers/save state, credential-free CLI export and accepted snapshot isolation, sustained Unity request diagnostics/cancellation, reconnect and deliberate leave/recovery controls.");
+                Debug.Log("Collaboration UI validation passed: modal input, Host, owner-only participant removal/confirmation, removed-member feedback/offline retention, participants/viewers/save state, credential-free CLI export and accepted snapshot isolation, sustained Unity request diagnostics/cancellation, reconnect and deliberate leave/recovery controls.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
         }
         private static async Task Check() {
+            string legacyCapabilities = WireJson.Text(new Capabilities()).Replace("\"participantAdministration\":false,", "");
+            Require(!WireJson.Decode<Capabilities>(System.Text.Encoding.UTF8.GetBytes(legacyCapabilities)).participantAdministration,
+                "Unity could not decode an earlier 0.7 helper capability response.");
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
             PartsManager.GeneratePart("CCHL-1x2-5", Vector3.right * 3, Quaternion.identity);
             CollaborationSession.EnableDevelopment();
@@ -95,7 +98,19 @@ namespace ProtobotEditorTools {
                 var part = new Part { id = Guid.NewGuid().ToString("N"), catalogId = "CCHL-1x2-5" };
                 try { await peer.SubmitAsync(peer.CreateTransaction("AddParts", new[] { part })); throw new InvalidOperationException("Viewer edit was allowed."); }
                 catch (CollaborationException error) { Require(error.Code == "viewer-read-only", "Unexpected viewer rejection."); }
-                await peer.LeaveAsync();
+                await peer.PrepareReconnectAsync(); await peer.JoinAsync("Read-only peer");
+                await Click(Button(session, "Manage Participants").gameObject);
+                await Until(() => Get<Membership[]>(session, "managedMemberships").Any(m => m.participant.id == peer.Participant.id)); Invoke(session, "RefreshUI");
+                Require(!Get<GameObject>(session, "uiRoot").GetComponentsInChildren<Button>(true).Any(b => b.name == "Remove " + client.Participant.id), "Owner has a removal control.");
+                string hash = CollaborationSession.CommittedHash;
+                await Click(Button(session, "Remove " + peer.Participant.id).gameObject);
+                Require(peer.IsConnected && Get<GameObject>(session, "uiRemoveConfirmation").activeSelf && Get<Text>(session, "uiRemoveWarning").text.Contains(peer.Participant.id), "Removal skipped stable-ID confirmation.");
+                await Click(Button(session, "Cancel Remove Participant").gameObject);
+                Require(peer.IsConnected && !Get<GameObject>(session, "uiRemoveConfirmation").activeSelf, "Cancel removed a membership.");
+                await Click(Button(session, "Remove " + peer.Participant.id).gameObject);
+                await Click(Button(session, "Confirm Remove Participant").gameObject);
+                await Until(() => peer.IsMembershipRevoked && !Get<bool>(session, "busy")); Invoke(session, "RefreshUI");
+                Require(CollaborationSession.CommittedHash == hash && !Get<GameObject>(session, "uiRemoveConfirmation").activeSelf && Get<string>(session, "status").Contains("membership removed"), "Removal changed the document or lacked owner feedback.");
             }
             client.Suspend("UI test disconnect"); await Task.Delay(60); Invoke(session, "RefreshUI");
             Require(Get<Button>(session, "uiReconnect").gameObject.activeSelf, "Reconnect action did not appear.");
@@ -109,6 +124,32 @@ namespace ProtobotEditorTools {
             Require(CollaborationSession.CancelPanel() && !CollaborationSession.BlocksUIInput, "Closing the panel retained tool input capture.");
             Require(!Get<GameObject>(session, "uiModal").activeSelf, "Closed modal still intercepts pointer hits.");
             await CheckConnectionTest(session);
+            await CheckRemovedMemberUI(session);
+        }
+        private static async Task CheckRemovedMemberUI(CollaborationSession session) {
+            var catalog = CollaborationScene.Catalog; var server = new CollaborationHost();
+            string room = "removed-ui-room", credential = Guid.NewGuid().ToString("N");
+            try {
+                await server.StartAsync(new Bootstrap { room = room, ownerCredential = credential, catalog = catalog,
+                    document = new Document { catalogHash = catalog.hash } }, 0, false);
+                Get<InputField>(session, "uiEndpoint").text = server.Url; Get<InputField>(session, "uiRoom").text = room;
+                Get<Toggle>(session, "uiViewer").isOn = true;
+                Get<Dropdown>(session, "uiTransport").value = (int)CollaborationTransport.WebSocket;
+                await (Task)Invoke(session, "JoinAsync"); Invoke(session, "OpenPanel", -1); Invoke(session, "RefreshUI");
+                var member = Get<CollaborationClient>(session, "client");
+                await Until(() => member?.ActiveTransport == "websocket");
+                Require(member?.IsConnected == true && member.Participant.role == "viewer" && !Get<GameObject>(session, "uiAdministration").activeSelf, "Viewer sees owner controls.");
+                using var owner = new CollaborationClient(server.Url, room, catalog, CollaborationTransport.LongPolling);
+                await owner.JoinAsync("External UI owner", ownerCredential: credential);
+                await owner.RemoveParticipantAsync(member.Participant.id);
+                await Until(() => member.IsMembershipRevoked && !member.IsConnected); Invoke(session, "RefreshUI");
+                Require(Get<Text>(session, "uiRemovedNotice").gameObject.activeSelf && !Get<Button>(session, "uiReconnect").gameObject.activeSelf && !CollaborationSession.CanEdit,
+                    "Removed viewer lacked terminal feedback or retained reconnect/edit controls.");
+                Button(session, "Leave").onClick.Invoke(); Button(session, "Confirm Leave").onClick.Invoke();
+                await Get<Task>(session, "hostShutdown");
+                Require(!CollaborationSession.IsShared && SceneBuild.ToBuildData().parts.Length == 0 && server.IsRunning, "Removed member could not retain its accepted scene independently.");
+            }
+            finally { await server.StopAsync(); }
         }
         private static async Task CheckConnectionTest(CollaborationSession session) {
             var catalog = CollaborationScene.Catalog;

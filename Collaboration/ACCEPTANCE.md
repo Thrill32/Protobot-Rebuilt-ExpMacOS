@@ -2,6 +2,23 @@
 
 Use one matching catalog/helper/player release on every desktop and server. Record OS, transport, network, artifact checksum and result for each run. Local automated checks do not complete these field checks.
 
+Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
+
+Automated participant-administration pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned .NET SDK 10.0.403):
+
+| Check | Result |
+| --- | --- |
+| CLI build | Passed, zero warnings/errors |
+| .NET lab, both transports, restart/backup/restore and two fresh Mac players | Passed, 505 assertions, 10 bots per transport |
+| Unity collaboration, UI and recovery smokes | Passed; pointer refresh/remove/cancel/confirm, owner protection, terminal Unity WebSocket feedback, earlier 0.7 capabilities, removed cached identity after helper restart |
+| Original 0.7 helper/archive compatibility | Passed in both directions; updated owner removal stays revoked after original-helper restore; new clients connect to the old helper on both transports and refuse unavailable administration |
+| Mac / Windows development players and four helpers | Rebuilt; Windows/Linux execution remains pending |
+| Catalog | `639c1bf272e1984e5d36ddf6fac36dd4ffc22aba63a93a44f9a163af5ccd936f` |
+
+Protocol remains `0.7.0-alpha`, SQLite schema and backup format remain v1. The new capability is optional; existing room/backup data needs no migration. The conservative catalog fingerprint changed, so keep matching original catalog/players for existing rooms; CLI management/backup use the stored catalog. This pass establishes local automated behavior, not deployment acceptance. Credential-free artifact/checksum evidence is recorded under ignored `Collaboration/artifacts/participant-administration-report.json`.
+
+The November 14 results below remain the previous stabilization record; they were not all rerun for this administration pass.
+
 Automated stabilization on November 14, 2026 (macOS arm64, Unity 6000.6.6f1, .NET SDK 10.0.403):
 
 | Check | Result |
@@ -16,6 +33,8 @@ Automated stabilization on November 14, 2026 (macOS arm64, Unity 6000.6.6f1, .NE
 | Published Mac helper init / backup / restore / backup | Passed |
 
 Generated distributions and the credential-free evidence/checksum report are under ignored `Collaboration/artifacts/` (`stabilization-report.json`). No deployment or Windows/Linux execution is established by these local results. The unchanged protocol remains `0.7.0-alpha`.
+
+- [ ] **Participant administration:** on Mac ↔ Windows and the dedicated Debian/Pi service, remove active and inactive editor/viewer memberships by stable ID on both transports. Check owner-only controls, confirmation/cancel, protected owners, terminal feedback, lease/ghost cleanup, retained accepted content and unaffected peer undo/redo. Verify private owner-file permissions and credential-free CLI output; retry a lost response, reconnect/restart, then back up/restore and confirm the old resume credential stays revoked. Verify separately that knowing the room password still permits a fresh membership. Windows ACL execution, Linux service restoration and real proxy/network connection termination remain pending.
 
 - [ ] **Mac ↔ Windows editing:** run two independent profiles; host/join as owner, editor and viewer. Exercise catalog/custom import, paint/default, G/R, handles, Move/G→H/Connect, box selection, camera/settings, Alt/P/clipboard/build import, deletion and personal undo/redo. Confirm equal accepted documents and independent Save As paths on both transports; verify Windows focus, modifiers and borderless window behavior.
 - [ ] **Debian / Raspberry Pi:** verify `uname -m` against linux-x64 or linux-arm64 and the release checksum/catalog. Initialize a private room as the service account, start through systemd, run authenticated sustained `doctor` checks on both transports, stop/restart and reboot. Confirm service ownership, restrictive storage permissions and retained accepted content/history.

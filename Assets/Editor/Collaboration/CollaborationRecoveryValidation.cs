@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration recovery validation passed: durable in-app host, helper kill/restart, private preview exclusion, same-identity reconnect, persistent undo/redo, unchanged local files, deliberate recovered-room opening/Save As and participant cache recovery.");
+                Debug.Log("Collaboration recovery validation passed: durable in-app host, helper kill/restart, private preview exclusion, same-identity reconnect, persistent undo/redo, unchanged local files, deliberate recovered-room opening/Save As, participant cache recovery and owner removal surviving another helper restart.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -113,7 +113,19 @@ namespace ProtobotEditorTools {
                 peer = new CollaborationClient(Get<CollaborationHost>(session, "host").Url, "team", catalog, CollaborationTransport.LongPolling, recoveryFile: peerCache);
                 await peer.JoinAsync("Returned participant");
                 Require(peer.Participant.id == peerId && peer.Snapshot.revision == 4, "A new participant client did not restore its cached identity.");
-                await peer.LeaveAsync();
+                await client.RemoveParticipantAsync(peer.Participant.id);
+                await Until(() => peer.IsMembershipRevoked);
+                peer.Dispose();
+                peer = new CollaborationClient(Get<CollaborationHost>(session, "host").Url, "team", catalog, CollaborationTransport.LongPolling, recoveryFile: peerCache);
+                try { await peer.JoinAsync("Removed cached participant"); throw new InvalidOperationException("Removed cache resumed."); }
+                catch (CollaborationException error) { Require(error.Code == "membership-revoked", "Removed cache had no clear recovery refusal."); }
+                // Reopen the real owned helper again; the removed identity remains terminal.
+                host = Get<CollaborationHost>(session, "host"); process = Get<Process>(host, "process");
+                process.Kill(); await Task.Run(() => process.WaitForExit()); await Until(() => !client.IsConnected);
+                await (Task)Invoke(session, "ReconnectAsync");
+                peer.Dispose(); peer = new CollaborationClient(Get<CollaborationHost>(session, "host").Url, "team", catalog, CollaborationTransport.LongPolling, recoveryFile: peerCache);
+                try { await peer.JoinAsync("Removed after restart"); throw new InvalidOperationException("Restart revived removed membership."); }
+                catch (CollaborationException error) { Require(error.Code == "membership-revoked" && PartsManager.FindLoadedObjects().Count == 3 && CollaborationSession.CommittedRevision == 4, "Revocation/restart changed accepted content."); }
                 Invoke(session, "Detach"); await Get<Task>(session, "hostShutdown"); File.Delete(savedPath);
             }
             finally { peer.Dispose(); }

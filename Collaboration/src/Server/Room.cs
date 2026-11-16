@@ -47,7 +47,7 @@ namespace Protobot.Collaboration.Server {
         public bool IsHealthy => !storageFailed;
         public bool Recovered { get; }
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
-        public Capabilities Capabilities => new Capabilities { durable = IsDurable, room = Name, generation = document.generation, catalogHash = catalog.hash };
+        public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, room = Name, generation = document.generation, catalogHash = catalog.hash };
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
         public const int LeaseMilliseconds = 10000;
 
@@ -88,7 +88,7 @@ namespace Protobot.Collaboration.Server {
                 string resume = request.resumeToken;
                 if (!string.IsNullOrEmpty(resume)) {
                     DocumentModel.Require(resume.Length < 256 && members.TryGetValue(TokenHash(resume), out _), "invalid-session");
-                    member = members[TokenHash(resume)]; DocumentModel.Require(!member.revoked, "invalid-session"); Touch(member);
+                    member = members[TokenHash(resume)]; DocumentModel.Require(!member.revoked, "membership-revoked"); Touch(member);
                     // Fence requests from the old transport before returning a fresh snapshot.
                     // A delayed old create cannot arrive after pending outcomes were resolved as absent.
                     if (member.accessHash != null) sessions.Remove(member.accessHash);
@@ -303,12 +303,49 @@ namespace Protobot.Collaboration.Server {
         public void Leave(string token) {
             lock (gate) {
                 var member = Authenticate(token);
-                var revoked = member.Record(); revoked.revoked = true;
-                Persist(() => store.Revoke(revoked));
-                member.revoked = true; sessions.Remove(member.accessHash);
-                foreach (var key in leases.Where(l => l.Value.author == member.participant.id).Select(l => l.Key).ToArray()) leases.Remove(key);
-                Pulse();
+                Revoke(member);
             }
+        }
+
+        public MembershipList Memberships(string token) {
+            lock (gate) {
+                Owner(token);
+                return new MembershipList { memberships = members.Values.OrderBy(m => m.participant.id, StringComparer.Ordinal)
+                    .Select(m => new Membership { participant = WireJson.Clone(m.participant), revoked = m.revoked,
+                        active = !m.revoked && clock() - m.lastSeen < 60000 }).ToArray() };
+            }
+        }
+
+        public RemovalResult RemoveParticipant(string token, RemoveParticipant request) {
+            lock (gate) {
+                Owner(token);
+                DocumentModel.Require(request != null && DocumentModel.ValidId(request.participantId), "invalid-participant-id");
+                var target = members.Values.FirstOrDefault(m => m.participant.id == request.participantId);
+                DocumentModel.Require(target != null, "participant-not-found");
+                DocumentModel.Require(target.participant.role != "owner", "owner-removal-protected");
+                bool alreadyRevoked = target.revoked;
+                if (!alreadyRevoked) Revoke(target);
+                return new RemovalResult { participantId = target.participant.id, alreadyRevoked = alreadyRevoked };
+            }
+        }
+
+        private void Owner(string token) {
+            Healthy();
+            // Dedicated operators use the separate room capability without creating a membership.
+            if (ownerHash != null && token != null && token.Length < 256 && TokenHash(token) == ownerHash) return;
+            DocumentModel.Require(Authenticate(token).participant.role == "owner", "owner-required");
+        }
+
+        private void Revoke(Member member) {
+            var revoked = member.Record(); revoked.revoked = true;
+            // Same gate and durable transition as Leave. Publication follows successful storage;
+            // a failed write freezes the room, and restart decides from the committed database.
+            Persist(() => store.Revoke(revoked));
+            member.revoked = true;
+            // Retain the current access hash only to return an explicit terminal reason.
+            // Authenticate rejects it; resume rejects the durable revoked flag as well.
+            foreach (var key in leases.Where(l => l.Value.author == member.participant.id).Select(l => l.Key).ToArray()) leases.Remove(key);
+            Pulse();
         }
 
         private EventBatch Batch(long after) => new EventBatch {
@@ -320,7 +357,7 @@ namespace Protobot.Collaboration.Server {
         private Member Authenticate(string token) {
             Healthy();
             DocumentModel.Require(token != null && token.Length < 256 && sessions.TryGetValue(TokenHash(token), out _), "invalid-session");
-            var member = sessions[TokenHash(token)]; DocumentModel.Require(!member.revoked, "invalid-session");
+            var member = sessions[TokenHash(token)]; DocumentModel.Require(!member.revoked, "membership-revoked");
             Touch(member); return member;
         }
         private int ActiveCount() => members.Values.Count(m => !m.revoked && clock() - m.lastSeen < 60000);

@@ -125,6 +125,21 @@ python3 validate-https-config.py --caddy /path/to/caddy
 
 The check provisions the exact template for ports 1, 80, 443, 2019, 8443 and 65535 without binding those ports, then verifies HTTPS proxy traffic using a temporary loopback listener and certificate trusted only inside the test.
 
+## Manage single-room memberships
+
+Run the matching helper as the service account (or use a private operator copy of `owner.json`). The service stays running:
+
+```sh
+sudo -u protobot /opt/protobot-collab/protobot-collab participants \
+  --url http://127.0.0.1:8787 --owner-file /var/lib/protobot-collab/team/owner.json
+sudo -u protobot /opt/protobot-collab/protobot-collab remove-participant \
+  --url http://127.0.0.1:8787 --owner-file /var/lib/protobot-collab/team/owner.json --participant <stable-id>
+```
+
+Use your configured service user/data path if different. List first, then select the exact participant ID; names can repeat. The list includes inactive and revoked memberships. A duplicate removal succeeds with `alreadyRevoked: true`; owners are protected. The owner file is separate from the room password, must be private (0600 on Unix; operator-only ACLs on Windows) and must not be a symlink. The CLI refuses broad permissions and redirects, and never logs the capability. If an older Windows initialization inherited a broader owner-file ACL, restrict it under the intended operator account before using management; no database migration is needed. HTTPS administration through the public origin uses the same commands. Do not put credentials in URLs, command arguments or service logs.
+
+Removal is durable before success, closes that membership's active event connections and saved resume access, and preserves accepted content and histories. It revokes a membership, not a person: anyone with the room password can create a fresh membership. See [owner management contracts](../README.md#owner-participant-management), including pending outcomes and 0.7 backup compatibility. Debian/Pi service and cross-platform execution of this path remain acceptance checks.
+
 ## Check from a client network, then join
 
 First check the backend on Debian:

@@ -2,7 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,9 +53,17 @@ internal static partial class Program {
         // rename. A failed init never overwrites a room or leaves half its secrets.
         string parent = Path.GetDirectoryName(target); Directory.CreateDirectory(parent);
         string staging = Path.Combine(parent, ".protobot-init-" + Guid.NewGuid().ToString("N"));
-        RecoveryFiles.CreateDirectory(staging);
+        if (OperatingSystem.IsWindows()) {
+            using var identity = WindowsIdentity.GetCurrent();
+            var acl = new DirectorySecurity(); acl.SetAccessRuleProtection(true, false); acl.SetOwner(identity.User);
+            acl.AddAccessRule(new FileSystemAccessRule(identity.User, FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            new DirectoryInfo(staging).Create(acl);
+        }
+        else Directory.CreateDirectory(staging, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         try {
             RecoveryFiles.Write(Path.Combine(staging, "owner.json"), owner);
+            ProtectOwnerFile(Path.Combine(staging, "owner.json"));
             using (var store = new RoomStore(staging)) { _ = new Room(seed, storage: store); }
             Directory.Move(staging, target);
         }
@@ -73,6 +85,65 @@ internal static partial class Program {
         if (options.Has("--output")) RecoveryFiles.Write(options.Get("--output"), report);
         Console.WriteLine(WireJson.Text(report));
         return report.passed ? 0 : 2;
+    }
+    private static void ProtectOwnerFile(string path) {
+        if (!OperatingSystem.IsWindows()) { RecoveryFiles.PrivateFile(path); return; }
+        using var identity = WindowsIdentity.GetCurrent();
+        var acl = new FileSecurity(); acl.SetAccessRuleProtection(true, false); acl.SetOwner(identity.User);
+        acl.AddAccessRule(new FileSystemAccessRule(identity.User, FileSystemRights.FullControl, AccessControlType.Allow));
+        new FileInfo(path).SetAccessControl(acl);
+    }
+    private static OwnerFile ReadOwnerFile(string path) {
+        DocumentModel.Require((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0, "owner-file-link-refused");
+        // Refuse broad permissions rather than silently repairing a credential already exposed.
+        if (OperatingSystem.IsWindows()) {
+            using var identity = WindowsIdentity.GetCurrent();
+            var acl = new FileInfo(path).GetAccessControl();
+            DocumentModel.Require(acl.GetOwner(typeof(SecurityIdentifier)).Equals(identity.User), "owner-file-must-be-private");
+            foreach (FileSystemAccessRule rule in acl.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+                DocumentModel.Require(rule.AccessControlType != AccessControlType.Allow || rule.IdentityReference.Equals(identity.User), "owner-file-must-be-private");
+        }
+        else DocumentModel.Require((File.GetUnixFileMode(path) & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) == 0, "owner-file-must-be-private");
+        var owner = WireJson.Decode<OwnerFile>(Encoding.UTF8.GetBytes(ReadText(path, 16384)));
+        DocumentModel.Require(owner != null && owner.schema == 1 && DocumentModel.ValidId(owner.room) &&
+            !string.IsNullOrEmpty(owner.credential) && owner.credential.Length < 256 && !owner.credential.Any(char.IsControl), "invalid-owner-file");
+        return owner;
+    }
+    private static async Task<int> Administer(string operation, Options options) {
+        string origin = ConnectionDoctor.Origin(options.Required("--url"), options.Has("--allow-lan-http"));
+        var owner = ReadOwnerFile(options.Required("--owner-file"));
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
+        async Task<T> Request<T>(HttpMethod method, string path, byte[] body = null, bool authenticate = true) {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var request = new HttpRequestMessage(method, origin + path);
+            if (authenticate) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.credential);
+            if (body != null) { request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            using var input = await response.Content.ReadAsStreamAsync(); using var output = new MemoryStream();
+            var buffer = new byte[8192]; int count;
+            while ((count = await input.ReadAsync(buffer, timeout.Token)) > 0) { DocumentModel.Require(output.Length + count <= WireJson.MaxMessageBytes, "message-too-large"); output.Write(buffer, 0, count); }
+            if (!response.IsSuccessStatusCode) {
+                // Only these fixed codes may leave the response body. Proxy HTML or a
+                // reflected credential must never become terminal/log output.
+                string reason = null;
+                try { reason = WireJson.Decode<WireError>(output.ToArray())?.error; } catch { }
+                bool known = new[] { "owner-required", "owner-removal-protected", "participant-not-found", "invalid-participant-id",
+                    "invalid-session", "room-storage-failed-restart-required" }.Contains(reason);
+                throw new CollaborationException("participant-administration-http-" + (int)response.StatusCode + (known ? ": " + reason : ""));
+            }
+            return WireJson.Decode<T>(output.ToArray());
+        }
+        var capabilities = await Request<Capabilities>(HttpMethod.Get, "/capabilities", authenticate: false);
+        DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version && capabilities.room == owner.room, "owner-room-or-version-mismatch");
+        DocumentModel.Require(capabilities.participantAdministration, "participant-administration-unavailable-update-helper");
+        string path = "/rooms/" + owner.room + "/participants";
+        if (operation == "participants") Console.WriteLine(WireJson.Text(await Request<MembershipList>(HttpMethod.Get, path)));
+        else {
+            string id = options.Required("--participant"); DocumentModel.Require(DocumentModel.ValidId(id), "invalid-participant-id");
+            Console.WriteLine(WireJson.Text(await Request<RemovalResult>(HttpMethod.Post, path + "/remove", WireJson.Encode(new RemoveParticipant { participantId = id }))));
+        }
+        return 0;
     }
     private static string ReadText(string path, int limit) {
         using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
