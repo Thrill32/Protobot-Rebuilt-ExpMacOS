@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
             try {
                 await Check();
-                Debug.Log("Collaboration UI validation passed: modal input, diagnostic export/Cancel/Escape/failure and usage controls, Host, owner-only participant removal/confirmation, removed-member feedback/offline retention, participants/viewers/save state, credential-free CLI export and accepted snapshot isolation, sustained Unity request diagnostics/cancellation, reconnect and deliberate leave/recovery controls.");
+                Debug.Log("Collaboration UI validation passed: modal input, short-poll selection/diagnostics/editing/save/reconnect/leave, diagnostic export/Cancel/Escape/failure and usage controls, Host, owner-only participant removal/confirmation, removed-member feedback/offline retention, participants/viewers/save state, credential-free CLI export and accepted snapshot isolation, sustained Unity request diagnostics/cancellation, reconnect and deliberate leave/recovery controls.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -126,6 +126,7 @@ namespace ProtobotEditorTools {
             Require(!Get<GameObject>(session, "uiModal").activeSelf, "Closed modal still intercepts pointer hits.");
             await CheckConnectionTest(session);
             await CheckRemovedMemberUI(session);
+            await CheckShortPollingUI(session);
         }
         private static async Task CheckRemovedMemberUI(CollaborationSession session) {
             var catalog = CollaborationScene.Catalog; var server = new CollaborationHost();
@@ -159,12 +160,42 @@ namespace ProtobotEditorTools {
                 await server.StartAsync(new Bootstrap { room = "ui-room", catalog = catalog, document = new Document { catalogHash = catalog.hash } }, 0, false);
                 Invoke(session, "OpenPanel", 1);
                 Get<InputField>(session, "uiEndpoint").text = server.Url;
-                Get<Dropdown>(session, "uiTransport").value = (int)CollaborationTransport.LongPolling;
-                var test = (Task)Invoke(session, "TestServerAsync"); await Until(() => !Get<bool>(session, "busy")); await test;
-                Require(!CollaborationSession.IsShared && Get<Text>(session, "uiTestReport").text.Contains("requests-idle-events: passed"), "The Unity connection test failed or opened a shared document.");
+                foreach (var mode in new[] { CollaborationTransport.LongPolling, CollaborationTransport.ShortPolling }) {
+                    Get<Dropdown>(session, "uiTransport").value = (int)mode;
+                    var test = (Task)Invoke(session, "TestServerAsync"); await Until(() => !Get<bool>(session, "busy")); await test;
+                    string label = mode == CollaborationTransport.ShortPolling ? "short-polling" : "requests";
+                    Require(!CollaborationSession.IsShared && Get<Text>(session, "uiTestReport").text.Contains(label + "-idle-events: passed"), "The selected Unity connection test failed or opened a shared document.");
+                }
                 var canceled = (Task)Invoke(session, "TestServerAsync"); await Task.Delay(200); Invoke(session, "ClosePanel");
                 await Until(() => !Get<bool>(session, "busy")); await canceled;
                 Require(Get<string>(session, "status") == "Connection test canceled." && !CollaborationSession.IsShared, "Closing the diagnostic window did not cancel it cleanly.");
+            }
+            finally { await server.StopAsync(); }
+        }
+        private static async Task CheckShortPollingUI(CollaborationSession session) {
+            var catalog = CollaborationScene.Catalog; using var server = new CollaborationHost();
+            await server.StartAsync(new Bootstrap { room = "short-ui", catalog = catalog, document = new Document { catalogHash = catalog.hash } }, 0, false);
+            try {
+                Invoke(session, "OpenPanel", 1);
+                Get<InputField>(session, "uiEndpoint").text = server.Url; Get<InputField>(session, "uiRoom").text = "short-ui";
+                Get<Toggle>(session, "uiViewer").isOn = false;
+                var dropdown = Get<Dropdown>(session, "uiTransport");
+                Require(dropdown.options.Count == 4 && dropdown.options[3].text.Contains("Short polling"), "Short polling selection is missing from the actual dropdown.");
+                dropdown.value = (int)CollaborationTransport.ShortPolling;
+                await (Task)Invoke(session, "JoinAsync");
+                var client = Get<CollaborationClient>(session, "client"); await Until(() => client.ActiveTransport == "short-polling");
+                Invoke(session, "RefreshUI"); Require(Get<Text>(session, "uiConnection").text.Contains("short-polling"), "Session status did not report the selected short transport.");
+                using var peer = new CollaborationClient(server.Url, "short-ui", catalog, CollaborationTransport.LongPolling); await peer.JoinAsync("Short UI peer");
+                Require((await peer.SubmitAsync(peer.CreateTransaction("AddParts", new[] { new Part { id = Guid.NewGuid().ToString("N"), catalogId = "CCHL-1x2-5" } }))).accepted, "Short UI remote edit failed.");
+                await Until(() => CollaborationSession.CommittedRevision == 1 && PartsManager.FindLoadedObjects().Count == 1);
+                var builds = Object.FindFirstObjectByType<BuildsManager>(); builds.buildPath = Path.Combine(LocalPreferences.ProfileDirectory, "short-polling-accepted.pbb");
+                Require(await (Task<bool>)Invoke(builds, "SaveAsync", false), "Short transport accepted save failed."); byte[] saved = File.ReadAllBytes(builds.buildPath); string identity = client.Participant.id;
+                client.Suspend("Short UI reconnect"); Invoke(session, "RefreshUI"); await Click(Button(session, "Reconnect").gameObject);
+                await Until(() => client.IsConnected && !Get<bool>(session, "busy"));
+                Require(client.Participant.id == identity && client.ActiveTransport == "short-polling" && saved.SequenceEqual(File.ReadAllBytes(builds.buildPath)) && builds.CurrentBuildIsSaved,
+                    "Short UI reconnect changed identity, transport or independent accepted file state.");
+                Button(session, "Leave").onClick.Invoke(); Button(session, "Confirm Leave").onClick.Invoke(); await Get<Task>(session, "hostShutdown");
+                Require(!CollaborationSession.IsShared && PartsManager.FindLoadedObjects().Count == 1 && server.IsRunning, "Short UI Leave did not retain the accepted scene independently of its external host.");
             }
             finally { await server.StopAsync(); }
         }

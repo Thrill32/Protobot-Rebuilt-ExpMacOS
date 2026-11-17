@@ -103,7 +103,7 @@ namespace Protobot.Collaboration.Server {
                 finally { if (roomAdmitted) roomRequests.Release(); requests.Release(); }
             });
             app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
-            var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version, diagnosticsVersion = DiagnosticExport.Version };
+            var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version, diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" } };
             app.MapGet("/capabilities", context => Write(context, rootCapabilities));
             app.MapGet("/health", context => { context.Response.StatusCode = registry != null || Room.IsHealthy ? 200 : 503; return Write(context, rootCapabilities); });
             const string path = "/rooms/{room}";
@@ -205,8 +205,10 @@ namespace Protobot.Collaboration.Server {
                     string token = Token(context);
                     DocumentModel.Require(long.TryParse(context.Request.Query["after"], out var after) && long.TryParse(context.Request.Query["transient"], out _), "invalid-cursor");
                     long transient = long.Parse(context.Request.Query["transient"], System.Globalization.CultureInfo.InvariantCulture);
+                    bool immediate = context.Request.Query.ContainsKey("wait");
+                    DocumentModel.Require(!immediate || context.Request.Query["wait"] == "0" && !context.WebSockets.IsWebSocketRequest, "invalid-event-wait");
                     if (!context.WebSockets.IsWebSocketRequest) {
-                        await Write(context, await room.ReadAsync(token, after, transient, context.RequestAborted)); return;
+                        await Write(context, await room.ReadAsync(token, after, transient, context.RequestAborted, wait: !immediate)); return;
                     }
                     // Authenticate before the upgrade, so invalid credentials have an ordinary HTTP error.
                     EventBatch batch = await room.ReadAsync(token, after, -1, context.RequestAborted);

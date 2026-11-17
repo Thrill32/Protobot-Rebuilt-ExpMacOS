@@ -4,6 +4,24 @@ Use one matching catalog/helper/player release on every desktop and server. Reco
 
 Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
 
+Automated short-poll compatibility pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403; after user-requested diagnostic commit `a150ca0`):
+
+| Check | Result |
+| --- | --- |
+| CLI / Lab builds | Passed with zero warnings/errors; cached packages with `NuGetAudit=false`; no online vulnerability audit established |
+| Focused short-poll iteration | Passed **39 assertions**, including a real held-request-blocking intermediary, immediate/strict/authenticated reads, idle pacing, geometry references/hydration, lost acknowledgment/pending receipt resolution, cancellation, revocation, real CLI doctor and ten-bot convergence; final full run additionally covers unchanged Auto behavior and default CLI three-mode discovery |
+| Full collaboration lab | Passed **1,031 assertions** in **97.65 seconds**, ten bots on each of WebSocket, long polling and short polling; three-transport multi-room isolation/transfer/quota/restart/restore; original 0.7/v1, 0.8/v2 and 0.9/v2 fixtures; real old-helper pre-admission/cache preservation and two-mode default doctor |
+| Actual Unity controls / regressions | UI short-mode selection, sustained diagnostic probe, editing/materialization/accepted save/reconnect/leave passed; real-byte connection progress/Cancel/Escape passed in short and existing request modes; core editing/save/export, recovery and multi-room regressions passed with fresh profiles |
+| Rebuilt Mac player pairs | Both WebSocket↔long-poll and WebSocket↔short-poll Host/Join pairs passed independent scene poses/colliders/save snapshots/profiles; four player processes total |
+| Published Mac CLI | Explicit short-mode and default three-mode doctor passed; existing protected owner/admin diagnostics passed |
+| Builds / archives | Four helpers, Mac/Windows players and six archives rebuilt; packaged/embedded catalogs, helper/player managed assemblies, archive checksums and Mac signatures verified |
+
+`shortPollingVersion: 1` is optional and required before admission. The existing authenticated cursor/one-event batch gains strict `wait=0`; ordinary held reads are unchanged. Clients have one event read in flight, delay at least 250 ms after an edit batch or 1,000 ms after idle data, and cancel requests/delays through the existing lifetime. Auto stays WebSocket → held requests. Short mode trades slower event/preview delivery and higher idle HTTP traffic for intermediary compatibility; these are client pacing bounds, not a new server admission policy or a target-platform performance promise. Explicit reconnect resolves pending receipts without replay. Wire stays **0.9**, document/SQLite/archive **v2**, configuration/registry/admin **v1**, diagnostics **v1**. Current catalog: `df012c739791fc53ecc1fde072166c9454170f82b60a76701f4b66a4ebd9dfeb` (the committed diagnostics helper/catalog was preserved before rebuilding).
+
+- [ ] **Short-poll field acceptance:** Windows/Linux execution; Mac↔Windows interaction/geometry/reconnect/cancellation/focus; cross-OS archives; Debian/Pi stopped-service restoration and observed HTTP/resource load; actual trusted public HTTPS/proxy/school-network behavior. Explicit proxy configuration, admission policy, GC/compaction, online backup and destructive live deletion remain separate work. No pending field check was closed by local automation.
+
+Current credential-free evidence is in ignored `Collaboration/artifacts/short-polling-report.json`, `short-polling-unity.json`, `short-polling-builds.json`, `short-polling-published-cli.json` and `short-polling-packages.json`. The earlier diagnostics slice was locally committed at the user's request as `a150ca0`; this validation preceded the user-requested short-poll commit. No push or deployment was performed. `Assets/Scenes/Main.unity` was retained, and only verified Unity-generated font/default-setting churn was removed. Notes/artifacts stay ignored; earlier validation records below are historical.
+
 Automated bounded-diagnostics/resource pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403; base `1f403f3`):
 
 | Check | Result |

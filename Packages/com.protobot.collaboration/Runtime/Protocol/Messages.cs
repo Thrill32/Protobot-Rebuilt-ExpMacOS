@@ -6,6 +6,7 @@ using System.Text;
 namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
         public const string Version = "0.9.0-alpha";
+        public const int ShortPollingVersion = 1;
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -157,6 +158,7 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;
+        [System.Runtime.Serialization.OptionalField] public int shortPollingVersion;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {

@@ -25,7 +25,7 @@ internal static partial class Program {
             await Until(() => server.Registry.Budget.Transfers.CurrentCount == 0);
             var metricsA = await DiagnosticExport.FetchAsync(server.Url, a.room, a.ownerCredential);
             var metricsB = await DiagnosticExport.FetchAsync(server.Url, b.room, b.ownerCredential);
-            Check(metricsA.selectedRoom.usage.transfers.used == 1 && metricsB.selectedRoom.usage.transfers.used == 1 && metricsA.selectedRoom.usage.eventStreams.used > 0, "owner reports observe actual active room transfers and event streams");
+            Check(metricsA.selectedRoom.usage.transfers.used == 1 && metricsB.selectedRoom.usage.transfers.used == 1 && (alice.Transport == CollaborationTransport.ShortPolling || metricsA.selectedRoom.usage.eventStreams.used > 0), "owner reports observe actual active room transfers and event streams");
             Check(!uploadA.IsCompleted && !uploadB.IsCompleted, "two room uploads run concurrently with independent transfer gates");
             var busy = await HostingRequest(server.Url, "/rooms/alpha/assets/" + assetA.hash, rawA.token, HttpMethod.Put, GeometryTransfer.Encode(assetA));
             Check(Encoding.UTF8.GetString(busy.bytes).Contains("asset-transfer-busy"), "one room has a bounded transfer slot");

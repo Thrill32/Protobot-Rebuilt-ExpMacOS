@@ -75,9 +75,9 @@ internal static partial class Program {
         string url = ConnectionDoctor.Origin(options.Required("--url"), options.Has("--allow-lan-http"));
         CatalogManifest catalog = options.Has("--catalog") ? WireJson.Decode<CatalogManifest>(Encoding.UTF8.GetBytes(ReadText(options.Get("--catalog"), WireJson.MaxMessageBytes))) : null;
         string selection = options.Get("--transport", "all");
-        DocumentModel.Require(new[] { "all", "auto", "websocket", "requests" }.Contains(selection), "invalid-transport");
-        var transports = selection == "all" ? new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling } : new[] {
-            selection == "auto" ? CollaborationTransport.Auto : selection == "websocket" ? CollaborationTransport.WebSocket : CollaborationTransport.LongPolling };
+        DocumentModel.Require(new[] { "all", "auto", "websocket", "requests", "short-polling" }.Contains(selection), "invalid-transport");
+        var transports = selection == "all" ? null : new[] {
+            selection == "auto" ? CollaborationTransport.Auto : selection == "websocket" ? CollaborationTransport.WebSocket : selection == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.LongPolling };
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
         var report = await ConnectionDoctor.RunAsync(url, catalog, options.Get("--room"), Password(options), transports, options.Has("--allow-lan-http"), !options.Has("--quick"),

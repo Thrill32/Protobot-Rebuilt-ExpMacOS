@@ -34,7 +34,7 @@ internal static partial class Program {
                     "protobot-collab participants --url <origin> --owner-file <protected-owner.json> [--allow-lan-http]\n" +
                     "protobot-collab remove-participant --url <origin> --owner-file <protected-owner.json> --participant <stable-id> [--allow-lan-http]\n" +
                     "protobot-collab diagnostics --url <origin> (--owner-file <private-owner.json> | --admin-file <private-admin.json>) [--output <new-report.json>]\n" +
-                    "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests] [--quick] [--output <report.json>]\n" +
+                    "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests|short-polling] [--quick] [--output <report.json>]\n" +
                     "Development alpha: bounded rooms; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
             }
             if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir" }, Array.Empty<string>()));

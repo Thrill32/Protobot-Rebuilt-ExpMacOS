@@ -34,7 +34,7 @@ namespace Protobot.Collaboration {
         }
         public DiagnosticReport CaptureDiagnostics() {
             lock (gate) return DiagnosticExport.Sanitize(new DiagnosticReport { source = "client", connected = IsConnected, durable = IsDurable,
-                pendingOperations = pending.Count, transport = ActiveTransport ?? (Transport == CollaborationTransport.Auto ? "auto" : Transport == CollaborationTransport.WebSocket ? "websocket" : "long-polling"),
+                pendingOperations = pending.Count, transport = ActiveTransport ?? (Transport == CollaborationTransport.Auto ? "auto" : Transport == CollaborationTransport.WebSocket ? "websocket" : Transport == CollaborationTransport.ShortPolling ? "short-polling" : "long-polling"),
                 stage = diagnosticStage, code = diagnosticCode, elapsedMilliseconds = diagnosticClock.ElapsedMilliseconds,
                 completedModels = diagnosticTransfer?.CompletedItems ?? 0, totalModels = diagnosticTransfer?.TotalItems ?? 0, transferAttempt = diagnosticTransfer?.Attempt ?? 0,
                 transferredBytes = diagnosticTransfer?.TransferredBytes ?? 0, totalTransferBytes = diagnosticTransfer?.TotalBytes,

@@ -58,7 +58,7 @@ namespace ProtobotEditorTools {
             try {
                 using var relay = new SlowRelay(authority.Url); relay.Hold();
                 using var editor = new CollaborationClient(authority.Url, seed.room, catalog, CollaborationTransport.LongPolling); await editor.JoinAsync("Remote owner", ownerCredential: seed.ownerCredential);
-                Set(session, "endpoint", relay.Url); Set(session, "room", seed.room); Set(session, "transport", CollaborationTransport.LongPolling); Set(session, "password", seed.password);
+                Set(session, "endpoint", relay.Url); Set(session, "room", seed.room); Set(session, "transport", CollaborationArguments.Get("--collab-transport", "long-polling") == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.LongPolling); Set(session, "password", seed.password);
                 Invoke(session, "OpenPanel", 1);
                 await Click(session, "Join Room"); await Until(() => relay.Partial.Task.IsCompleted);
                 Invoke(session, "RefreshUI");

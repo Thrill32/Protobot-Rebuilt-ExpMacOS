@@ -101,7 +101,7 @@ namespace Protobot {
             UIButton(uiJoin.transform, "Paste Invite", "Paste invite from clipboard", PasteInvite);
             uiViewer = UIToggle(uiJoin.transform, "Join as Viewer", "Join as viewer (read-only)", value => joinAsViewer = value);
             UIText(uiJoin.transform, "Viewer Help", "A saved membership keeps its existing role and personal history. Forget it below to join as a new member.", 12);
-            uiTransport = UIDropdown(uiJoin.transform, "Connection transport", new[] { "Auto (WebSocket, then requests)", "WebSocket only", "HTTPS / HTTP requests only" }, (int)transport, value => transport = (CollaborationTransport)value);
+            uiTransport = UIDropdown(uiJoin.transform, "Connection transport", new[] { "Auto (WebSocket, then requests)", "WebSocket only", "HTTPS / HTTP requests only", "Short polling (proxy compatibility)" }, (int)transport, value => transport = (CollaborationTransport)value);
             UIButton(uiJoin.transform, "Join Room", "Join room", RequestJoin, true);
             UIButton(uiJoin.transform, "Test Connection", "Test server connection (read-only)", () => _ = TestServerAsync());
             uiTestReport = UIText(uiJoin.transform, "Connection Test Results", "", 12);

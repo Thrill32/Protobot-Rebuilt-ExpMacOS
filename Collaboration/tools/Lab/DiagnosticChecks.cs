@@ -123,6 +123,13 @@ internal static partial class Program {
                 var ready = WireJson.Decode<Ready>(Encoding.UTF8.GetBytes(await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)))); origin = ready.url;
                 using var client = new CollaborationClient(origin, seed.room, seed.catalog, CollaborationTransport.LongPolling, recoveryFile: cache);
                 await client.JoinAsync("Original nine owner", ownerCredential: credential); identity = client.Participant.id;
+                int membershipsBefore = (await client.MembershipsAsync()).memberships.Length; byte[] cacheBeforeShortRefusal = File.ReadAllBytes(cache);
+                using (var unsupported = new CollaborationClient(origin, seed.room, seed.catalog, CollaborationTransport.ShortPolling, recoveryFile: cache)) {
+                    await RejectAsync(() => unsupported.JoinAsync("Unsupported original nine mode"), "short-polling-unavailable");
+                }
+                Check((await client.MembershipsAsync()).memberships.Length == membershipsBefore && cacheBeforeShortRefusal.SequenceEqual(File.ReadAllBytes(cache)), "real original 0.9 refuses optional short polling locally without creating a membership or touching an existing cache");
+                var oldDoctor = await ConnectionDoctor.RunAsync(origin, seed.catalog, seed.room, checkIdle: false);
+                Check(oldDoctor.passed && oldDoctor.diagnostics.Length == 2 && !oldDoctor.checks.Any(c => c.name == "short-polling"), "default doctor retains the two supported transports on real original 0.9");
                 Check(ready.version == CollaborationProtocol.Version && !client.SupportsDiagnostics && client.CaptureDiagnostics().selectedRoom.documentHash == DocumentModel.Hash(client.Snapshot), "new client joins original 0.9 without optional metrics capability and can export local metadata");
                 Check((await client.SubmitAsync(client.CreateTransaction("AddParts", new[] { Cube("original-nine-edit") }))).accepted, "original 0.9 accepts new-client edits without a wire change");
                 hash = DocumentModel.Hash(client.Snapshot); sequence = client.Snapshot.revision;

@@ -67,7 +67,7 @@ namespace Protobot.Collaboration {
         public static string Code(Exception error) => error is OperationCanceledException ? "canceled" :
             error is CollaborationException known && Codes.Contains(known.Code ?? "") ? known.Code : ConnectionDoctor.Code(error);
         public static string SafeCode(string value) => value == null ? null : Code(new CollaborationException(value));
-        public static string Transport(string value) => new[] { "auto", "websocket", "long-polling" }.Contains(value) ? value : null;
+        public static string Transport(string value) => new[] { "auto", "websocket", "long-polling", "short-polling" }.Contains(value) ? value : null;
         public static string Stage(string value) => Enum.TryParse<ConnectionStage>(value, out var parsed) && Enum.IsDefined(typeof(ConnectionStage), parsed) ? parsed.ToString() : null;
         public static string Id(string value) => DocumentModel.ValidId(value) ? value : null;
         public static string Catalog(string value) => value != null && value.Length <= 128 && value.All(c => c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') ? value : null;

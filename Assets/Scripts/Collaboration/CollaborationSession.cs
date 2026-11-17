@@ -88,7 +88,7 @@ namespace Protobot {
             endpoint = CollaborationArguments.Get("--collab-server", endpoint);
             room = CollaborationArguments.Get("--collab-room", room);
             var requestedTransport = CollaborationArguments.Get("--collab-transport", "auto");
-            transport = requestedTransport == "long-polling" ? CollaborationTransport.LongPolling : requestedTransport == "websocket" ? CollaborationTransport.WebSocket : CollaborationTransport.Auto;
+            transport = requestedTransport == "long-polling" ? CollaborationTransport.LongPolling : requestedTransport == "websocket" ? CollaborationTransport.WebSocket : requestedTransport == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.Auto;
             RefreshRecoveredRooms();
             InitializeUI();
             Application.quitting += OnQuitting;
@@ -734,6 +734,7 @@ namespace Protobot {
         }
         private void ClearGhosts() { foreach (var key in ghosts.Keys.ToArray()) RemoveGhost(key); }
         private void Report(Exception error) { status = error is CollaborationException known ? known.Code switch {
+            "short-polling-unavailable" => "This helper does not support short polling. Use an existing transport or update the helper with the matching release and catalog.",
             "asset-unused-quota" => "The room's unused upload budget is full. Reuse an uploaded model or start a new room.",
             "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",
             "asset-byte-limit" or "local-serialization-limit" => "This custom geometry exceeds the collaboration size limit. Use a smaller mesh.",

@@ -1,5 +1,8 @@
 using System;
 using System.Linq;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -31,10 +34,25 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public string RejectedJoinError;
     public string RejectedAdministrationError;
     public string RejectedDiagnosticsError;
+    public bool RejectHeldEvents, HideShortPollingCapability;
+    public readonly ConcurrentQueue<long> ShortPollTimes = new ConcurrentQueue<long>();
+    public int JoinRequests;
+    public TaskCompletionSource<bool> PauseShortPoll;
+    public TaskCompletionSource<bool> ShortPollPaused = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public LoopbackProxy(string upstream) {
         var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
         app = builder.Build();
         app.Run(async context => {
+            bool events = context.Request.Path.Value.EndsWith("/events", StringComparison.Ordinal);
+            if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal)) Interlocked.Increment(ref JoinRequests);
+            if (events && RejectHeldEvents && context.Request.Query["wait"] != "0") { context.Response.StatusCode = 403; return; }
+            if (events && context.Request.Query["wait"] == "0") {
+                ShortPollTimes.Enqueue(Stopwatch.GetTimestamp()); while (ShortPollTimes.Count > 64) ShortPollTimes.TryDequeue(out _);
+                if (PauseShortPoll != null) {
+                    ShortPollPaused.TrySetResult(true);
+                    try { await PauseShortPoll.Task.WaitAsync(context.RequestAborted); } catch (OperationCanceledException) { return; }
+                }
+            }
             if (RejectedDiagnosticsError != null && context.Request.Path.Value.EndsWith("/diagnostics", StringComparison.Ordinal)) {
                 context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedDiagnosticsError })); return;
             }
@@ -50,6 +68,10 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
             if ((context.Request.Method == "POST" || context.Request.Method == "PUT")) request.Content = new StreamContent(context.Request.Body);
             try {
                 using var response = await forward.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                if (HideShortPollingCapability && context.Request.Path.Value.EndsWith("/capabilities", StringComparison.Ordinal)) {
+                    var capability = WireJson.Decode<Capabilities>(await response.Content.ReadAsByteArrayAsync()); capability.shortPollingVersion = 0;
+                    context.Response.StatusCode = (int)response.StatusCode; await context.Response.WriteAsync(WireJson.Text(capability)); return;
+                }
                 if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal) && ContinueJoinReply != null) {
                     JoinReplyStarted.TrySetResult(true); await ContinueJoinReply.Task.WaitAsync(context.RequestAborted);
                 }

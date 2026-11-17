@@ -26,7 +26,7 @@ namespace Protobot.Collaboration {
     }
     public static class ConnectionDoctor {
         private static readonly HashSet<string> KnownCodes = new HashSet<string>(StringComparer.Ordinal) {
-            "invalid-endpoint", "https-required-use-explicit-lan-http", "server-version-mismatch", "invalid-capabilities", "endpoint-changed",
+            "short-polling-unavailable", "invalid-event-wait", "invalid-endpoint", "https-required-use-explicit-lan-http", "server-version-mismatch", "invalid-capabilities", "endpoint-changed",
             "catalog-or-room-mismatch", "diagnostic-role-mismatch", "event-stream-timeout", "event-stream-disconnected", "wrong-password",
             "invalid-session", "room-full", "join-rate-limit", "invalid-name", "invalid-request", "message-too-large", "schema-mismatch",
             "room-required", "room-not-found", "room-unavailable", "server-request-limit", "server-event-limit", "room-event-limit",
@@ -44,7 +44,7 @@ namespace Protobot.Collaboration {
         public static async Task<ConnectionReport> RunAsync(string origin, CatalogManifest catalog = null, string room = null, string password = "",
             CollaborationTransport[] transports = null, bool allowInsecureLan = false, bool checkIdle = true, Action<string> progress = null, CancellationToken cancellation = default) {
             origin = Origin(origin, allowInsecureLan);
-            DocumentModel.Require(transports == null || transports.Length > 0 && transports.Length <= 3 && transports.Distinct().Count() == transports.Length &&
+            DocumentModel.Require(transports == null || transports.Length > 0 && transports.Length <= 4 && transports.Distinct().Count() == transports.Length &&
                 transports.All(t => Enum.IsDefined(typeof(CollaborationTransport), t)), "invalid-transport");
             var report = new ConnectionReport(); var checks = new List<ConnectionCheck>(); var diagnostics = new List<DiagnosticReport>();
             async Task<bool> Check(string name, Func<Task> action) {
@@ -79,8 +79,10 @@ namespace Protobot.Collaboration {
                     if (catalog != null && await Check("compatibility", () => {
                         DocumentModel.Require(catalog.hash == caps.catalogHash && (room == null || room == caps.room), "catalog-or-room-mismatch"); return Task.CompletedTask;
                     }).ConfigureAwait(false)) {
-                        foreach (var transport in transports ?? new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling }) {
-                            string label = transport == CollaborationTransport.WebSocket ? "websocket" : transport == CollaborationTransport.LongPolling ? "requests" : "auto";
+                        foreach (var transport in transports ?? (caps.shortPollingVersion == CollaborationProtocol.ShortPollingVersion ?
+                            new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling, CollaborationTransport.ShortPolling } :
+                            new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling })) {
+                            string label = transport == CollaborationTransport.WebSocket ? "websocket" : transport == CollaborationTransport.LongPolling ? "requests" : transport == CollaborationTransport.ShortPolling ? "short-polling" : "auto";
                             using (var client = new CollaborationClient(origin, caps.room, catalog, transport, allowInsecureLan)) {
                                 int frames = 0;
                                 var first = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

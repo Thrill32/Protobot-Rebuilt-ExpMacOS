@@ -62,7 +62,7 @@ namespace Protobot.Collaboration.Server {
         public bool Recovered { get; }
         public long Revision { get { lock (gate) return document.revision; } }
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
-        public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, diagnosticsVersion = DiagnosticExport.Version, room = Name, generation = document.generation, catalogHash = catalog.hash };
+        public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" }, room = Name, generation = document.generation, catalogHash = catalog.hash };
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
         public const int LeaseMilliseconds = 10000;
 
@@ -317,12 +317,13 @@ namespace Protobot.Collaboration.Server {
             }
         }
 
-        public async Task<EventBatch> ReadAsync(string token, long after, long transient, CancellationToken cancellation) {
+        public async Task<EventBatch> ReadAsync(string token, long after, long transient, CancellationToken cancellation, bool wait = true) {
+            cancellation.ThrowIfCancellationRequested();
             Task wake;
             lock (gate) {
                 Expire(); Authenticate(token);
                 DocumentModel.Require(after >= minimumCursor && after <= document.revision, "resync-required");
-                if (events.Any(e => e.revision > after) || transient != transientVersion) return Batch(after);
+                if (!wait || events.Any(e => e.revision > after) || transient != transientVersion) return Batch(after);
                 wake = changed.Task;
             }
             // Held HTTPS requests wake immediately for edits/previews; timer ticks only expire leases.

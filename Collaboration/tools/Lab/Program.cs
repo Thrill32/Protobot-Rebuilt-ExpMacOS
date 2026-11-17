@@ -17,14 +17,18 @@ internal static partial class Program {
         int index = Array.IndexOf(args, "--bots");
         if (index >= 0) bots = int.Parse(args[index + 1]);
         if (bots < 2 || bots > 10) throw new ArgumentException("--bots must be 2–10");
-        var transports = new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling };
+        var transports = new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling, CollaborationTransport.ShortPolling };
         index = Array.IndexOf(args, "--transport");
-        if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : CollaborationTransport.WebSocket };
+        if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : args[index + 1] == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
             if (args.Contains("--multi-room-only")) {
                 await MultiRoomChecks(directory);
                 Console.WriteLine("Multi-room passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
+            if (args.Contains("--short-polling-only")) {
+                await ShortPollingChecks(directory); await NetworkChecks(bots, CollaborationTransport.ShortPolling, directory);
+                Console.WriteLine("Short polling passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             if (args.Contains("--diagnostics-only")) {
                 await DiagnosticChecks(directory);
@@ -40,6 +44,7 @@ internal static partial class Program {
             await AssetChecks(directory);
             await ConnectionChecks(directory);
             await DiagnosticChecks(directory);
+            await ShortPollingChecks(directory);
             index = Array.IndexOf(args, "--current-helper");
             if (index >= 0) await CurrentDiagnosticCompatibility(directory, args[index + 1]);
             index = Array.IndexOf(args, "--legacy-helper");
@@ -55,7 +60,11 @@ internal static partial class Program {
             await FailureChecks();
             await ProcessChecks(directory);
             index = Array.IndexOf(args, "--player");
-            if (index >= 0) await PlayerChecks(args[index + 1], directory);
+            if (index >= 0) {
+                await PlayerChecks(args[index + 1], directory);
+                string shortPlayers = Path.Combine(directory, "short-polling players"); Directory.CreateDirectory(shortPlayers);
+                await PlayerChecks(args[index + 1], shortPlayers, "short-polling");
+            }
             var summary = "{\"passed\":true,\"bots\":" + bots + ",\"assertions\":" + assertions + ",\"elapsedSeconds\":" + timer.Elapsed.TotalSeconds.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "}";
             File.WriteAllText(Path.Combine(directory, "summary.json"), summary);
             Console.WriteLine(summary); Console.WriteLine("Artifacts: " + directory); return 0;
@@ -508,7 +517,7 @@ internal static partial class Program {
         public long revision = 0;
         public int parts = 0;
     }
-    private static async Task PlayerChecks(string path, string directory) {
+    private static async Task PlayerChecks(string path, string directory, string guestTransport = "long-polling") {
         string executable = Directory.Exists(path) && path.EndsWith(".app", StringComparison.OrdinalIgnoreCase)
             ? Directory.GetFiles(Path.Combine(path, "Contents/MacOS")).Single(f => !Path.GetFileName(f).StartsWith(".", StringComparison.Ordinal)) : path;
         executable = Path.GetFullPath(executable);
@@ -541,14 +550,14 @@ internal static partial class Program {
             string hostReport = Path.Combine(directory, "Host.json");
             await WaitFile(hostReport + ".ready");
             var ready = WireJson.Decode<Ready>(await File.ReadAllBytesAsync(hostReport + ".ready"));
-            Launch("Guest", "join", ready.url, "long-polling");
+            Launch("Guest", "join", ready.url, guestTransport);
             string guestReport = Path.Combine(directory, "Guest.json");
             await WaitFile(hostReport); await WaitFile(guestReport);
             var host = WireJson.Decode<PlayerReport>(await File.ReadAllBytesAsync(hostReport));
             var guest = WireJson.Decode<PlayerReport>(await File.ReadAllBytesAsync(guestReport));
             Check(host.passed && guest.passed, "both built-player scene probes pass: " + host.error + " " + guest.error);
             Check(host.hash == guest.hash && host.revision == 2 && guest.revision == 2, "built players converge after in-app Host/Join");
-            Check(host.transport == "websocket" && guest.transport == "long-polling", "built players use both real runtime transports");
+            Check(host.transport == "websocket" && guest.transport == guestTransport, "built players use selected real runtime transports");
             Check(File.ReadAllText(Path.Combine(directory, "Host profile/preferences.json")).Contains("Host") &&
                 File.ReadAllText(Path.Combine(directory, "Guest profile/preferences.json")).Contains("Guest"), "player preferences are isolated in separate profiles");
             Console.WriteLine("Built players: in-app Host/Join converged; scene poses, colliders, save snapshots and profiles checked.");

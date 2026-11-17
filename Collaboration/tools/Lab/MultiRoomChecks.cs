@@ -26,7 +26,7 @@ internal static partial class Program {
         using var response = await http.SendAsync(request); return ((int)response.StatusCode, await response.Content.ReadAsByteArrayAsync());
     }
     private static async Task MultiRoomChecks(string directory) {
-        foreach (var transport in new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling }) {
+        foreach (var transport in new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling, CollaborationTransport.ShortPolling }) {
             Console.WriteLine("Multi-room " + transport + ": starting");
             string root = Path.Combine(directory, "multi " + transport), config = Path.Combine(root, "server.json");
             Check((await RunCli("server-init", "--data-dir", root)).code == 0, "CLI initializes a versioned private registry");

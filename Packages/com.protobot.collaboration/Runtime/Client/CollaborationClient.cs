@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Protobot.Collaboration {
-    public enum CollaborationTransport { Auto, WebSocket, LongPolling }
+    public enum CollaborationTransport { Auto, WebSocket, LongPolling, ShortPolling }
 
     public sealed partial class CollaborationClient : IEditSession, IDisposable {
         [Serializable] private sealed class RecoveryState {
@@ -81,6 +81,7 @@ namespace Protobot.Collaboration {
                 var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, cancellation).ConfigureAwait(false);
                 DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
+                DocumentModel.Require(Transport != CollaborationTransport.ShortPolling || capabilities.shortPollingVersion == CollaborationProtocol.ShortPollingVersion, "short-polling-unavailable");
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
@@ -253,7 +254,7 @@ namespace Protobot.Collaboration {
 
         private async Task Pump(CancellationToken cancellation) {
             try {
-                if (Transport != CollaborationTransport.LongPolling) {
+                if (Transport == CollaborationTransport.Auto || Transport == CollaborationTransport.WebSocket) {
                     using (var socket = new ClientWebSocket()) {
                         socket.Options.SetRequestHeader("Authorization", "Bearer " + token);
                         var uri = new UriBuilder(EventUri()) { Scheme = endpoint.Scheme == "https" ? "wss" : "ws" };
@@ -288,8 +289,7 @@ namespace Protobot.Collaboration {
                         }
                     }
                 }
-                ActiveTransport = "long-polling";
-                while (!cancellation.IsCancellationRequested) await ApplyAsync(await Request<EventBatch>(HttpMethod.Get, EventUri(), null, cancellation).ConfigureAwait(false), cancellation).ConfigureAwait(false);
+                await PumpRequestsAsync(cancellation).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
             catch (Exception error) { Freeze(error is CollaborationException known ? known.Code : "Connection lost. Reconnect to synchronize."); }
@@ -321,7 +321,7 @@ namespace Protobot.Collaboration {
             if (notify) Disconnected?.Invoke(reason);
         }
         public void Suspend(string reason) => Freeze(reason);
-        private Uri EventUri() { lock (gate) return new Uri(endpoint, "rooms/" + room + "/events?after=" + document.revision + "&transient=" + transient); }
+        private Uri EventUri() { lock (gate) return new Uri(endpoint, "rooms/" + room + "/events?after=" + document.revision + "&transient=" + transient + (Transport == CollaborationTransport.ShortPolling ? "&wait=0" : "")); }
         private Task<T> Get<T>(string action, CancellationToken cancellation) => Request<T>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/" + action), null, cancellation);
         private Task<TOut> Post<TIn, TOut>(string action, TIn value, CancellationToken cancellation, int timeoutMilliseconds = 30000) => Request<TOut>(HttpMethod.Post, new Uri(endpoint, "rooms/" + room + "/" + action), WireJson.Encode(value), cancellation, timeoutMilliseconds);
         private async Task<T> Request<T>(HttpMethod method, Uri uri, byte[] content, CancellationToken cancellation, int timeoutMilliseconds = 30000) {
