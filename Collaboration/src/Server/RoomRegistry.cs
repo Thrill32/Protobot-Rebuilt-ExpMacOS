@@ -124,10 +124,10 @@ namespace Protobot.Collaboration.Server {
             }
             DocumentModel.Require(File.Exists(Path.Combine(path, "room.sqlite")), "registered-room-database-missing");
             entry.store = new RoomStore(path);
-            DocumentModel.Require(entry.store.StorageVersion == 2, "registered-room-storage-version-mismatch");
+            DocumentModel.Require(entry.store.StorageVersion is 2 or 3, "registered-room-storage-version-mismatch");
             var archive = entry.store.Load(migrate: false);
             var expected = entry.registration;
-            DocumentModel.Require(archive != null && archive.info.room == expected.room && archive.info.generation == expected.generation &&
+            DocumentModel.Require(archive != null && archive.info.room == expected.room && RoomStore.Identity(archive.info) == expected.generation &&
                 archive.info.catalog.hash == expected.catalogHash && archive.info.ownerHash == expected.ownerHash, "registered-room-identity-mismatch");
             RoomBackup.ReadOwner(path, archive);
             entry.room = Room.Recover(entry.store, archive); if (attachBudget) entry.room.AttachBudget(Budget);
@@ -210,7 +210,7 @@ namespace Protobot.Collaboration.Server {
             RoomRegistration registration;
             using (var store = new RoomStore(stage)) {
                 var state = store.Load(); RoomBackup.ReadOwner(stage, state);
-                registration = new RoomRegistration { room = state.info.room, generation = state.info.generation, catalogHash = state.info.catalog.hash, ownerHash = state.info.ownerHash };
+                registration = new RoomRegistration { room = state.info.room, generation = RoomStore.Identity(state.info), catalogHash = state.info.catalog.hash, ownerHash = state.info.ownerHash };
             }
             ValidateRegistration(registration, registration.room); Admission(registration.room, registration.generation, registration.ownerHash);
             WriteNew(Path.Combine(stage, "registration.json"), registration);

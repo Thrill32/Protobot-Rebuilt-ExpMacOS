@@ -22,9 +22,14 @@ namespace Protobot {
         private bool loadingMembers;
         private string membershipSignature, pendingRemovalId, pendingRemovalName;
         private RectTransform uiCard, uiContent, uiBadge;
+        private RectTransform uiBuildTitle;
+        private Vector2 uiOriginalTitleSize, uiOriginalTitlePosition;
+        private Selectable[] uiTopBarControls;
+        private readonly Vector3[] uiEntryCorners = new Vector3[4];
         private CanvasGroup uiFormGroup, uiUtilityGroup;
         private Text uiBadgeText, uiStatus, uiConnection, uiMembers, uiSaveStatus, uiRecoveryNotice, uiLeaveWarning, uiReachability;
         private Text uiDiagnostics, uiTestReport;
+        private Button[] uiPageButtons;
         private InputField uiName, uiRoom, uiPassword, uiEndpoint, uiPort;
         private Toggle uiLan, uiViewer;
         private Dropdown uiTransport;
@@ -46,11 +51,21 @@ namespace Protobot {
             var scaler = uiRoot.GetComponent<CanvasScaler>(); scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1600, 900); scaler.matchWidthOrHeight = .5f;
 
-            var badge = UIButton(uiRoot.transform, "Collaboration", "Collaboration (alpha)", () => { if (panel) ClosePanel(); else OpenPanel(); });
+            var badge = UIButton(uiRoot.transform, "Collaboration", "Collaboration", () => { if (panel) ClosePanel(); else OpenPanel(); });
             uiBadge = (RectTransform)badge.transform;
-            uiBadge.anchorMin = uiBadge.anchorMax = uiBadge.pivot = Vector2.one;
-            uiBadge.anchoredPosition = new Vector2(-14, -214); uiBadge.sizeDelta = new Vector2(235, 36);
+            uiBadge.anchorMin = uiBadge.anchorMax = new Vector2(.5f, 1);
+            uiBadge.pivot = new Vector2(0, .5f);
+            uiBadge.anchoredPosition = new Vector2(183, -12.5f); uiBadge.sizeDelta = new Vector2(154, 24);
             uiBadgeText = badge.GetComponentInChildren<Text>();
+            uiBadgeText.fontSize = 13; uiBadgeText.color = new Color(.72f, .72f, .72f);
+            badge.GetComponent<Image>().color = new Color(.16f, .16f, .16f, .9f);
+            var buildTitle = FindFirstObjectByType<Protobot.UI.BuildNameText>();
+            if (buildTitle) {
+                uiBuildTitle = (RectTransform)buildTitle.transform;
+                uiOriginalTitleSize = uiBuildTitle.sizeDelta; uiOriginalTitlePosition = uiBuildTitle.anchoredPosition;
+                uiTopBarControls = uiBuildTitle.parent.GetComponentsInChildren<Selectable>(true);
+            }
+            PositionCollaborationButton();
 
             uiModal = UIRect("Collaboration Window", uiRoot.transform).gameObject;
             UIStretch((RectTransform)uiModal.transform); UIImage(uiModal.transform, new Color(0, 0, 0, .58f));
@@ -62,11 +77,14 @@ namespace Protobot {
             ((RectTransform)close.transform).anchorMin = ((RectTransform)close.transform).anchorMax = Vector2.one;
 
             uiTabs = UIRow(uiCard, "Pages").gameObject; UIPlace((RectTransform)uiTabs.transform, 22, 83, -44, 36, true);
-            UIButton(uiTabs.transform, "Host Tab", "Host", () => SelectUITab(0));
-            UIButton(uiTabs.transform, "Join Tab", "Join", () => SelectUITab(1));
-            UIButton(uiTabs.transform, "Recovery Tab", "Recovered rooms", () => { RefreshRecoveredRooms(); SelectUITab(2); });
-            UIButton(uiTabs.transform, "Create Room Tab", "Create room", () => SelectUITab(3));
-            UIButton(uiTabs.transform, "Server Admin Tab", "Server admin", () => SelectUITab(4));
+            uiPageButtons = new Button[6];
+            uiPageButtons[0] = UIButton(uiTabs.transform, "Host Tab", "Host", () => SelectUITab(0));
+            uiPageButtons[1] = UIButton(uiTabs.transform, "Join Tab", "Join", () => SelectUITab(1));
+            uiPageButtons[2] = UIButton(uiTabs.transform, "Recovery Tab", "Local rooms", () => { RefreshRecoveredRooms(); SelectUITab(2); });
+            uiPageButtons[3] = UIButton(uiTabs.transform, "Create Room Tab", "Create room", () => SelectUITab(3));
+            uiPageButtons[5] = UIButton(uiTabs.transform, "Owned Rooms Tab", "Owned rooms", () => SelectUITab(5));
+            uiPageButtons[4] = UIButton(uiTabs.transform, "Server Admin Tab", "Server admin", () => SelectUITab(4));
+            foreach (var tab in uiPageButtons) tab.GetComponentInChildren<Text>().fontSize = 12;
 
             var viewport = UIRect("Scroll View", uiCard); viewport.anchorMin = Vector2.zero; viewport.anchorMax = Vector2.one;
             viewport.offsetMin = new Vector2(22, 103); viewport.offsetMax = new Vector2(-22, -130);
@@ -146,6 +164,7 @@ namespace Protobot {
             uiSaveAs = UIButton(saves, "Save Local As", "Save local file as...", () => { ClosePanel(); FindFirstObjectByType<BuildsManager>().SaveAs(); });
             UIText(uiConnected.transform, "Coverage", "Available: " + string.Join(", ", mutations) + ".\nCustom geometry and confirmed mounting-point edits are shared. Simulation previews stay private until confirmation.", 12);
             uiReconnect = UIButton(uiConnected.transform, "Reconnect", "Reconnect", () => _ = ReconnectAsync(), true);
+            InitializeResynchronizationUI();
             uiLeave = UIButton(uiConnected.transform, "Leave", "Leave and continue offline...", () => uiLeaveConfirmation.SetActive(true));
             uiLeaveConfirmation = UIColumn(uiConnected.transform, "Confirm Leave").gameObject;
             uiLeaveWarning = UIText(uiLeaveConfirmation.transform, "Warning", "");
@@ -176,24 +195,29 @@ namespace Protobot {
         }
 
         private void OpenPanel(int tab = -1) {
-            if (!panel) { CancelTools(); ClearUIFocus(); uiLeaveConfirmation.SetActive(false); pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); }
+            if (!panel) { CancelTools(); ClearUIFocus(); uiLeaveConfirmation.SetActive(false); pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); ClearReplacementConfirmation(); uiResyncConfirmation.SetActive(false); uiJoinResyncConfirmation.SetActive(false); }
             if (tab >= 0) SelectUITab(tab);
             panel = true; nextUIRefresh = 0; RefreshUI();
         }
-        private void ClosePanel() {
+        private void ClosePanel() => ClosePanelCore(true);
+        private void ClosePanelCore(bool clearPassword) {
+            ClearReplacementConfirmation(); uiResyncConfirmation.SetActive(false); uiJoinResyncConfirmation.SetActive(false);
             connectionTest?.Cancel(); CancelDiagnosticExport(); CancelRoomOperation(); ClearRoomKeys();
             if (connectionAttempt != null) { connectionAttempt.ClosePanelRequested = true; CancelConnection(); }
+            if (clearPassword) ClearPassword();
             panel = false; ClearUIFocus();
             if (uiModal != null) uiModal.SetActive(busy);
         }
         private void SelectUITab(int tab) {
+            ClearReplacementConfirmation(); uiResyncConfirmation?.SetActive(false); uiJoinResyncConfirmation?.SetActive(false);
             ClearUIFocus(); uiTab = tab;
             uiHost.SetActive(tab == 0); uiJoin.SetActive(tab == 1); uiRecovery.SetActive(tab == 2);
-            uiCreateRoom.SetActive(tab == 3); uiServerAdmin.SetActive(tab == 4);
+            uiCreateRoom.SetActive(tab == 3); uiServerAdmin.SetActive(tab == 4); uiOwnedRooms.SetActive(tab == 5);
             uiCreateConfirmation.SetActive(false); ClearRoomKeys();
-            if (tab == 3) { createdRoomSignature = null; RefreshCreatedRoomsUI(); }
+            if (tab == 5) { createdRoomSignature = null; RefreshCreatedRoomsUI(); }
             uiScroll.verticalNormalizedPosition = 1;
-            for (int i = 0; i < uiTabs.transform.childCount; i++) uiTabs.transform.GetChild(i).GetComponent<Image>().color = i == tab ? uiAccent : new Color(.15f, .19f, .24f);
+            for (int i = 0; i < uiPageButtons.Length; i++) uiPageButtons[i].GetComponent<Image>().color = i == tab ? uiAccent : new Color(.15f, .19f, .24f);
+            nextUIRefresh = 0; if (panel || busy) RefreshUI();
         }
         private void ClearUIFocus() {
             var selected = EventSystem.current?.currentSelectedGameObject;
@@ -226,25 +250,68 @@ namespace Protobot {
             catch (Exception error) { Report(error); }
         }
 
-        private void LateUpdate() { if (Time.unscaledTime >= nextUIRefresh) { nextUIRefresh = Time.unscaledTime + .25f; RefreshUI(); } }
+        private void PositionCollaborationButton() {
+            if (!uiBuildTitle || !uiBadge || !uiRoot) return;
+            var sourceCanvas = uiBuildTitle.GetComponentInParent<Canvas>();
+            var camera = sourceCanvas && sourceCanvas.renderMode != RenderMode.ScreenSpaceOverlay ? sourceCanvas.worldCamera : null;
+            var root = (RectTransform)uiRoot.transform;
+            Vector2 Point(Vector3 world) {
+                var screen = RectTransformUtility.WorldToScreenPoint(camera, world);
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(root, screen, null, out var result); return result;
+            }
+            Rect Bounds(RectTransform rect) {
+                rect.GetWorldCorners(uiEntryCorners);
+                return Rect.MinMaxRect(Point(uiEntryCorners[0]).x, Point(uiEntryCorners[0]).y,
+                    Point(uiEntryCorners[2]).x, Point(uiEntryCorners[2]).y);
+            }
+            // Fit the filename and entry together between existing top-bar controls.
+            // The production scene keeps its original layout; only the runtime title
+            // rectangle shrinks or moves when a smaller window needs the space.
+            uiBuildTitle.anchoredPosition = uiOriginalTitlePosition;
+            var title = Bounds(uiBuildTitle); var bar = Bounds((RectTransform)uiBuildTitle.parent);
+            float left = bar.xMin + 8, right = bar.xMax - 8;
+            foreach (var control in uiTopBarControls) {
+                if (!control || !control.gameObject.activeInHierarchy) continue;
+                var bounds = Bounds((RectTransform)control.transform);
+                if (Mathf.Abs(bounds.center.y - bar.center.y) > bar.height * .5f) continue;
+                if (bounds.center.x < title.center.x) left = Mathf.Max(left, bounds.xMax + 8);
+                else right = Mathf.Min(right, bounds.xMin - 8);
+            }
+            float ratio = uiBuildTitle.lossyScale.x / root.lossyScale.x;
+            float width = Mathf.Max(0, right - left);
+            float entryWidth = Mathf.Min(154, width);
+            float titleWidth = Mathf.Min(uiOriginalTitleSize.x * ratio, Mathf.Max(0, width - entryWidth - 8));
+            float groupWidth = titleWidth + entryWidth + 8;
+            float titleLeft = Mathf.Clamp(title.center.x - titleWidth * .5f, left, Mathf.Max(left, right - groupWidth));
+            uiBuildTitle.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, titleWidth / ratio);
+            uiBuildTitle.anchoredPosition += Vector2.right * ((titleLeft + titleWidth * .5f - title.center.x) / ratio);
+            uiBadge.anchorMin = uiBadge.anchorMax = new Vector2(.5f, .5f);
+            uiBadge.sizeDelta = new Vector2(entryWidth, Mathf.Min(24, bar.height));
+            uiBadge.anchoredPosition = new Vector2(titleLeft + titleWidth + 8, bar.center.y);
+        }
+
+        private void LateUpdate() { PositionCollaborationButton(); if (Time.unscaledTime >= nextUIRefresh) { nextUIRefresh = Time.unscaledTime + .25f; RefreshUI(); } }
         private void RefreshUI() {
             if (uiRoot == null) return;
             var canvasRect = (RectTransform)uiRoot.transform;
             uiCard.sizeDelta = new Vector2(Mathf.Min(710, canvasRect.rect.width - 24), Mathf.Min(760, canvasRect.rect.height - 28));
             uiModal.SetActive(panel || busy);
-            string shortRoom = room.Length > 18 ? room.Substring(0, 16) + "..." : room;
-            uiBadgeText.text = busy ? "Collaboration | working..." : !IsShared ? "Collaboration (alpha)" : client.IsConnected ? $"{shortRoom} | {Math.Max(1, participants.Length)} online" : "Collaboration | disconnected";
+            uiBadgeText.text = IsShared ? $"Collaboration ({Math.Max(1, participants.Length)})" : "Collaboration";
             if (!uiModal.activeSelf) return;
             uiTabs.SetActive(!IsShared); uiFormGroup.gameObject.SetActive(!IsShared); uiConnected.SetActive(IsShared);
             uiFormGroup.interactable = !busy; uiFormGroup.blocksRaycasts = !busy;
             RefreshNetworkUI();
+            RefreshResynchronizationUI();
             uiUtilityGroup.interactable = !busy;
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
             uiName.SetTextWithoutNotify(displayName); uiRoom.SetTextWithoutNotify(room); uiEndpoint.SetTextWithoutNotify(endpoint);
             uiCreateAddress.SetTextWithoutNotify(endpoint); uiAdminAddress.SetTextWithoutNotify(endpoint);
             uiCreationKey.interactable = creationAuthority != 1;
-            if (uiTab == 3) RefreshCreatedRoomsUI();
+            uiName.transform.parent.parent.gameObject.SetActive(uiTab != 4);
+            uiRoom.transform.parent.parent.gameObject.SetActive(uiTab == 0 || uiTab == 1 || uiTab == 3);
+            uiPassword.transform.parent.gameObject.SetActive(uiTab == 0 || uiTab == 1 || uiTab == 3);
+            if (uiTab == 5) RefreshCreatedRoomsUI();
             uiCancelConnection.gameObject.SetActive(connectionAttempt != null || diagnosticExport != null || roomOperation != null);
             uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested || diagnosticExport != null && !diagnosticExport.IsCancellationRequested || roomOperation != null && !roomOperation.IsCancellationRequested;
             uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null && diagnosticExport == null && roomOperation == null ? 0 : -116, 0);
@@ -261,7 +328,7 @@ namespace Protobot {
                 bool fileBusy = builds == null || builds.IsFileOperationInProgress || NativeFileDialogs.IsOpen;
                 uiSaveStatus.text = "Your local file: " + (string.IsNullOrEmpty(builds?.buildPath) ? "Unsaved - first save uses Save As" : builds.GetFileName() + (builds.CurrentBuildIsSaved ? " - saved" : " - unsaved changes")) + (client.PendingCount > 0 ? $"\n{client.PendingCount} edit(s) awaiting an outcome." : "");
                 uiSave.interactable = uiSaveAs.interactable = !busy && !fileBusy && client.PendingCount == 0;
-                uiReconnect.gameObject.SetActive(!client.IsConnected && !client.IsMembershipRevoked); uiReconnect.interactable = !busy && AdmissionCooldownSeconds == 0;
+                uiReconnect.gameObject.SetActive(!client.IsConnected && !client.IsMembershipRevoked && !NeedsSceneResynchronization); uiReconnect.interactable = !busy && AdmissionCooldownSeconds == 0;
                 uiReconnect.GetComponentInChildren<Text>().text = host != null && !host.IsRunning ? "Restart host and reconnect" : "Reconnect";
                 uiLeave.interactable = !busy && !fileBusy;
                 uiLeave.GetComponentInChildren<Text>().text = host != null ? "Stop hosting and continue offline..." : "Leave and continue offline...";
@@ -352,6 +419,10 @@ namespace Protobot {
         }
 
         private static string FriendlyStatus(string value) => value switch {
+            "room-replacement-client-required" => "This replaced room requires an updated collaboration client and its matching catalog before admission.",
+            "room-replacement-busy" => "Another creation or replacement is being processed. Check any prepared attempt before a new confirmation.",
+            "room-storage-failed-restart-required" => "Room storage stopped accepting changes. Ask the server operator to restart it, then check pending outcomes. Your accepted build and local files are kept.",
+            "room-replaced" => "The owner replaced this room. Your last accepted build stays open. Choose Resynchronize to check old pending outcomes and open the new generation; local files are unchanged.",
             "server-stopping" => "The host stopped the server. Your last received accepted build stays open. Reconnect after it restarts to check pending edits; local files are unchanged.",
             "proxy-authentication-required" => "The proxy requires supported credentials. Check its Basic username/password with your network operator and reconnect. Integrated authentication is available only through tested system defaults.",
             "proxy-config-version" or "proxy-route-unsupported" or "proxy-auth-unsupported" or "proxy-auth-route-mismatch" => "Choose System, Direct, or an HTTP proxy with None or Basic authentication. Other explicit proxy mechanisms are unsupported.",
@@ -364,16 +435,19 @@ namespace Protobot {
             "server-version-mismatch" => "The server uses a different collaboration version. Use matching builds and helpers.",
             "https-required-use-explicit-lan-http" => "Use an HTTPS address, or enable LAN HTTP for a trusted local-network test.",
             "room-full" => "This room has reached its participant limit.",
-            "saved-room-does-not-match" => "This address now refers to a different room. Check the host, or forget the saved membership before joining anew.",
-            "invalid-session" => "The saved membership is no longer valid. Forget it to join as a new member.",
+            "saved-room-does-not-match" => "Room identity or generation differs. Check the address and matching build. If the owner replaced this room, choose Resynchronize to keep your membership and check pending outcomes.",
+            "invalid-session" => "The server did not accept this session. Reconnect using the saved membership first; pending outcomes are retained. If recovery still fails, check with the room owner before forgetting an identity or recreating edits.",
             "membership-revoked" => "Your membership was removed or ended. Shared editing and reconnect are disabled. Continue offline to keep the last received accepted build.",
-            "owner-required" => "Only a room owner can manage memberships.",
+            "owner-required" => "Only this room's owner can perform this action.",
             "owner-removal-protected" => "Owner memberships cannot be removed through participant management.",
             "participant-administration-unavailable" => "This helper needs an update before participant management is available.",
             "recovery-catalog-mismatch-use-the-matching-build" => "This recovered room needs the original matching build and catalog.",
             _ => value
         };
-        private void DisposeUI() { if (uiRoot != null) Destroy(uiRoot); }
+        private void DisposeUI() {
+            if (uiBuildTitle) { uiBuildTitle.sizeDelta = uiOriginalTitleSize; uiBuildTitle.anchoredPosition = uiOriginalTitlePosition; }
+            if (uiRoot != null) Destroy(uiRoot);
+        }
 
         private static RectTransform UIRect(string name, Transform parent) {
             var rect = new GameObject(name, typeof(RectTransform)).GetComponent<RectTransform>(); rect.SetParent(parent, false); return rect;

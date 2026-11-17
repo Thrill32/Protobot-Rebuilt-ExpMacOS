@@ -34,6 +34,7 @@ namespace Protobot.Collaboration.Server {
         private long connections;
         private readonly SemaphoreSlim requests = new SemaphoreSlim(ProcessBudget.MaxRequests, ProcessBudget.MaxRequests);
         private readonly SemaphoreSlim eventRequests = new SemaphoreSlim(ProcessBudget.MaxEvents, ProcessBudget.MaxEvents);
+        private readonly SemaphoreSlim standaloneReplacement = new SemaphoreSlim(1, 1);
         public RoomRegistry Registry => registry;
         public bool MultiRoom => registry != null;
         private Room Resolve(HttpContext context) {
@@ -122,8 +123,8 @@ namespace Protobot.Collaboration.Server {
             var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version,
                 roomCreationVersion = ServerRooms.CreationVersion, roomCreationPolicy = registry.CreationPolicy, serverId = registry.ServerId,
                 diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" } };
-            app.MapGet("/capabilities", context => Write(context, rootCapabilities));
-            app.MapGet("/health", context => { context.Response.StatusCode = registry != null || Room.IsHealthy ? 200 : 503; return Write(context, rootCapabilities); });
+            app.MapGet("/capabilities", context => Write(context, registry == null ? Room.Capabilities : rootCapabilities));
+            app.MapGet("/health", context => { context.Response.StatusCode = registry != null || Room.IsHealthy ? 200 : 503; return Write(context, registry == null ? Room.Capabilities : rootCapabilities); });
             const string path = "/rooms/{room}";
             app.MapGet(path + "/capabilities", context => Write(context, Resolve(context).Capabilities));
             app.MapGet(path + "/health", context => { var room = Resolve(context); context.Response.StatusCode = room.IsHealthy ? 200 : 503; return Write(context, room.Capabilities); });
@@ -162,7 +163,7 @@ namespace Protobot.Collaboration.Server {
                     if (limits.attempts >= 60) throw new CollaborationException("join-rate-limit", (int)Math.Max(250, 60000 - (Environment.TickCount64 - limits.window)));
                     limits.attempts++;
                 }
-                await Write(context, room.Join(await Read<JoinRequest>(context)));
+                await Write(context, room.Join(await Read<JoinRequest>(context), requireGenerationProof: true));
             });
             app.MapPost(path + "/lease", async context => await Write(context, Resolve(context).Reserve(Token(context), await Read<LeaseRequest>(context))));
             app.MapPost(path + "/release", async context => {
@@ -213,7 +214,26 @@ namespace Protobot.Collaboration.Server {
                 }
                 finally { if (processTransfer) budget.Transfers.Release(); transferGate.Release(); }
             });
-            app.MapGet(path + "/receipt", context => Write(context, Resolve(context).Outcome(Token(context), context.Request.Query["operationId"])));
+            app.MapGet(path + "/receipt", context => Write(context, Resolve(context).Outcome(Token(context), context.Request.Query["operationId"],
+                context.Request.Query.ContainsKey("generation") ? context.Request.Query["generation"].ToString() : null)));
+            app.MapGet(path + "/replacement", context => Write(context, Resolve(context).InspectReplacement(Token(context))));
+            app.MapGet(path + "/replacement-result", context => Write(context, Resolve(context).ReplacementOutcome(Token(context), context.Request.Query["operationId"])));
+            app.MapPost(path + "/replacement", async context => {
+                var room = Resolve(context); string credential = Token(context); room.AuthorizeReplacement(credential);
+                // Share the existing one-candidate process permit with creation, so
+                // replacement never introduces eight parallel portable-body buffers.
+                var candidate = registry?.Creation ?? standaloneReplacement;
+                DocumentModel.Require(await candidate.WaitAsync(0, context.RequestAborted), "room-replacement-busy");
+                try {
+                    var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+                    if (limit != null && !limit.IsReadOnly) limit.MaxRequestBodySize = LocalJson.MaxBytes;
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted); timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                    var request = await Read<RoomReplacementRequest>(context, LocalJson.MaxBytes, timeout.Token);
+                    timeout.Token.ThrowIfCancellationRequested();
+                    await Write(context, await Task.Run(() => room.Replace(credential, request)));
+                }
+                finally { candidate.Release(); }
+            });
             app.MapPost(path + "/leave", async context => { Resolve(context).Leave(Token(context)); await Write(context, new WireError()); });
             app.MapGet(path + "/participants", context => Write(context, Resolve(context).Memberships(Token(context))));
             app.MapPost(path + "/participants/remove", async context => await Write(context, Resolve(context).RemoveParticipant(Token(context), await Read<RemoveParticipant>(context))));

@@ -56,6 +56,8 @@ namespace Protobot.Collaboration {
     public static class DiagnosticExport {
         public const int Version = 1, MaxBytes = 65536, MaxEvents = 32, MaxRooms = 8;
         private static readonly HashSet<string> Codes = new HashSet<string>(StringComparer.Ordinal) {
+            "room-replaced", "room-replacement-busy", "room-replacement-limit", "replacement-target-changed", "room-replacement-unavailable",
+            "room-replacement-client-required",
             "server-stopping", "connection-attempt-timeout", "safe-retry-exhausted", "join-rate-limit", "canceled", "ready", "export-failed", "diagnostics-unavailable", "invalid-diagnostics", "owner-required", "server-admin-required",
             "membership-revoked", "pending-operation-limit", "asset-transfer-busy", "server-transfer-busy", "asset-byte-limit", "asset-room-quota",
             "asset-materialization-quota", "asset-scene-quota", "asset-client-quota", "asset-unused-quota", "server-geometry-quota", "alpha-history-limit",

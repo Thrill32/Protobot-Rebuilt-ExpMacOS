@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,9 +20,16 @@ internal static partial class Program {
     }
     public static async Task<int> Main(string[] args) {
         try {
+            if (args.Length >= 2 && args[0] == "--installation") { installationRoot = Path.GetFullPath(args[1]); args = System.Linq.Enumerable.Skip(args, 2).ToArray(); }
             if (args.Length == 1 && args[0] == "--version") { Console.WriteLine(CollaborationProtocol.Version); return 0; }
             if (args.Length == 0 || args[0] == "--help") {
-                Console.WriteLine("protobot-collab init --data-dir <new-directory> --room <id> (--catalog <catalog.json> | --snapshot <room-export.json>) [--password-prompt | --password-file <file>]\n" +
+                Console.WriteLine("protobot-collab install --artifact <verified-unpacked-directory> --manifest-sha256 <trusted-hash> --install-dir <new-directory>\n" +
+                    "Installed launcher: setup [--profile <name>] [--state-dir <new-directory>] [--kind server|room] [--creation-policy admin-only|key|open]\n" +
+                    "Installed launcher: start [--profile <name>] [--listen <origin>] [--public-url <https-origin>] [--tls-file <private-file>]\n" +
+                    "Installed launcher: installation-info | update --artifact <directory> --manifest-sha256 <trusted-hash> | select [--version <installed-artifact-id>]\n" +
+                    "protobot-collab build-info # published build/catalog/capability/format identity\n" +
+                    "protobot-collab artifact-manifest --artifact <published-directory> --runtime <rid> # local packaging; prints manifest SHA-256\n" +
+                    "protobot-collab init --data-dir <new-directory> --room <id> (--catalog <catalog.json> | --snapshot <room-export.json>) [--password-prompt | --password-file <file>]\n" +
                     "protobot-collab serve --data-dir <local-directory> [--config <initial-bootstrap.json>] [--listen http://127.0.0.1:8787] [--public-url <https-origin>] [--allow-lan-http]\n" +
                     "protobot-collab server-init --data-dir <new-server-directory> [--creation-policy admin-only|key|open]\n" +
                     "protobot-collab server-policy --config <server.json> --admin-file <private-admin.json> --creation-policy admin-only|key|open [--creator-output <new-private-file>] # stopped server; key mode generates a new key\n" +
@@ -29,6 +37,9 @@ internal static partial class Program {
                     "protobot-collab room create --url <origin> --admin-file <private-admin.json> --room <id> (--catalog <file> | --snapshot <file>) --owner-output <new-private-file> [--password-file <file> | --password-prompt]\n" +
                     "  Creation authority: exactly one of --admin-file <file>, --creation-key-file <private-creator.json>, --open-creation. Creator authority never lists rooms.\n" +
                     "protobot-collab room list --url <origin> --admin-file <private-admin.json>\n" +
+                    "protobot-collab room replacement-target --url <origin> --owner-file <private-owner.json> --output <new-target.json>\n" +
+                    "protobot-collab room replace --url <origin> --owner-file <private-owner.json> --target <target.json> --snapshot <room-export.json> --attempt-output <new-private-attempt.json> --confirm-room <exact-room-id>\n" +
+                    "protobot-collab room replacement-check --url <original-origin> --owner-file <private-owner.json> --attempt <private-attempt.json> # read only; never resends\n" +
                     "protobot-collab room restore --config <server.json> --admin-file <private-admin.json> --input <archive.zip> # stopped server\n" +
                     "protobot-collab serve --ephemeral --config <protected-bootstrap.json>\n" +
                     "protobot-collab backup --data-dir <stopped-room> --output <new-archive.zip>\n" +
@@ -41,12 +52,24 @@ internal static partial class Program {
                     "Remote commands: [--network-route system|direct | --network-file <private-protobot-network-v1.json>]. Proxy passwords are file input only.\n" +
                     "Development alpha: bounded rooms; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
             }
+            if (args[0] == "build-info") { DocumentModel.Require(args.Length == 1, "unknown-option"); Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(DescribeBuild(AppContext.BaseDirectory, NativeRuntime), InstallJson)); return 0; }
+            if (args[0] == "artifact-manifest") return MakeArtifact(new Options(args, new[] { "--artifact", "--runtime" }, Array.Empty<string>()));
+            if (args[0] == "install" || args[0] == "update") return await InstallArtifact(new Options(args, new[] { "--artifact", "--manifest-sha256", "--install-dir" }, Array.Empty<string>()), args[0] == "update");
+            if (args[0] == "select") return await SelectInstallation(new Options(args, new[] { "--install-dir", "--version" }, Array.Empty<string>()));
+            if (args[0] == "installation-info") return InstallationInfo(new Options(args, new[] { "--install-dir" }, Array.Empty<string>()));
+            if (args[0] == "setup") return SetupProfile(new Options(args, new[] { "--install-dir", "--profile", "--state-dir", "--kind", "--creation-policy", "--room", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
+            if (args[0] == "start") return await StartProfile(new Options(args, new[] { "--install-dir", "--profile", "--listen", "--public-url", "--tls-file" }, new[] { "--allow-lan-http" }));
             if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir", "--creation-policy" }, Array.Empty<string>()));
             if (args[0] == "server-policy") return ConfigureServerCreation(new Options(args, new[] { "--config", "--admin-file", "--creation-policy", "--creator-output" }, Array.Empty<string>()));
             if (args[0] == "room") {
                 DocumentModel.Require(args.Length >= 2, "missing-room-operation"); string operation = args[1];
-                DocumentModel.Require(operation == "create" || operation == "list" || operation == "restore", "unknown-room-operation");
+                bool replacement = operation == "replacement-target" || operation == "replace" || operation == "replacement-check";
+                DocumentModel.Require(operation == "create" || operation == "list" || operation == "restore" || replacement, "unknown-room-operation");
                 var roomArgs = new string[args.Length - 1]; roomArgs[0] = "room"; Array.Copy(args, 2, roomArgs, 1, args.Length - 2);
+                if (replacement) return await ReplaceRoom(operation, new Options(roomArgs,
+                    new[] { "--url", "--owner-file", "--network-route", "--network-file" }.Concat(operation == "replacement-target" ? new[] { "--output" } :
+                        operation == "replacement-check" ? new[] { "--attempt" } : new[] { "--target", "--snapshot", "--attempt-output", "--confirm-room" }).ToArray(),
+                    new[] { "--allow-lan-http" }));
                 return await Hosting(operation, new Options(roomArgs,
                     operation == "list" ? new[] { "--url", "--admin-file", "--network-route", "--network-file" } : operation == "restore" ? new[] { "--config", "--admin-file", "--input" } :
                         new[] { "--url", "--admin-file", "--creation-key-file", "--room", "--catalog", "--snapshot", "--password-file", "--owner-output", "--network-route", "--network-file" },

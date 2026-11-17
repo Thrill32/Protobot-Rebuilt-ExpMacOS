@@ -8,6 +8,7 @@ namespace Protobot.Collaboration.Server {
                 if (ownerHash != null && credential != null && credential.Length < 256 && TokenHash(credential) == ownerHash) return;
                 DocumentModel.Require(credential != null && credential.Length < 256 && sessions.TryGetValue(TokenHash(credential), out var member) &&
                     !member.revoked && member.participant.role == "owner", "owner-required");
+                DocumentModel.Require(sessions[TokenHash(credential)].sessionGeneration == document.generation, "room-replaced");
             }
         }
         public RoomDiagnostic Diagnostics() {

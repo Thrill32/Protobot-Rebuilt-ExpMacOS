@@ -1,6 +1,6 @@
 # Direct HTTPS hosting with an existing certificate
 
-The shared-server Create Room, owner Check/Join and server-admin views use this same HTTPS listener and ordinary platform certificate/name validation. No special creation trust mechanism is added. See [room-management policies and private ownership](ROOM_MANAGEMENT.md).
+The shared-server Create Room, owned-room Check/Join/replacement/outcome checks and server-admin views use this same HTTPS listener and ordinary platform certificate/name validation. No special creation trust mechanism is added. See [room-management policies and private ownership](ROOM_MANAGEMENT.md).
 
 Standalone `serve` accepts `--tls-file /private/local/tls.json`. This is an alternative to the existing [Caddy deployment](deploy/README.md), for operators who already have a certificate and private key in a **PKCS#12 / PFX** file. Certificate issuance, renewal, ACME and trust-store management remain the operator's responsibility. Normal in-app Host/Resume keeps its private Direct loopback workflow; participants enter only the HTTPS origin, room and room password.
 

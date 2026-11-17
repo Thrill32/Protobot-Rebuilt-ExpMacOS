@@ -1,16 +1,16 @@
 # Outbound proxy configuration
 
-Shared-server Create Room, retained owner Check/Join and server-admin inspection use the same selected per-operation route and normal TLS trust as Join. Creator/admin input stays separate from proxy Basic credentials. Mutation sends remain single-send; proxy authentication may challenge before forwarding to the origin. See [room-management controls and recovery](ROOM_MANAGEMENT.md).
+Shared-server Create Room, retained owner Check/Join/replacement/outcome checks and server-admin inspection use the same selected per-operation route and normal TLS trust as Join. Creator/admin input stays separate from proxy Basic credentials. Mutation sends remain single-send; proxy authentication may challenge before forwarding to the origin. See [room-management controls and recovery](ROOM_MANAGEMENT.md).
 
 Inbound standalone direct HTTPS is configured separately with a private [protobot-tls schema-1 file](TLS.md). Outbound route/proxy input never contains server certificate material, and participant Join/test/Cancel/Reconnect retains platform trust/name validation for either direct HTTPS or Caddy.
 
-This is local client configuration, independent of room passwords, participant credentials and owner/admin capabilities. Wire stays **0.9.0-alpha**, room/SQLite/archive formats **v2**, and server configuration/registry/admin **v1**. No server capability or storage migration is required.
+This is local client configuration, independent of room passwords, participant credentials and owner/admin capabilities. Wire stays **0.9.0-alpha**, documents **v2**, SQLite/archives **v2** until explicit replacement writes **v3**, and server configuration/registry/admin **v1**. No server capability or storage migration is required.
 
 ## Unity controls
 
 The collaboration window offers **System proxy settings (default)**, **Direct connection**, and **Explicit HTTP proxy**. Enter an explicit `http://host:port` authority and choose **None** or **Basic** authentication. Username/password use separate masked fields. Input stays in this process's memory: no preferences, recovery/bootstrap files, invites, logs, diagnostics or additional test windows receive it. Re-enter it after application restart. **Clear proxy input** clears the form for subsequent connections; a running connection retains its policy until paused/reconnected or closed.
 
-On a remote session choose **Pause connection to change network route**, edit the route, then **Reconnect**. The same origin/room/catalog/generation membership, personal history and pending receipt IDs are retained. Failure/cancellation keeps accepted content and local files. A replacement generation is refused before admission. There is no implicit direct bypass, automatic reconnect, mutation replay or new membership on route change. Owned-helper loopback Host/Resume/restart and inspection always use Direct. `--collab-network-route system|direct` selects the two nonsecret launch modes; explicit proxy details are window input.
+On a remote session choose **Pause connection to change network route**, edit the route, then **Reconnect**. The same origin/room/catalog/generation membership, personal history and pending receipt IDs are retained. Failure/cancellation keeps accepted content and local files. An ordinary reconnect refuses a replacement generation before admission. Explicit Resynchronize verifies stable room identity, checks old pending outcomes without replay, stages geometry and only then opens the new generation. There is no implicit direct bypass, automatic reconnect, mutation replay or new membership on route change. Owned-helper loopback Host/Resume/restart and inspection always use Direct. `--collab-network-route system|direct` selects the two nonsecret launch modes; explicit proxy details are window input.
 
 ## CLI private file
 

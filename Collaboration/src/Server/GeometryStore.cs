@@ -7,8 +7,8 @@ namespace Protobot.Collaboration.Server {
     public sealed partial class Room {
         private Dictionary<string, byte[]> assetBytes = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         private long minimumCursor;
-        private readonly Dictionary<string, string> assetNames = new Dictionary<string, string>(StringComparer.Ordinal);
-        private readonly Dictionary<string, long> assetArrayBytes = new Dictionary<string, long>(StringComparer.Ordinal);
+        private Dictionary<string, string> assetNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        private Dictionary<string, long> assetArrayBytes = new Dictionary<string, long>(StringComparer.Ordinal);
         private void IndexAsset(GeometryAsset asset) { assetNames.Add(asset.hash, asset.name); assetArrayBytes.Add(asset.hash, GeometryTransfer.MaterializedBytes(asset)); }
         public void AuthorizeAsset(string token, string hash, bool upload) {
             lock (gate) {

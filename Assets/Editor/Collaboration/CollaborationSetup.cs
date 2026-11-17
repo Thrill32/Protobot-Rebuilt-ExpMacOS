@@ -118,7 +118,12 @@ namespace ProtobotEditorTools {
             bool mac = report.summary.platform == BuildTarget.StandaloneOSX;
             string destination = mac ? Path.Combine(report.summary.outputPath, "Contents/Helpers/Collaboration") : Path.Combine(Path.GetDirectoryName(report.summary.outputPath), "Collaboration");
             Directory.CreateDirectory(destination);
-            foreach (var file in Directory.GetFiles(Path.GetDirectoryName(source))) File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+            // Player bundles contain runtime support, not the complete CLI distribution
+            // (deploy templates are intentionally omitted). Do not ship its file manifest.
+            string manifest = Path.Combine(destination, "artifact.json");
+            if (File.Exists(manifest)) File.Delete(manifest);
+            foreach (var file in Directory.GetFiles(Path.GetDirectoryName(source)))
+                if (Path.GetFileName(file) != "artifact.json") File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
             File.Copy("Assets/Resources/Collaboration/catalog.json", Path.Combine(destination, "catalog.json"), true);
             if (mac) {
                 Run("/bin/chmod", "+x \"" + Path.Combine(destination, "protobot-collab") + "\"");

@@ -10,7 +10,7 @@ using UnityEngine.UI;
 
 namespace Protobot {
     public sealed partial class CollaborationSession {
-        private GameObject uiCreateRoom, uiServerAdmin, uiCreateConfirmation;
+        private GameObject uiCreateRoom, uiOwnedRooms, uiServerAdmin, uiCreateConfirmation;
         private InputField uiCreateAddress, uiCreationKey, uiAdminAddress, uiServerAdminKey;
         private Dropdown uiCreationAuthority;
         private Text uiCreationPolicy, uiServerRooms;
@@ -38,9 +38,14 @@ namespace Protobot {
             UIButton(actions, "Confirm Create Room", "Create new room", () => _ = CreateRemoteRoomAsync(), true);
             UIButton(actions, "Cancel Create Room", "Cancel", () => uiCreateConfirmation.SetActive(false));
             uiCreateConfirmation.SetActive(false);
-            UIText(uiCreateRoom.transform, "Ownership Help", "Your created / prepared rooms in this profile. After a failed or canceled creation, use Check; creation is never resent automatically. Joining opens the room after normal unsaved-project handling.", 12);
-            UIButton(uiCreateRoom.transform, "Refresh Created Rooms", "Refresh private room records", () => { createdRoomSignature = null; RefreshCreatedRoomsUI(); });
-            uiCreatedRooms = UIColumn(uiCreateRoom.transform, "Private Created Rooms");
+            UIButton(uiCreateRoom.transform, "View Owned Rooms", "View your owned / prepared rooms", () => SelectUITab(5));
+
+            uiOwnedRooms = UIColumn(form, "Owned Rooms Page").gameObject;
+            UIText(uiOwnedRooms.transform, "Ownership Help", "Rooms you own in this local profile. Check uses each record's original server address. Join opens its accepted content after normal unsaved-project handling; replacement publishes your current project after a separate confirmation. Neither action uses server-administrator authority.");
+            UIText(uiOwnedRooms.transform, "Recovery Help", "After a failed or canceled creation or replacement, use Check to learn its outcome. No mutation is resent automatically. Keep this private profile to retain ownership.", 12);
+            UIButton(uiOwnedRooms.transform, "Refresh Created Rooms", "Refresh private room records", () => { createdRoomSignature = null; RefreshCreatedRoomsUI(); });
+            uiCreatedRooms = UIColumn(uiOwnedRooms.transform, "Private Created Rooms");
+            InitializeReplacementUI(uiOwnedRooms.transform);
 
             uiServerAdmin = UIColumn(form, "Server Admin Page").gameObject;
             UIText(uiServerAdmin.transform, "Help", "Server administrator: inspect registered rooms, availability and process / room usage. This credential does not grant room membership or owner participant controls.");
@@ -48,7 +53,7 @@ namespace Protobot {
             uiServerAdminKey = UIField(uiServerAdmin.transform, "Server administrator key (private)", "", 64, value => serverAdminKey = value, true);
             UIButton(uiServerAdmin.transform, "Refresh Server Rooms", "Inspect server rooms and resources", () => _ = InspectServerAsync(), true);
             UIButton(uiServerAdmin.transform, "Admin Create Room", "Create a room as administrator...", () => { creationAuthority = 2; uiCreationAuthority.SetValueWithoutNotify(2); ClearRoomKeys(); SelectUITab(3); });
-            UIText(uiServerAdmin.transform, "Supported Operations", "Room owners manage their participants after joining as owner. Live replacement, room deletion, password changes and role changes are not available in this release.", 12);
+            UIText(uiServerAdmin.transform, "Supported Operations", "Room owners manage participants after joining, and can deliberately replace an owned room from their private room records. Server administration grants neither ownership nor replacement authority. Room deletion, password changes and role changes are unavailable.", 12);
             uiServerRooms = UIText(uiServerAdmin.transform, "Server Rooms", "Enter the separate server administrator key to inspect this server.", 12);
         }
         private void ClearRoomKeys() {
@@ -56,16 +61,19 @@ namespace Protobot {
             uiCreationKey?.SetTextWithoutNotify(""); uiServerAdminKey?.SetTextWithoutNotify("");
         }
         private void CancelRoomOperation() => roomOperation?.Cancel();
-        private async Task RunRoomOperationAsync(string message, Func<CancellationToken, Task> work) {
+        private async Task RunRoomOperationAsync(string message, Func<CancellationToken, Task> work, bool replacing = false) {
             if (busy || IsShared || NativeFileDialogs.IsOpen || FindFirstObjectByType<BuildsManager>()?.IsFileOperationInProgress == true) return;
             busy = true; status = message; nextUIRefresh = 0;
             var active = new CancellationTokenSource(); roomOperation = active;
             try { await work(active.Token); }
-            catch (OperationCanceledException) { status = "Room operation canceled. Any prepared owner record is retained. Use Check before another creation; your project and local file are unchanged."; }
+            catch (OperationCanceledException) { status = replacing
+                ? "Replacement operation canceled. Any prepared attempt is retained; use Check to learn its outcome. Your project and local file are unchanged."
+                : "Room operation canceled. Any prepared owner record is retained. Use Check before another creation; your project and local file are unchanged."; }
             catch (Exception error) {
                 string code = error is CollaborationException known ? known.Code : WireFailure.Code(error);
-                status = CreationFeedback(code) + " Your project and local file are unchanged." +
-                    (code == "room-creation-key-required" || code == "server-admin-required" ? " Correct the authority before a new explicit confirmation." : " If a private record was prepared, use Check; do not resend creation.");
+                status = CreationFeedback(code) + " Your project and local file are unchanged." + (replacing
+                    ? " If an attempt was prepared, use Check; replacement is never resent automatically."
+                    : code == "room-creation-key-required" || code == "server-admin-required" ? " Correct the authority before a new explicit confirmation." : " If a private record was prepared, use Check; do not resend creation.");
             }
             finally {
                 roomOperation = null; active.Dispose(); ClearRoomKeys(); ClearPassword(); busy = false; nextUIRefresh = 0;
@@ -90,6 +98,7 @@ namespace Protobot {
                 DocumentModel.Require(creationAuthority != 0 || caps.roomCreationPolicy == "key", "creation-authority-mismatch");
                 var record = await remote.CreateAsync(content, room, password, creationAuthority == 1 ? null : creationKey, creationAuthority == 2, CreatedRoomsRoot, token);
                 status = "Room " + record.room + " created. You own this room; your local project is still open. Choose Join as owner to start sharing.";
+                SelectUITab(5);
             });
         }
         private Task InspectServerAsync() => RunRoomOperationAsync("Inspecting server rooms and resources…", async token => {
@@ -121,12 +130,19 @@ namespace Protobot {
             createdRoomSignature = signature;
             foreach (Transform child in uiCreatedRooms) { child.gameObject.SetActive(false); Destroy(child.gameObject); }
             if (unreadable) UIText(uiCreatedRooms, "Unreadable", "Some private ownership records cannot be read. Their files are retained; no creation will be resent.");
+            var attempts = ReplacementRecords(out bool unreadableAttempts);
+            if (unreadableAttempts) UIText(uiCreatedRooms, "Unreadable Replacement Records", "Some private replacement records cannot be read. Their files and operation IDs are retained; no replacement is resent.");
+            if (records.Length == 0) {
+                UIText(uiCreatedRooms, "No Owned Rooms", "No owned rooms in this profile. Create a room to retain its owner credential here. Locally hosted rooms are on Local rooms; a server-administrator key does not recover room ownership.");
+                UIButton(uiCreatedRooms, "Create First Owned Room", "Create a new room...", () => SelectUITab(3));
+            }
             foreach (var record in records) {
                 var row = UIColumn(uiCreatedRooms, "Created " + record.room);
                 UIText(row, "Room", record.room + " | " + (record.confirmed ? "created" : record.authorizationRefused ? "authorization refused; correct the key and confirm Create again" : "prepared; outcome unconfirmed") + "\n" + record.origin, 12);
                 var actions = UIRow(row, "Owner Actions");
                 UIButton(actions, "Check Created " + record.room, "Check room", () => _ = CheckCreatedRoomAsync(record));
                 UIButton(actions, "Join Owner " + record.room, "Join as owner...", () => RequestOwnerJoin(record));
+                AddReplacementActions(row, record, attempts);
             }
         }
         private Task CheckCreatedRoomAsync(CreatedRoom record) => RunRoomOperationAsync("Checking prepared room ownership…", async token => {
@@ -141,6 +157,12 @@ namespace Protobot {
             RequestJoinCore();
         }
         private static string CreationFeedback(string code) => code switch {
+            "room-replacement-unavailable" => "This helper does not support durable owner-authorized replacement. Use a compatible updated helper and the room's matching catalog.",
+            "replacement-target-changed" => "The online room changed after it was inspected. Inspect it again before deciding whether to replace.",
+            "room-replacement-limit" => "This room has reached its retained replacement-outcome limit. Existing outcomes and content remain intact.",
+            "replacement-record-limit" => "This profile retains 64 replacement attempts. Preserve its private attempt files before moving completed records elsewhere.",
+            "replacement-record-in-use" => "Another window is using this replacement record. Wait for it to settle, then use Check.",
+            "invalid-replacement-record" => "The private replacement record could not be validated. Its file and operation identity are retained.",
             "room-creation-unavailable" => "This server does not advertise shared-server room creation v1. Update the helper with its matching release, or use an existing room.",
             "server-administration-unavailable" => "This address does not advertise a compatible multi-room server. Check its address and helper version.",
             "server-admin-required" => "Only the separate server administrator credential can perform this operation.",

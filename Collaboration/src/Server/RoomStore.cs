@@ -14,6 +14,9 @@ namespace Protobot.Collaboration.Server {
         [System.Runtime.Serialization.OptionalField] public long migrationRevision;
         public CatalogManifest catalog;
         public byte[] salt, passwordHash;
+        [System.Runtime.Serialization.OptionalField] public string roomIdentity;
+        [System.Runtime.Serialization.OptionalField] public long retiredHistoryBytes;
+        [System.Runtime.Serialization.OptionalField] public RoomReplacementReceipt[] replacements;
     }
     [Serializable] internal class StoredMember {
         public Participant participant;
@@ -54,26 +57,33 @@ namespace Protobot.Collaboration.Server {
         internal int StorageVersion => Convert.ToInt32(Scalar("PRAGMA user_version;"));
         // Process-local failure injection for the lab; never exposed by the network or CLI.
         public Action<string> BeforeCommit { get; set; }
+        public Action<string> AfterCommit { get; set; }
 
-        public RoomStore(string directory, int checkpointEvery = 64) {
+        public RoomStore(string directory, int checkpointEvery = 64, bool readOnly = false) {
             if (checkpointEvery < 1) throw new ArgumentOutOfRangeException(nameof(checkpointEvery));
-            DirectoryPath = Path.GetFullPath(directory); RecoveryFiles.CreateDirectory(DirectoryPath);
+            DirectoryPath = Path.GetFullPath(directory);
+            if (!readOnly) RecoveryFiles.CreateDirectory(DirectoryPath);
+            else DocumentModel.Require(File.Exists(Path.Combine(DirectoryPath, "room.sqlite")), "room-database-missing");
             checkpointInterval = checkpointEvery;
-            try { ownership = new FileStream(Path.Combine(DirectoryPath, "room.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            string ownershipPath = Path.Combine(DirectoryPath, "room.lock");
+            try { ownership = readOnly && !File.Exists(ownershipPath) ? RoomBackup.PrivateFile(ownershipPath) : new FileStream(ownershipPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
             catch (IOException) { throw new CollaborationException("room-data-in-use"); }
             try {
-                RecoveryFiles.PrivateFile(Path.Combine(DirectoryPath, "room.lock"));
+                if (!readOnly) RecoveryFiles.PrivateFile(Path.Combine(DirectoryPath, "room.lock"));
                 string path = Path.Combine(DirectoryPath, "room.sqlite"); isNew = !File.Exists(path);
-                db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate,
+                db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
                     Cache = SqliteCacheMode.Private, Pooling = false }.ToString());
-                db.Open(); RecoveryFiles.PrivateFile(path);
+                db.Open(); if (!readOnly) RecoveryFiles.PrivateFile(path);
                 // A single private connection also prevents competing checkpoint writers.
-                Execute("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA locking_mode=EXCLUSIVE;");
-                DocumentModel.Require(Convert.ToString(Scalar("PRAGMA journal_mode=WAL;")) == "wal", "wal-unavailable");
-                Execute("PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;");
-                DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA synchronous;")) == 2, "durable-sync-unavailable");
+                Execute("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
+                if (!readOnly) {
+                    Execute("PRAGMA locking_mode=EXCLUSIVE;");
+                    DocumentModel.Require(Convert.ToString(Scalar("PRAGMA journal_mode=WAL;")) == "wal", "wal-unavailable");
+                    Execute("PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;");
+                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA synchronous;")) == 2, "durable-sync-unavailable");
+                }
                 if (!isNew) {
-                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA user_version;")) is 1 or 2, "room-storage-version-mismatch");
+                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA user_version;")) is 1 or 2 or 3, "room-storage-version-mismatch");
                     DocumentModel.Require(Convert.ToString(Scalar("PRAGMA quick_check;")) == "ok", "room-storage-corrupt");
                 }
             }
@@ -114,8 +124,10 @@ namespace Protobot.Collaboration.Server {
             RequireCount("members", 1000); RequireCount("receipts", 20000); RequireCount("history", 20000); RequireCount("journal", 20000);
             DocumentModel.Require(Query("PRAGMA foreign_key_check", r => 1).Count == 0, "room-storage-corrupt");
             var info = Query("SELECT data FROM info WHERE id=1", r => Decode<StoredRoomInfo>(r, 0)).Single();
-            DocumentModel.Require(info.schema == 1 && DocumentModel.ValidId(info.room) && DocumentModel.ValidId(info.generation) &&
+            int storageVersion = StorageVersion;
+            DocumentModel.Require(info.schema == (storageVersion == 3 ? 2 : 1) && DocumentModel.ValidId(info.room) && DocumentModel.ValidId(info.generation) &&
                 info.salt?.Length == 32 && info.passwordHash?.Length == 32 && info.catalog?.protocol == 1, "room-storage-corrupt");
+            ValidateReplacements(info, storageVersion);
             var state = Query("SELECT checkpoint_revision,history_bytes FROM state WHERE id=1", r => (revision: r.GetInt64(0), bytes: r.GetInt64(1))).Single();
             checkpointRevision = state.revision;
             var checkpoint = Query("SELECT document,hash FROM checkpoints WHERE revision=" + checkpointRevision.ToString(System.Globalization.CultureInfo.InvariantCulture), r => {
@@ -141,7 +153,8 @@ namespace Protobot.Collaboration.Server {
                     item.legacyAssets && DocumentModel.LegacyAssetHash(document) == item.edit.hash ||
                     item.legacyChains && DocumentModel.Chains(document).Length == 0 && DocumentModel.LegacyHash(document) == item.edit.hash), "room-storage-corrupt");
             }
-            DocumentModel.Require(document.revision == revision && state.bytes == journal.Sum(j => j.cost) && state.bytes <= 64 * 1024 * 1024, "room-storage-corrupt");
+            DocumentModel.Require(document.revision == revision && state.bytes == info.retiredHistoryBytes + journal.Sum(j => (long)j.cost) &&
+                state.bytes <= 64 * 1024 * 1024, "room-storage-corrupt");
             checkpointBytes = journal.Where(j => j.edit.revision > checkpointRevision).Sum(j => j.cost);
             var members = Query("SELECT id,data FROM members", r => (id: r.GetString(0), member: Decode<StoredMember>(r, 1)))
                 .ToDictionary(p => p.id, p => new LoadedMember { member = p.member });
@@ -174,7 +187,7 @@ namespace Protobot.Collaboration.Server {
             }
             DocumentModel.Require(members.Values.All(m => m.member.historyCursor <= m.history.Count) && journal.All(j => members.ContainsKey(j.edit.author)), "room-storage-corrupt");
             var archive = new RoomArchive { info = info, document = document, events = journal.Select(j => j.edit).ToList(), members = members, historyBytes = state.bytes };
-            if (Convert.ToInt64(Scalar("PRAGMA user_version;")) == 2) {
+            if (storageVersion >= 2) {
                 DocumentModel.Require(document.schema == 2 && info.migrationRevision >= 0 && info.migrationRevision <= document.revision, "room-storage-corrupt");
                 RequireCount("assets", DocumentModel.MaxAssets);
                 DocumentModel.Require(Convert.ToInt64(Scalar("SELECT COALESCE(SUM(length(data)),0) FROM assets")) <= GeometryTransfer.MaxRoomBytes, "asset-room-quota");
@@ -229,7 +242,7 @@ namespace Protobot.Collaboration.Server {
             ("$id", member.participant.id), ("$data", WireJson.Encode(member)));
         private void SaveReceipt(string member, Receipt receipt, SqliteTransaction transaction) => Execute("INSERT INTO receipts VALUES($member,$operation,$data)", transaction,
             ("$member", member), ("$operation", receipt.operationId), ("$data", WireJson.Encode(receipt)));
-        private void Finish(SqliteTransaction transaction, string stage) { BeforeCommit?.Invoke(stage); transaction.Commit(); }
+        private void Finish(SqliteTransaction transaction, string stage) { BeforeCommit?.Invoke(stage); transaction.Commit(); AfterCommit?.Invoke(stage); }
         private void RequireCount(string table, int maximum) => DocumentModel.Require(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM " + table)) <= maximum, "room-storage-limit");
         private static byte[] ReadBytes(SqliteDataReader reader, int column) {
             DocumentModel.Require(reader.GetBytes(column, 0, null, 0, 0) <= WireJson.MaxMessageBytes, "room-storage-limit");

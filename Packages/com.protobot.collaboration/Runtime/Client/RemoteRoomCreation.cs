@@ -138,9 +138,10 @@ namespace Protobot.Collaboration {
             var caps = await InspectAsync(cancellation).ConfigureAwait(false);
             DocumentModel.Require(caps.serverId == record.serverId, "created-room-mismatch");
             var room = await ConnectionRetry.GetAsync<Capabilities>(http, Origin + "/rooms/" + record.room + "/capabilities", cancellation).ConfigureAwait(false);
-            DocumentModel.Require(room.room == record.room && room.generation == record.generation && room.catalogHash == record.catalogHash, "created-room-mismatch");
+            DocumentModel.Require(room.room == record.room && (room.generation == record.generation || room.roomReplacementVersion == RoomReplacement.Version &&
+                room.roomIdentity == record.generation) && room.catalogHash == record.catalogHash, "created-room-mismatch");
             var report = await ConnectionRetry.GetAsync<DiagnosticReport>(http, Origin + "/rooms/" + record.room + "/diagnostics", cancellation, record.ownerCredential).ConfigureAwait(false);
-            DocumentModel.Require(report.selectedRoom?.generation == record.generation, "created-room-mismatch");
+            DocumentModel.Require(report.selectedRoom?.generation == room.generation, "created-room-mismatch");
         }
         public async Task<HostedRoomList> ListAsync(string administrator, CancellationToken cancellation) {
             var caps = await ConnectionRetry.GetAsync<Capabilities>(http, Origin + "/capabilities", cancellation).ConfigureAwait(false);

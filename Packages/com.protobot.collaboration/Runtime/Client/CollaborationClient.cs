@@ -13,8 +13,10 @@ namespace Protobot.Collaboration {
 
     public sealed partial class CollaborationClient : IEditSession, IDisposable {
         [Serializable] private sealed class RecoveryState {
-            public int schema = 1;
+            public int schema = 2;
             public string origin, room, catalogHash, generation, resumeToken;
+            [System.Runtime.Serialization.OptionalField] public string roomIdentity, pendingGeneration;
+            [System.Runtime.Serialization.OptionalField] public bool resynchronizationRequired;
             public long sequence;
             public string[] pendingIds = Array.Empty<string>();
         }
@@ -28,7 +30,7 @@ namespace Protobot.Collaboration {
         private Document document;
         private string token;
         private string resumeToken;
-        private string membershipGeneration;
+        private string membershipGeneration, membershipRoomIdentity, pendingGeneration;
         private readonly string recoveryPath;
         private FileStream recoveryOwnership;
         private bool loadedRecovery, disposed;
@@ -45,6 +47,8 @@ namespace Protobot.Collaboration {
         public bool IsDurable { get; private set; }
         public bool SupportsParticipantAdministration { get; private set; }
         public bool IsMembershipRevoked { get; private set; }
+        public bool RequiresResynchronization { get; private set; }
+        public bool SupportsRoomReplacement { get; private set; }
         public string ActiveTransport { get; private set; }
         public CollaborationTransport Transport { get; }
         public long ConnectionEpoch => Interlocked.Read(ref connectionEpoch);
@@ -54,6 +58,7 @@ namespace Protobot.Collaboration {
         public event Action<string> Disconnected;
         public event Action<string> PendingResolved;
         public Document Snapshot { get { lock (gate) return document == null ? null : GeometryTransfer.CloneDocument(document); } }
+        public string AcceptedGeneration { get { lock (gate) return document?.generation; } }
         public int PendingCount { get { lock (gate) return pending.Count; } }
 
         public CollaborationClient(string url, string roomId, CatalogManifest manifest, CollaborationTransport transport = CollaborationTransport.Auto, bool allowInsecureLan = false, string recoveryFile = null, NetworkPolicy networkPolicy = null) {
@@ -68,7 +73,7 @@ namespace Protobot.Collaboration {
 
         public const int ConnectionDeadlineMilliseconds = 180000;
         public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false,
-            CancellationToken cancellation = default, IProgress<ConnectionProgress> progress = null) {
+            CancellationToken cancellation = default, IProgress<ConnectionProgress> progress = null, bool acceptReplacement = false) {
             DocumentModel.Require(Interlocked.CompareExchange(ref joining, 1, 0) == 0, "already-connecting");
             var userCancellation = cancellation;
             using var connectionDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -91,14 +96,24 @@ namespace Protobot.Collaboration {
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
-                lock (gate) DocumentModel.Require(membershipGeneration == null || membershipGeneration == capabilities.generation, "saved-room-does-not-match");
+                SupportsRoomReplacement = capabilities.roomReplacementVersion == RoomReplacement.Version;
                 LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
+                bool replaced; string previousGeneration;
+                lock (gate) {
+                    string identity = capabilities.roomIdentity ?? capabilities.generation;
+                    DocumentModel.Require(membershipRoomIdentity == null || membershipRoomIdentity == identity, "saved-room-does-not-match");
+                    previousGeneration = membershipGeneration; replaced = membershipGeneration != null && membershipGeneration != capabilities.generation;
+                    if (replaced) RequiresResynchronization = true;
+                    bool mustAccept = replaced || RequiresResynchronization && (document == null || document.generation != capabilities.generation);
+                    DocumentModel.Require(!mustAccept || acceptReplacement && SupportsRoomReplacement, "saved-room-does-not-match");
+                }
                 Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.Authenticating), progress); Check();
                 // Admission can create durable membership. Once sent, settle its
                 // bounded reply and save the credential before honoring cancellation.
                 var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
                     room = room, catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
-                    resumeToken = resumeToken
+                    resumeToken = resumeToken, expectedGeneration = capabilities.generation, roomIdentity = capabilities.roomIdentity,
+                    resynchronizeFromGeneration = replaced ? previousGeneration : null
                 }, CancellationToken.None, 10000).ConfigureAwait(false);
                 DocumentModel.Validate(joined.document, catalog);
                 DocumentModel.Require(capabilities.geometryTransfer && joined.document.schema == 2, "geometry-transfer-required");
@@ -107,28 +122,44 @@ namespace Protobot.Collaboration {
                 lock (gate) {
                     DocumentModel.Require(!disposed && ConnectionEpoch == epoch, "client-closed");
                     token = joined.token; resumeToken = joined.resumeToken; membershipGeneration = joined.document.generation; Participant = joined.participant;
+                    membershipRoomIdentity = capabilities.roomIdentity ?? capabilities.generation;
                     sequence = Math.Max(sequence, joined.sequence); SaveRecovery(joined.document.generation);
                 }
                 Check();
-                await HydrateAsync(joined.document, cancellation, new DiagnosticProgressRelay(value => DiagnosticProgress(value, progress))).ConfigureAwait(false);
+                // Stage geometry separately: two different, individually valid room
+                // generations must not collide with one cumulative client cache quota.
+                var candidateGeometry = CandidateGeometry(joined.document);
+                await HydrateAsync(joined.document, cancellation, new DiagnosticProgressRelay(value => DiagnosticProgress(value, progress)), candidateGeometry).ConfigureAwait(false);
                 string[] unresolved;
                 var recovery = new List<string>();
-                lock (gate) unresolved = pending.Keys.ToArray();
+                string unresolvedGeneration;
+                lock (gate) { unresolved = pending.Keys.ToArray(); unresolvedGeneration = pendingGeneration; }
                 for (int i = 0; i < unresolved.Length; i++) {
                     Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.RecoveringEdits, i, unresolved.Length), progress);
                     string operation = unresolved[i];
-                    var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation), cancellation).ConfigureAwait(false);
-                    lock (gate) { pending.Remove(operation); SaveRecovery(joined.document.generation); }
+                    var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation) +
+                        (SupportsRoomReplacement && unresolvedGeneration != null ? "&generation=" + Uri.EscapeDataString(unresolvedGeneration) : ""), cancellation).ConfigureAwait(false);
                     string message = receipt.accepted ? "Recovered accepted edit at revision " + receipt.revision : WireFailure.Code(receipt.error) ?? "Edit was not accepted; retry explicitly.";
-                    recovery.Add(message); PendingResolved?.Invoke(message);
+                    if (receipt.accepted && unresolvedGeneration != joined.document.generation) message += ". Its content was superseded by room replacement.";
+                    recovery.Add(message);
                 }
                 Check();
+                var candidateDocument = GeometryTransfer.CloneDocument(joined.document);
+                string candidateHash = DocumentModel.Hash(GeometryTransfer.References(joined.document));
                 lock (gate) {
-                    Check(); document = GeometryTransfer.CloneDocument(joined.document); diagnosticHash = DocumentModel.Hash(GeometryTransfer.References(joined.document)); SaveRecovery();
+                    Check();
+                    var resolved = unresolved.ToDictionary(id => id, id => pending[id]);
+                    foreach (string id in unresolved) pending.Remove(id);
+                    string previousPendingGeneration = pendingGeneration; if (pending.Count == 0) pendingGeneration = null;
+                    bool previousResyncRequired = RequiresResynchronization; RequiresResynchronization = false;
+                    try { SaveRecovery(joined.document.generation); }
+                    catch { foreach (var pair in resolved) pending[pair.Key] = pair.Value; pendingGeneration = previousPendingGeneration; RequiresResynchronization = previousResyncRequired; throw; }
+                    geometryCache = candidateGeometry; document = candidateDocument; diagnosticHash = candidateHash; RequiresResynchronization = false;
                     RecoveryMessages = recovery.ToArray(); transient = -1; IsConnected = true;
                     lifetime = new CancellationTokenSource(); var connectionLifetime = lifetime;
                     pump = Task.Run(() => Pump(connectionLifetime.Token));
                 }
+                foreach (string message in recovery) PendingResolved?.Invoke(message);
                 DiagnosticProgress(new ConnectionProgress(ConnectionStage.Ready), progress);
                 return joined;
             }
@@ -150,13 +181,19 @@ namespace Protobot.Collaboration {
                     RecoveryFiles.PrivateFile(recoveryPath + ".lock");
                     if (File.Exists(recoveryPath)) {
                         var saved = RecoveryFiles.Read<RecoveryState>(recoveryPath);
-                        DocumentModel.Require(saved != null && saved.schema == 1 && saved.room == room && saved.catalogHash == catalog.hash &&
-                            saved.generation == capabilities.generation && (saved.origin == endpoint.GetLeftPart(UriPartial.Authority) || ownedLoopback), "saved-room-does-not-match");
+                        DocumentModel.Require(saved != null && (saved.schema == 1 || saved.schema == 2) && saved.room == room && saved.catalogHash == catalog.hash &&
+                            (saved.roomIdentity ?? saved.generation) == (capabilities.roomIdentity ?? capabilities.generation) &&
+                            (saved.origin == endpoint.GetLeftPart(UriPartial.Authority) || ownedLoopback), "saved-room-does-not-match");
                         DocumentModel.Require(!string.IsNullOrEmpty(saved.resumeToken) && saved.resumeToken.Length < 256 && saved.sequence >= 0 &&
+                            DocumentModel.ValidId(saved.generation) && (saved.schema == 1 || DocumentModel.ValidId(saved.roomIdentity)) &&
                             saved.pendingIds != null && saved.pendingIds.Length <= 256 && saved.pendingIds.All(DocumentModel.ValidId) &&
                             saved.pendingIds.Distinct().Count() == saved.pendingIds.Length, "invalid-session-recovery-file");
                         resumeToken = saved.resumeToken; membershipGeneration = saved.generation; sequence = saved.sequence;
-                        foreach (var id in saved.pendingIds) pending[id] = new Transaction { operationId = id };
+                        membershipRoomIdentity = saved.roomIdentity ?? saved.generation;
+                        RequiresResynchronization = saved.schema == 2 && saved.resynchronizationRequired;
+                        pendingGeneration = saved.pendingIds.Length == 0 ? null : saved.schema == 1 ? saved.generation : saved.pendingGeneration;
+                        DocumentModel.Require(saved.pendingIds.Length == 0 || DocumentModel.ValidId(pendingGeneration), "invalid-session-recovery-file");
+                        foreach (var id in saved.pendingIds) pending[id] = new Transaction { operationId = id, generation = pendingGeneration };
                     }
                     loadedRecovery = true;
                 }
@@ -167,7 +204,9 @@ namespace Protobot.Collaboration {
             if (recoveryPath == null || !IsDurable) return;
             DocumentModel.Require(!disposed && resumeToken != null, "client-closed");
             RecoveryFiles.Write(recoveryPath, new RecoveryState { origin = endpoint.GetLeftPart(UriPartial.Authority), room = room,
-                catalogHash = catalog.hash, generation = generation ?? document.generation, resumeToken = resumeToken, sequence = sequence, pendingIds = pending.Keys.ToArray() });
+                catalogHash = catalog.hash, generation = generation ?? document.generation, roomIdentity = membershipRoomIdentity,
+                pendingGeneration = pendingGeneration, resynchronizationRequired = RequiresResynchronization,
+                resumeToken = resumeToken, sequence = sequence, pendingIds = pending.Keys.ToArray() });
         }
         public static void ForgetRecovery(string path) {
             if (!File.Exists(path)) return;
@@ -199,12 +238,16 @@ namespace Protobot.Collaboration {
             transaction = await PrepareAssetsAsync(transaction, cancellation).ConfigureAwait(false);
             try {
                 lock (gate) {
+                    DocumentModel.Require(ConnectionEpoch == epoch && IsConnected && !disposed, "client-connection-changed");
+                    DocumentModel.Require(transaction.generation == document.generation, "generation-mismatch");
                     DocumentModel.Require(pending.Count < 256 || pending.ContainsKey(transaction.operationId), "pending-operation-limit");
+                    DocumentModel.Require(pending.Count == 0 || pendingGeneration == document.generation, "unresolved-previous-generation-operations");
+                    if (pending.Count == 0) pendingGeneration = document.generation;
                     pending[transaction.operationId] = WireJson.Clone(transaction); SaveRecovery();
                 }
                 var receipt = await Post<Transaction, Receipt>("commit", transaction, cancellation).ConfigureAwait(false);
                 if (receipt.accepted) await WaitForRevisionAsync(receipt.revision, cancellation).ConfigureAwait(false);
-                lock (gate) { pending.Remove(transaction.operationId); SaveRecovery(); }
+                lock (gate) { pending.Remove(transaction.operationId); if (pending.Count == 0) pendingGeneration = null; SaveRecovery(); }
                 return receipt;
             }
             catch { if (ConnectionEpoch == epoch) Freeze("Connection interrupted; pending outcome must be resolved by reconnecting."); throw; }
@@ -239,7 +282,7 @@ namespace Protobot.Collaboration {
             finally {
                 token = null; await StopPump().ConfigureAwait(false);
                 if (left) lock (gate) {
-                    resumeToken = membershipGeneration = null; pending.Clear(); sequence = 0;
+                    resumeToken = membershipGeneration = membershipRoomIdentity = pendingGeneration = null; pending.Clear(); sequence = 0; RequiresResynchronization = false;
                     if (recoveryPath != null && File.Exists(recoveryPath)) File.Delete(recoveryPath);
                 }
             }
@@ -305,7 +348,8 @@ namespace Protobot.Collaboration {
                                         if (received.MessageType == WebSocketMessageType.Close && received.CloseStatus == WebSocketCloseStatus.EndpointUnavailable && received.CloseStatusDescription == "server-stopping")
                                             throw new CollaborationException("server-stopping");
                                         if (received.MessageType == WebSocketMessageType.Close && received.CloseStatus == WebSocketCloseStatus.PolicyViolation)
-                                            throw new CollaborationException(received.CloseStatusDescription == "membership-revoked" ? "membership-revoked" : "event-session-ended");
+                                            throw new CollaborationException(received.CloseStatusDescription == "membership-revoked" ? "membership-revoked" :
+                                                received.CloseStatusDescription == "room-replaced" ? "room-replaced" : "event-session-ended");
                                         DocumentModel.Require(received.MessageType == WebSocketMessageType.Text && stream.Length + received.Count <= WireJson.MaxMessageBytes, "invalid-event-stream");
                                         stream.Write(bytes, 0, received.Count);
                                     } while (!received.EndOfMessage);
@@ -343,6 +387,7 @@ namespace Protobot.Collaboration {
         private void Freeze(string reason) {
             DiagnosticEvent(DiagnosticExport.SafeCode(reason));
             if (reason == "membership-revoked") IsMembershipRevoked = true;
+            if (reason == "room-replaced") RequiresResynchronization = true;
             if (IsMembershipRevoked) reason = "membership-revoked";
             bool notify = IsConnected; IsConnected = false; lifetime?.Cancel();
             lock (gate) advanced.TrySetResult(true);
@@ -373,7 +418,7 @@ namespace Protobot.Collaboration {
                         var bytes = output.ToArray();
                         if (!response.IsSuccessStatusCode) {
                             var rejection = ConnectionRetry.Rejection(response, bytes); string reason = rejection.Code;
-                            if ((reason == "membership-revoked" || reason == "server-stopping") && ConnectionEpoch == epoch) Freeze(reason);
+                            if ((reason == "membership-revoked" || reason == "server-stopping" || reason == "room-replaced") && ConnectionEpoch == epoch) Freeze(reason);
                             throw rejection;
                         }
                         var value = WireJson.Decode<T>(bytes);

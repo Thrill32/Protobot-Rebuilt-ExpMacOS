@@ -114,7 +114,8 @@ namespace Protobot.Collaboration.Server {
                         manifest = JsonSerializer.Deserialize<Manifest>(bytes.ToArray(), Json);
                     }
                     DocumentModel.Require(manifest != null && manifest.format == "protobot-room-backup", "backup-format-mismatch");
-                    DocumentModel.Require((manifest.version == 2 && manifest.storageVersion == 2 && (manifest.protocolVersion == "0.8.0-alpha" || manifest.protocolVersion == CollaborationProtocol.Version) ||
+                    DocumentModel.Require((manifest.version == 3 && manifest.storageVersion == 3 && manifest.protocolVersion == CollaborationProtocol.Version ||
+                        manifest.version == 2 && manifest.storageVersion == 2 && (manifest.protocolVersion == "0.8.0-alpha" || manifest.protocolVersion == CollaborationProtocol.Version) ||
                         manifest.version == 1 && manifest.storageVersion == 1 && manifest.protocolVersion == "0.7.0-alpha"), "backup-version-mismatch");
                     DocumentModel.Require(manifest.files?.Length == 2 && manifest.files.All(e => e != null) &&
                         manifest.files.Select(e => e.name).OrderBy(n => n, StringComparer.Ordinal).SequenceEqual(new[] { "owner.json", "room.sqlite" }), "backup-invalid-manifest");

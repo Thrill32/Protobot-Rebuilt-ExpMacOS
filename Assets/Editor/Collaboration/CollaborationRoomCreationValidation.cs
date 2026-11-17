@@ -102,7 +102,7 @@ namespace ProtobotEditorTools {
                     Get<InputField>(session, "uiServerAdminKey").text = admin.credential;
                     await Click(session, "Refresh Server Rooms"); await Until(() => !Get<bool>(session, "busy"));
                     Require(Get<Text>(session, "uiServerRooms").text.Contains(room) && Get<Text>(session, "uiServerRooms").text.Contains("Logical") && !CollaborationSession.IsShared, "Admin inspection created a membership or omitted resources.");
-                    await Click(session, "Create Room Tab");
+                    await Click(session, "Owned Rooms Tab");
                     await Click(session, "Join Owner " + room);
                     var unsaved = Get<Protobot.UI.UnsavedChangesUI>(manager, "unsavedChangesMenu");
                     if (unsaved.gameObject.activeSelf) await CollaborationUIValidation.Click(Get<Button>(unsaved, "discardButton").gameObject);
@@ -141,7 +141,7 @@ namespace ProtobotEditorTools {
                     bytes.SequenceEqual(File.ReadAllBytes(CreatedRoomRecovery.FileName(records, relay.Url, room))) && !prepared.confirmed && relay.CreationRequests == before + 1,
                     "Creation " + action + " changed project/save/credential or resent publication.");
                 if (action != "Cancel Connection") Require(!CollaborationSession.BlocksUIInput, "Creation Close/Escape retained modal input.");
-                Invoke(session, "OpenPanel", 3); await Click(session, "Check Created " + room); await Until(() => !Get<bool>(session, "busy"));
+                Invoke(session, "OpenPanel", 5); await Click(session, "Check Created " + room); await Until(() => !Get<bool>(session, "busy"));
                 Require(CreatedRoomRecovery.List(records).Single(r => r.room == room).confirmed && relay.CreationRequests == before + 1, "Explicit Check did not recover ambiguous creation read-only.");
             }
         }

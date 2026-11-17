@@ -106,6 +106,7 @@ namespace Protobot.Collaboration {
         public string hash;
     }
     [Serializable] public sealed class JoinRequest {
+        [System.Runtime.Serialization.OptionalField] public string expectedGeneration, roomIdentity, resynchronizeFromGeneration;
         public int protocol = 1;
         public string version = CollaborationProtocol.Version;
         public string room;
@@ -160,6 +161,8 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;
         [System.Runtime.Serialization.OptionalField] public int shortPollingVersion;
         [System.Runtime.Serialization.OptionalField] public int roomCreationVersion;
+        [System.Runtime.Serialization.OptionalField] public int roomReplacementVersion;
+        [System.Runtime.Serialization.OptionalField] public string roomIdentity;
         [System.Runtime.Serialization.OptionalField] public string roomCreationPolicy;
         [System.Runtime.Serialization.OptionalField] public string serverId;
         public string room, generation, catalogHash;

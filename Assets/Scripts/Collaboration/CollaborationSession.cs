@@ -206,7 +206,7 @@ namespace Protobot {
                 DocumentModel.Require(host.Recovered, "recovery-room-not-found");
                 hostedRoom.port = host.BoundPort; CollaborationRecovery.Save(hostedRoom);
                 endpoint = host.Url;
-                await ConnectAsync(hostedRoom.ownerCredential, false, attempt);
+                await ConnectAsync(hostedRoom.ownerCredential, false, attempt, acceptReplacement: true);
                 if (lan) AdvertiseLan();
                 status = "Recovered accepted room · local files use Save As. " + string.Join(" ", client.RecoveryMessages);
             }
@@ -225,12 +225,12 @@ namespace Protobot {
         }
 
         private void RequestJoin() {
-            ownerJoin = null; RequestJoinCore();
+            ownerJoin = null; acceptReplacementJoin = false; RequestJoinCore();
         }
         private void RequestJoinCore() {
             if (busy || IsShared || AdmissionCooldownSeconds > 0) return;
             try { ValidateSettings(true); } catch (Exception error) { Report(error); return; }
-            CancelTools(); ClosePanel();
+            CancelTools(); ClosePanelCore(false);
             var builds = FindFirstObjectByType<BuildsManager>();
             builds.RunAfterUnsavedChanges(() => _ = JoinFromUIAsync());
         }
@@ -245,15 +245,15 @@ namespace Protobot {
                     using var remote = new RemoteRoomCreation(endpoint, lan, await SelectedNetworkAsync(attempt.Token));
                     await remote.CheckAsync(ownerJoin, attempt.Token);
                 }
-                await ConnectAsync(ownerJoin?.ownerCredential, false, attempt, ownerJoin); status = "Connected to " + room;
+                await ConnectAsync(ownerJoin?.ownerCredential, false, attempt, ownerJoin, ownerJoin != null || acceptReplacementJoin); status = "Connected to " + room;
             }
             catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
                 status = "Connection canceled. The current build and local file are unchanged. Saved membership is kept for retry.";
             }
             catch (Exception error) { if (!closing) Report(error); client?.Dispose(); client = null; }
-            finally { ownerJoin = null; ClearPassword(); EndConnection(attempt); }
+            finally { ownerJoin = null; acceptReplacementJoin = false; ClearPassword(); EndConnection(attempt); }
         }
-        private async Task ConnectAsync(string owner, bool hosting, ConnectionAttempt attempt, CreatedRoom createdRoom = null) {
+        private async Task ConnectAsync(string owner, bool hosting, ConnectionAttempt attempt, CreatedRoom createdRoom = null, bool acceptReplacement = false) {
             attempt.Token.ThrowIfCancellationRequested();
             string recovery = createdRoom != null ? CreatedRoomRecovery.FileName(CreatedRoomsRoot, endpoint, room) + ".session" :
                 owner != null && hostedRoom != null ? CollaborationRecovery.OwnerSession(hostedRoom) : CollaborationRecovery.SessionFile(endpoint, room, catalog.hash);
@@ -261,7 +261,7 @@ namespace Protobot {
             var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan, recovery, network);
             attempt.Candidate = candidate;
             try {
-                await candidate.JoinAsync(displayName, password, owner, owner == null && joinAsViewer, attempt.Token, attempt);
+                await candidate.JoinAsync(displayName, password, owner, owner == null && joinAsViewer, attempt.Token, attempt, acceptReplacement);
                 attempt.Token.ThrowIfCancellationRequested();
                 client = candidate;
                 committed = candidate.Snapshot;
@@ -274,7 +274,10 @@ namespace Protobot {
                 committed = candidate.Snapshot;
                 applying = true; try { CollaborationScene.Load(committed); } finally { applying = false; }
             }
-            catch { candidate.Dispose(); throw; }
+            catch {
+                if (candidate.RequiresResynchronization) { resyncJoinOrigin = endpoint; resyncJoinRoom = room; }
+                candidate.Dispose(); throw;
+            }
         }
 
         private void Subscribe(CollaborationClient connected) {
@@ -662,22 +665,25 @@ namespace Protobot {
             try { if (previous != null) await LeaveAndDispose(previous); }
             finally { if (owned != null) await owned.StopAsync(); }
         }
-        private async Task ReconnectAsync() {
+        private Task ReconnectAsync() => ReconnectCoreAsync(false);
+        private async Task ReconnectCoreAsync(bool acceptReplacement) {
             if (AdmissionCooldownSeconds > 0) return;
             if (client == null || busy) return;
-            var attempt = BeginConnection("Reconnecting to room…");
+            var attempt = BeginConnection(acceptReplacement ? "Resynchronizing replaced room…" : "Reconnecting to room…");
             try {
+                if (acceptReplacement) { CancelTools(); CancelPose(); ClearGhosts(); }
                 await client.PrepareReconnectAsync();
                 attempt.Token.ThrowIfCancellationRequested();
                 await client.SetNetworkPolicyAsync(host != null ? NetworkPolicy.Direct : await SelectedNetworkAsync(attempt.Token), attempt.Token);
                 if (host != null && !host.IsRunning) await host.RestartAsync(attempt.Token);
-                await client.JoinAsync(displayName, cancellation: attempt.Token, progress: attempt);
+                await client.JoinAsync(displayName, cancellation: attempt.Token, progress: attempt, acceptReplacement: acceptReplacement);
                 attempt.Token.ThrowIfCancellationRequested();
                 submitting = reserving = sendingPreview = false;
                 lock (queueGate) { main.Clear(); queuedBytes = 0; latestPresence = null; presenceClient = null; }
                 committed = client.Snapshot;
+                if (acceptReplacement) selectAfterApply.Clear();
                 applying = true; try { CollaborationScene.Load(committed); } finally { applying = false; }
-                status = "Reconnected and synchronized. " + string.Join(" ", client.RecoveryMessages);
+                status = (acceptReplacement ? "New room generation synchronized. Local file state remains independent. " : "Reconnected and synchronized. ") + string.Join(" ", client.RecoveryMessages);
             }
             catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
                 await client.PrepareReconnectAsync();

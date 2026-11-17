@@ -13,7 +13,7 @@ namespace Protobot.Collaboration.Server {
     public sealed partial class Room {
         private sealed class Member : StoredMember {
             public long lastSeen;
-            public string accessHash;
+            public string accessHash, sessionGeneration;
             public Dictionary<string, Receipt> receipts = new Dictionary<string, Receipt>();
             public List<StoredHistory> history = new List<StoredHistory>();
             public StoredMember Record() => new StoredMember { participant = participant, resumeHash = resumeHash,
@@ -36,6 +36,7 @@ namespace Protobot.Collaboration.Server {
         private readonly List<AcceptedEdit> events = new List<AcceptedEdit>();
         private TaskCompletionSource<bool> changed = Signal();
         private Document document;
+        private StoredRoomInfo roomInfo;
         private long transientVersion;
         private string diagnosticHash;
         private long historyBytes;
@@ -63,7 +64,10 @@ namespace Protobot.Collaboration.Server {
         public bool Recovered { get; }
         public long Revision { get { lock (gate) return document.revision; } }
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
-        public Capabilities Capabilities => new Capabilities { durable = IsDurable, participantAdministration = true, diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" }, room = Name, generation = document.generation, catalogHash = catalog.hash };
+        public Capabilities Capabilities { get { lock (gate) return new Capabilities { durable = IsDurable, participantAdministration = true,
+            roomReplacementVersion = IsDurable ? RoomReplacement.Version : 0, roomIdentity = RoomStore.Identity(roomInfo),
+            diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
+            transports = new[] { "websocket", "long-polling", "short-polling" }, room = Name, generation = document.generation, catalogHash = catalog.hash }; } }
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
         public const int LeaseMilliseconds = 10000;
 
@@ -76,6 +80,7 @@ namespace Protobot.Collaboration.Server {
             if (archive != null) {
                 DocumentModel.Require(seed == null || seed.room == archive.info.room && seed.catalog?.hash == archive.info.catalog.hash, "recovery-catalog-or-room-mismatch");
                 Name = archive.info.room; catalog = archive.info.catalog; document = archive.document;
+                roomInfo = archive.info;
                 salt = archive.info.salt; passwordHash = archive.info.passwordHash; ownerHash = archive.info.ownerHash;
                 assetBytes = archive.assets; foreach (var bytes in assetBytes.Values) IndexAsset(GeometryTransfer.Decode(bytes)); minimumCursor = archive.info.migrationRevision;
                 events.AddRange(archive.events); historyBytes = archive.historyBytes; Recovered = true;
@@ -94,19 +99,26 @@ namespace Protobot.Collaboration.Server {
                 foreach (var asset in DocumentModel.Assets(seed.document)) { assetBytes.Add(asset.hash, GeometryTransfer.Encode(asset)); IndexAsset(asset); }
                 Name = seed.room; document = WireJson.Clone(GeometryTransfer.References(seed.document)); document.schema = 2; minimumCursor = document.revision; catalog = WireJson.Clone(seed.catalog);
                 passwordHash = Password(seed.password ?? ""); ownerHash = string.IsNullOrEmpty(seed.ownerCredential) ? null : TokenHash(seed.ownerCredential);
-                store?.Initialize(new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision, migrationRevision = minimumCursor,
-                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash }, document, assetBytes);
+                roomInfo = new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision, migrationRevision = minimumCursor,
+                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash };
+                store?.Initialize(roomInfo, document, assetBytes);
             }
             diagnosticHash = DocumentModel.Hash(document);
         }
 
-        public JoinResponse Join(JoinRequest request) {
+        public JoinResponse Join(JoinRequest request, bool requireGenerationProof = false) {
             lock (gate) {
                 Healthy(); Expire();
                 DocumentModel.Require(request != null && request.protocol == 1, "protocol-mismatch");
                 DocumentModel.Require(request.room == null || request.room == Name, "catalog-or-room-mismatch");
                 DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
+                DocumentModel.Require(!requireGenerationProof || roomInfo.schema < 2 || request.expectedGeneration != null && request.roomIdentity != null,
+                    "room-replacement-client-required");
+                DocumentModel.Require(request.roomIdentity == null || request.roomIdentity == RoomStore.Identity(roomInfo), "saved-room-does-not-match");
+                DocumentModel.Require(request.expectedGeneration == null || request.expectedGeneration == document.generation, "room-replaced");
+                DocumentModel.Require(request.resynchronizeFromGeneration == null || !string.IsNullOrEmpty(request.resumeToken) &&
+                    (roomInfo.replacements ?? Array.Empty<RoomReplacementReceipt>()).Any(r => r.previousGeneration == request.resynchronizeFromGeneration), "saved-room-does-not-match");
                 Member member;
                 string resume = request.resumeToken;
                 if (!string.IsNullOrEmpty(resume)) {
@@ -132,7 +144,7 @@ namespace Protobot.Collaboration.Server {
                     members.Add(member.resumeHash, member);
                     Pulse();
                 }
-                string token = NewToken(); member.accessHash = TokenHash(token); sessions.Add(member.accessHash, member);
+                string token = NewToken(); member.accessHash = TokenHash(token); member.sessionGeneration = document.generation; sessions.Add(member.accessHash, member);
                 return new JoinResponse { room = Name, token = token, resumeToken = resume, sequence = member.sequence,
                     incarnation = Incarnation, participant = WireJson.Clone(member.participant), document = WireJson.Clone(document) };
             }
@@ -197,6 +209,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(receiptCount < 20000 && events.Count < 20000, "alpha-history-limit");
                 var receipt = new Receipt { operationId = transaction.operationId, revision = document.revision };
                 try {
+                    DocumentModel.Require(transaction.generation == document.generation, "generation-mismatch");
                     DocumentModel.Require(transaction.sequence > member.sequence, "sequence-reused");
                     bool undo = transaction.kind == "Undo", redo = transaction.kind == "Redo";
                     StoredHistory inverse = null;
@@ -309,12 +322,15 @@ namespace Protobot.Collaboration.Server {
             }
         }
 
-        public Receipt Outcome(string token, string operationId) {
+        public Receipt Outcome(string token, string operationId, string generation = null) {
             lock (gate) {
                 var member = Authenticate(token);
                 DocumentModel.Require(DocumentModel.ValidId(operationId), "invalid-operation");
+                DocumentModel.Require(generation == null || generation == document.generation ||
+                    (roomInfo.replacements ?? Array.Empty<RoomReplacementReceipt>()).Any(r => r.previousGeneration == generation), "saved-room-does-not-match");
                 return member.receipts.TryGetValue(operationId, out var receipt) ? WireJson.Clone(receipt) :
-                    new Receipt { operationId = operationId, error = "Edit was not accepted; retry explicitly.", revision = document.revision };
+                    new Receipt { operationId = operationId, error = generation != null && generation != document.generation ?
+                        "operation-not-accepted-before-replacement" : "Edit was not accepted; retry explicitly.", revision = document.revision };
             }
         }
 
@@ -341,7 +357,9 @@ namespace Protobot.Collaboration.Server {
 
         public void Leave(string token) {
             lock (gate) {
-                var member = Authenticate(token);
+                // A paused old generation may end its own membership without
+                // opening the replacement. This grants no document/read authority.
+                var member = Authenticate(token, touch: false, allowRetired: true);
                 Revoke(member);
             }
         }
@@ -393,11 +411,12 @@ namespace Protobot.Collaboration.Server {
                 var preview = WireJson.Clone(l.preview); preview.lease = null; return preview;
             }).ToArray(), participants = members.Values.Where(m => !m.revoked && clock() - m.lastSeen < 60000).Select(m => m.participant).ToArray(), transientVersion = transientVersion
         };
-        private Member Authenticate(string token) {
+        private Member Authenticate(string token, bool touch = true, bool allowRetired = false) {
             Healthy();
             DocumentModel.Require(token != null && token.Length < 256 && sessions.TryGetValue(TokenHash(token), out _), "invalid-session");
             var member = sessions[TokenHash(token)]; DocumentModel.Require(!member.revoked, "membership-revoked");
-            Touch(member); return member;
+            DocumentModel.Require(allowRetired || member.sessionGeneration == document.generation, "room-replaced");
+            if (touch) Touch(member); return member;
         }
         private int ActiveCount() => members.Values.Count(m => !m.revoked && clock() - m.lastSeen < 60000);
         private void Touch(Member member) {

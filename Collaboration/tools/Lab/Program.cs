@@ -22,6 +22,23 @@ internal static partial class Program {
         if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : args[index + 1] == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
+            if (args.Length > 0 && args[0] == "--replacement-crash-worker") return ReplacementCrashWorker(args);
+            if (args.Contains("--replacement-large-only")) {
+                await ReplacementLargeChecks(directory);
+                Console.WriteLine("Large replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
+            if (args.Contains("--replacement-only")) {
+                await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory);
+                Console.WriteLine("Replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
+            if (args.Contains("--replacement-storage-only")) {
+                await ReplacementStorageChecks(directory);
+                Console.WriteLine("Replacement storage passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
+            if (args.Contains("--installation-only")) {
+                await InstallationChecks(directory);
+                Console.WriteLine("Installation passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--room-creation-only")) {
                 await RoomCreationChecks(directory);
                 Console.WriteLine("Room creation passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -71,6 +88,8 @@ internal static partial class Program {
                 Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory); await ReplacementLargeChecks(directory);
+            if (Environment.GetEnvironmentVariable("PROTOBOT_TEST_INSTALL_ARTIFACT") != null) await InstallationChecks(directory);
             await RoomCreationChecks(directory);
             await ShutdownChecks(directory);
             await AssetChecks(directory);

@@ -9,11 +9,15 @@ using System.Threading.Tasks;
 
 namespace Protobot.Collaboration {
     public sealed partial class CollaborationClient {
-        private readonly Dictionary<string, GeometryAsset> geometry = new Dictionary<string, GeometryAsset>(StringComparer.Ordinal);
-        private readonly Dictionary<string, int> geometrySizes = new Dictionary<string, int>(StringComparer.Ordinal);
+        private sealed class GeometryCache {
+            public readonly Dictionary<string, GeometryAsset> assets = new Dictionary<string, GeometryAsset>(StringComparer.Ordinal);
+            public readonly Dictionary<string, int> sizes = new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+        private GeometryCache geometryCache = new GeometryCache();
         private readonly SemaphoreSlim transferGate = new SemaphoreSlim(1, 1);
-        private void Cache(GeometryAsset asset, int bytes) {
+        private void Cache(GeometryAsset asset, int bytes, GeometryCache cache = null) {
             lock (gate) {
+                cache ??= geometryCache; var geometry = cache.assets; var geometrySizes = cache.sizes;
                 if (geometry.TryGetValue(asset.hash, out var existing)) {
                     DocumentModel.Require(existing.name == asset.name, "asset-hash-mismatch"); return;
                 }
@@ -22,7 +26,17 @@ namespace Protobot.Collaboration {
                 geometry.Add(asset.hash, asset); geometrySizes.Add(asset.hash, bytes);
             }
         }
-        private void HydrateCached(Document value) {
+        private GeometryCache CandidateGeometry(Document value) {
+            var cache = new GeometryCache();
+            lock (gate) foreach (var reference in DocumentModel.Assets(value))
+                if (geometryCache.assets.TryGetValue(reference.hash, out var asset)) {
+                    DocumentModel.Require(asset.name == reference.name, "asset-hash-mismatch");
+                    Cache(asset, geometryCache.sizes[reference.hash], cache);
+                }
+            return cache;
+        }
+        private void HydrateCached(Document value, GeometryCache cache = null) {
+            cache ??= geometryCache; var geometry = cache.assets;
             value.assets = DocumentModel.Assets(value).Select(reference => {
                 DocumentModel.Require(geometry.TryGetValue(reference.hash, out var asset) && asset.name == reference.name, "missing-asset");
                 return asset;
@@ -33,34 +47,37 @@ namespace Protobot.Collaboration {
         public Document Materialize(Document value) {
             lock (gate) { HydrateCached(value); return value; }
         }
-        private async Task HydrateAsync(Document value, CancellationToken cancellation, IProgress<ConnectionProgress> progress = null) {
+        private async Task HydrateAsync(Document value, CancellationToken cancellation, IProgress<ConnectionProgress> progress = null, GeometryCache cache = null) {
+            cache ??= geometryCache;
             var references = DocumentModel.Assets(value);
             for (int i = 0; i < references.Length; i++) {
                 cancellation.ThrowIfCancellationRequested(); int completed = i;
                 progress?.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, i, references.Length));
                 await ObtainAssetAsync(references[i], cancellation, progress == null ? null :
-                    (Action<long, long?, int>)((bytes, length, attempt) => progress.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, completed, references.Length, bytes, length, attempt))), progress).ConfigureAwait(false);
+                    (Action<long, long?, int>)((bytes, length, attempt) => progress.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, completed, references.Length, bytes, length, attempt))), progress, cache).ConfigureAwait(false);
                 progress?.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, i + 1, references.Length));
             }
-            lock (gate) HydrateCached(value);
+            lock (gate) HydrateCached(value, cache);
         }
-        private async Task ObtainAssetAsync(GeometryAsset reference, CancellationToken cancellation, Action<long, long?, int> progress = null, IProgress<ConnectionProgress> retryProgress = null) {
+        private async Task ObtainAssetAsync(GeometryAsset reference, CancellationToken cancellation, Action<long, long?, int> progress = null, IProgress<ConnectionProgress> retryProgress = null, GeometryCache cache = null) {
             GeometryTransfer.ValidateReference(reference);
+            cache ??= geometryCache;
             await transferGate.WaitAsync(cancellation).ConfigureAwait(false);
             try {
-                lock (gate) if (geometry.ContainsKey(reference.hash)) {
-                    DocumentModel.Require(geometry[reference.hash].name == reference.name, "asset-hash-mismatch"); return;
+                lock (gate) if (cache.assets.ContainsKey(reference.hash)) {
+                    DocumentModel.Require(cache.assets[reference.hash].name == reference.name, "asset-hash-mismatch"); return;
                 }
                 byte[] bytes = await TransferAsync(HttpMethod.Get, reference.hash, null, cancellation, progress, retryProgress).ConfigureAwait(false);
                 var asset = GeometryTransfer.Decode(bytes);
                 DocumentModel.Require(asset.hash == reference.hash && asset.name == reference.name, "asset-hash-mismatch");
-                Cache(asset, bytes.Length);
+                Cache(asset, bytes.Length, cache);
             }
             finally { transferGate.Release(); }
         }
         public async Task UploadAssetAsync(GeometryAsset asset, CancellationToken cancellation = default) {
             DocumentModel.Require(IsConnected, "disconnected");
             DocumentModel.Require(Participant?.role != "viewer", "viewer-read-only");
+            long epoch = ConnectionEpoch;
             await transferGate.WaitAsync(cancellation).ConfigureAwait(false);
             try {
                 byte[] bytes = GeometryTransfer.Encode(asset);
@@ -68,7 +85,11 @@ namespace Protobot.Collaboration {
                 try { await TransferAsync(HttpMethod.Head, asset.hash, null, cancellation).ConfigureAwait(false); present = true; }
                 catch (CollaborationException error) when (error.Code == "missing-asset") { present = false; }
                 if (!present) await TransferAsync(HttpMethod.Put, asset.hash, bytes, cancellation).ConfigureAwait(false);
-                Cache(GeometryTransfer.Decode(bytes), bytes.Length);
+                var decoded = GeometryTransfer.Decode(bytes);
+                lock (gate) {
+                    DocumentModel.Require(ConnectionEpoch == epoch && IsConnected, "client-connection-changed");
+                    Cache(decoded, bytes.Length);
+                }
             }
             finally { transferGate.Release(); }
         }
@@ -112,7 +133,7 @@ namespace Protobot.Collaboration {
                             if ((int)response.StatusCode == 409 && !response.Headers.Contains("X-Protobot-Rejection")) throw new CollaborationException("missing-asset");
                             if (response.Headers.Contains("X-Protobot-Rejection")) {
                                 var rejected = ConnectionRetry.Rejection(response, Array.Empty<byte>());
-                                if ((rejected.Code == "membership-revoked" || rejected.Code == "server-stopping") && ConnectionEpoch == epoch) Freeze(rejected.Code);
+                                if ((rejected.Code == "membership-revoked" || rejected.Code == "server-stopping" || rejected.Code == "room-replaced") && ConnectionEpoch == epoch) Freeze(rejected.Code);
                                 throw rejected;
                             }
                             // A HEAD error carries no body; authenticate a bounded ordinary request to recover its terminal reason.
@@ -120,7 +141,7 @@ namespace Protobot.Collaboration {
                             throw new CollaborationException("asset-http-" + (int)response.StatusCode);
                         }
                         var rejection = ConnectionRetry.Rejection(response, bytes); string reason = rejection.Code;
-                        if ((reason == "membership-revoked" || reason == "server-stopping") && ConnectionEpoch == epoch) Freeze(reason);
+                        if ((reason == "membership-revoked" || reason == "server-stopping" || reason == "room-replaced") && ConnectionEpoch == epoch) Freeze(reason);
                         throw rejection;
                     }
                     return bytes;

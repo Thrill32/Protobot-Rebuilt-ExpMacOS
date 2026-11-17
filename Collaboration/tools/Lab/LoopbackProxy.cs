@@ -22,11 +22,14 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public string Url { get; private set; }
     public bool ForwardWebSockets;
     public bool DropNextCreationResponse;
+    public bool DropNextReplacementResponse;
+    public TaskCompletionSource<bool> ContinueReplacementReply;
+    public readonly TaskCompletionSource<bool> ReplacementReplyStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource<bool> ContinueCreationReply;
     public readonly TaskCompletionSource<bool> CreationReplyStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool DropNextJoinResponse;
     public string FaultPathSuffix, FaultCode, FaultHint, FaultBody;
-    public int FaultRemaining, FaultDelayMilliseconds, FaultRequests, CommitRequests;
+    public int FaultRemaining, FaultDelayMilliseconds, FaultRequests, CommitRequests, ReplacementRequests;
     public readonly ConcurrentDictionary<string, int> Requests = new ConcurrentDictionary<string, int>();
     public bool DropNextCommitResponse;
     public bool DropNextRemovalResponse;
@@ -60,6 +63,7 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
             string requestPath = context.Request.Path.Value;
             Requests.AddOrUpdate(requestPath, 1, (_, count) => count + 1);
             if (requestPath.EndsWith("/commit", StringComparison.Ordinal)) Interlocked.Increment(ref CommitRequests);
+            if (requestPath.EndsWith("/replacement", StringComparison.Ordinal) && context.Request.Method == "POST") Interlocked.Increment(ref ReplacementRequests);
             if (FaultPathSuffix != null && requestPath.EndsWith(FaultPathSuffix, StringComparison.Ordinal) && Interlocked.Decrement(ref FaultRemaining) >= 0) {
                 Interlocked.Increment(ref FaultRequests);
                 if (FaultDelayMilliseconds > 0) { try { await Task.Delay(FaultDelayMilliseconds, context.RequestAborted); } catch (OperationCanceledException) { return; } }
@@ -120,6 +124,11 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
                     CreationReplyStarted.TrySetResult(true);
                     if (ContinueCreationReply != null) await ContinueCreationReply.Task.WaitAsync(context.RequestAborted);
                     if (DropNextCreationResponse) { DropNextCreationResponse = false; context.Abort(); return; }
+                }
+                if (requestPath.EndsWith("/replacement", StringComparison.Ordinal) && context.Request.Method == "POST") {
+                    ReplacementReplyStarted.TrySetResult(true);
+                    if (ContinueReplacementReply != null) await ContinueReplacementReply.Task.WaitAsync(context.RequestAborted);
+                    if (DropNextReplacementResponse) { DropNextReplacementResponse = false; context.Abort(); return; }
                 }
                 if (requestPath.EndsWith("/join", StringComparison.Ordinal) && DropNextJoinResponse) { DropNextJoinResponse = false; context.Abort(); return; }
                 if (response.Headers.TryGetValues("Retry-After", out var hints)) context.Response.Headers["Retry-After"] = hints.ToArray();

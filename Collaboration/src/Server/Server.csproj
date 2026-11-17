@@ -2,6 +2,7 @@
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Shared/Shared.csproj" /></ItemGroup>
   <ItemGroup><PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="protobot-collab-lab" /></ItemGroup>
   <PropertyGroup>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <!-- The SDK removes RuntimeIdentifier on project references; keep the publish lock scope explicit. -->
