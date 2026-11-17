@@ -35,6 +35,7 @@ internal static partial class Program {
                     "protobot-collab remove-participant --url <origin> --owner-file <protected-owner.json> --participant <stable-id> [--allow-lan-http]\n" +
                     "protobot-collab diagnostics --url <origin> (--owner-file <private-owner.json> | --admin-file <private-admin.json>) [--output <new-report.json>]\n" +
                     "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests|short-polling] [--quick] [--output <report.json>]\n" +
+                    "Standalone serve: [--tls-file <private-protobot-tls-v1.json>] with --listen https://<IP>:<port>. Existing PFX/password are private file input only.\n" +
                     "Remote commands: [--network-route system|direct | --network-file <private-protobot-network-v1.json>]. Proxy passwords are file input only.\n" +
                     "Development alpha: bounded rooms; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
             }
@@ -64,7 +65,7 @@ internal static partial class Program {
                 Console.WriteLine("Restore completed."); return 0;
             }
             DocumentModel.Require(args[0] == "serve", "unknown-command");
-            var options = new Options(args, new[] { "--data-dir", "--config", "--listen", "--public-url" }, new[] { "--bootstrap-stdin", "--ephemeral", "--allow-lan-http", "--multi-room" });
+            var options = new Options(args, new[] { "--data-dir", "--config", "--listen", "--public-url", "--tls-file" }, new[] { "--bootstrap-stdin", "--ephemeral", "--allow-lan-http", "--multi-room" });
             bool multiRoom = options.Has("--multi-room");
             bool parentOwned = options.Has("--bootstrap-stdin");
             string dataDirectory = options.Get("--data-dir");
@@ -72,15 +73,18 @@ internal static partial class Program {
             DocumentModel.Require(multiRoom ? dataDirectory == null && !ephemeral && !parentOwned && options.Has("--config") : (dataDirectory != null) != ephemeral, "use-data-dir-or-explicit-ephemeral");
             string config = options.Get("--config");
             DocumentModel.Require(!parentOwned || config == null, "use-config-or-private-stdin");
+            DocumentModel.Require(!parentOwned || !options.Has("--tls-file"), "tls-standalone-only");
             string publicUrl = options.Get("--public-url");
             if (publicUrl != null) { publicUrl = ConnectionDoctor.Origin(publicUrl); DocumentModel.Require(new Uri(publicUrl).Scheme == "https", "public-url-requires-https"); }
+            using var stop = CommandCancellation();
+            using var tls = options.Has("--tls-file") ? await TlsConfiguration.LoadAsync(options.Get("--tls-file"), stop.Token) : null;
             string json = multiRoom ? "null" : parentOwned ? await ReadBootstrapLine() : config == null ? "null" : ReadText(config, LocalJson.MaxBytes);
             DocumentModel.Require(json != null && Encoding.UTF8.GetByteCount(json) <= LocalJson.MaxBytes, "invalid-bootstrap");
             var seed = LocalJson.Decode<Bootstrap>(Encoding.UTF8.GetBytes(json));
-            using var stop = new CancellationTokenSource();
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-            await using var server = new CollaborationServer(seed, options.Get("--listen", "http://127.0.0.1:8787"), options.Has("--allow-lan-http"), dataDirectory, multiRoom ? config : null);
-            await server.StartAsync(stop.Token);
+            await using var server = new CollaborationServer(seed, options.Get("--listen", "http://127.0.0.1:8787"), options.Has("--allow-lan-http"), dataDirectory, multiRoom ? config : null, tls);
+            try { await server.StartAsync(stop.Token); }
+            catch (OperationCanceledException) { throw; }
+            catch when (tls != null) { throw new CollaborationException("tls-listener-start-failed"); }
             var ready = new Ready { url = server.Url, room = server.Room?.Name, durable = multiRoom || server.Room.IsDurable, multiRoom = multiRoom, registryVersion = multiRoom ? RoomRegistry.Version : 0,
                 recovered = multiRoom || server.Room.Recovered, revision = server.Room?.Snapshot.revision ?? 0 };
             Console.WriteLine(publicUrl == null ? WireJson.Text(ready) : System.Text.Json.JsonSerializer.Serialize(new {

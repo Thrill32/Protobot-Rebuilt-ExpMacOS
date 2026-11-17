@@ -4,6 +4,27 @@ Use one matching catalog/helper/player release on every desktop and server. Reco
 
 Pending field acceptance remains a release requirement; it does not block implementing and locally validating the next bounded collaboration feature.
 
+Automated direct HTTPS hosting pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403 / runtime 10.0.14; base `641bbe0`):
+
+| Check | Result |
+| --- | --- |
+| CLI / Lab builds | Passed with zero warnings/errors; cached packages with `NuGetAudit=false`; no online vulnerability audit |
+| Focused direct HTTPS suite | **61 assertions** with rebuilt self-contained Mac CLI and preserved pre-TLS helper: strict configuration/permission/symlink/size checks, invalid/unreadable/password/expiry/usage/key/count errors, cancellation, one HTTPS listener despite ambient HTTP endpoints, no plaintext fallback, trust/name/CONNECT rejection, three transports with test-scoped ephemeral trust, geometry/reconnect, healthy/corrupt room isolation, administration, bind failure, redacted readiness/doctor, clean shutdown/restart and old-helper refusal |
+| Full lab | **1,297 assertions in 134.84 seconds**, ten bots on each of WebSocket, held requests and short polling; original 0.7/v1, 0.8/v2 and pre-diagnostics 0.9/v2 fixtures plus pre-TLS local-option compatibility |
+| Actual Unity controls / regressions | Seven fresh-profile scenarios passed: TLS, proxy, UI, core editing/save/export, simulation, recovery and multi-room. TLS starts the actual configured standalone listener; production Test Connection/Join rejects its untrusted certificate on all three transports, pointer Cancel/Close and physical Escape preserve scene/file/saved state/membership absence. TLS/proxy also exercise ordinary connection/reconnect and Direct owned-helper recovery |
+| Rebuilt Mac player pairs | **8 assertions**, four processes: WebSocket↔held requests and WebSocket↔short polling, actual scene poses/colliders, independent accepted saves/profiles and convergence |
+| Builds / distributions | Four helpers, Mac/Windows development players and six archives rebuilt; matching packaged/embedded catalogs and managed assemblies, SHA-256 manifests, Mac helper/app signatures and the extracted Mac archive signature verified |
+
+The new local `protobot-tls` configuration is **schema 1**, at most **4 KiB**, selecting an existing private **PFX up to 1 MiB**, at most eight certificates/one key with runtime KDF limits. Explicit standalone TLS binds one HTTPS literal-IP endpoint, replaces ambient Kestrel endpoints/default certificates and fails without HTTP fallback. The existing Caddy/default HTTP workflow and Direct owned-helper private control remain available; `--bootstrap-stdin` refuses explicit TLS. No certificate material/password/path enters readiness, invitations, diagnostics, bootstrap or room/member recovery. See [operator configuration and fixed failures](TLS.md).
+
+Successful lab TLS uses **ephemeral test-scoped trust**, retaining hostname validation; separate unchanged production CLI/Unity checks reject that certificate. No trust store was changed. Trusted public HTTPS Unity success remains a field check. Wire stays **0.9.0-alpha**, document/SQLite/archive **v2**, server registry/config/admin and diagnostics **v1**. No runtime generation source changed, so catalog remains `44ee44968cf57de685f8f849ef597f796b208581e28731439a3ceb5d61de1671`.
+
+Retained test observations: the initial sandbox TLS run lacked macOS temporary-keychain access; local approved execution succeeded. An initial wrong-name fixture used an alternate loopback address that did not route on this Mac; it was corrected to test localhost/IP naming on the same listener. The first Unity TLS scene assertion compared captures with independently generated document generations; retaining the captured baseline generation fixed the comparison, and a fresh run passed. These attempts remain in logs/evidence. The earlier admission UI pointer-timeout observation below remains historical and is not attributed to this slice.
+
+- [ ] **Direct HTTPS field acceptance:** Windows/Linux execution, Mac↔Windows editing/transfers/cancellation/focus, native file panels, cross-OS archives, Debian/Pi service restoration/resources and trusted public HTTPS/proxy/school-network operation. Certificate issuance/renewal/ACME/custom trust and owned-helper TLS remain separate work.
+
+Credential-free current evidence: ignored `Collaboration/artifacts/tls-report.json`, `tls-fixtures.json`, `tls-helper-builds.json`, `tls-unity.json`, `tls-builds.json` and `tls-packages.json`. The complete matching helper/catalog from `641bbe0` was preserved in new `/private/tmp/protobot-tls-legacy-09`; all six original helper fixture versions/catalogs/managed CLI hashes were rechecked without overwriting them. Main.unity matches the starting commit; inspected generated font/default-backend serialization was removed. This validation preceded the user-requested local commit; no push or deployment was performed. Earlier acceptance records below remain historical.
+
 Automated bounded admission/backoff pass on November 16, 2026 (macOS arm64, Unity 6000.6.6f1, pinned SDK 10.0.403 / runtime 10.0.14; base `33a38c9`):
 
 | Check | Result |

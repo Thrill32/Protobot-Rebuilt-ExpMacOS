@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
 
 namespace Protobot.Collaboration.Server {
     public sealed partial class CollaborationServer : IAsyncDisposable {
@@ -44,11 +45,15 @@ namespace Protobot.Collaboration.Server {
         public Room Room { get; }
         public string Url { get; private set; }
 
-        public CollaborationServer(Bootstrap seed, string listen = "http://127.0.0.1:0", bool allowInsecureLan = false, string dataDirectory = null, string multiRoomConfig = null) {
+        public CollaborationServer(Bootstrap seed, string listen = "http://127.0.0.1:0", bool allowInsecureLan = false, string dataDirectory = null, string multiRoomConfig = null, TlsConfiguration tls = null) {
             DocumentModel.Require(seed == null || DocumentModel.ValidId(seed.room), "invalid-room");
             var endpoint = new Uri(listen);
             DocumentModel.Require(string.IsNullOrEmpty(endpoint.UserInfo) && string.IsNullOrEmpty(endpoint.Query) && string.IsNullOrEmpty(endpoint.Fragment) && endpoint.AbsolutePath == "/", "invalid-listener");
             DocumentModel.Require(endpoint.Scheme == "https" || endpoint.Scheme == "http" && (endpoint.IsLoopback || allowInsecureLan), "https-required-use-explicit-lan-http");
+            DocumentModel.Require(tls == null || endpoint.Scheme == "https", "tls-requires-https-listener");
+            DocumentModel.Require(tls == null || tls.Certificate != null, "tls-certificate-private-key-required");
+            IPAddress address = null;
+            DocumentModel.Require(tls == null || IPAddress.TryParse(endpoint.DnsSafeHost, out address), "tls-listener-requires-ip");
             DocumentModel.Require(multiRoomConfig == null || seed == null && dataDirectory == null, "use-single-or-multi-room");
             if (multiRoomConfig != null) { registry = new RoomRegistry(multiRoomConfig); budget = registry.Budget; }
             else {
@@ -68,6 +73,14 @@ namespace Protobot.Collaboration.Server {
                     Interlocked.Increment(ref connections);
                     try { await next(connection); } finally { Interlocked.Decrement(ref connections); }
                 }));
+                if (tls != null) {
+                    // Replace ambient Kestrel endpoints/default certificates. An explicit
+                    // TLS configuration creates exactly one listener and no HTTP fallback.
+                    options.Configure(new ConfigurationBuilder().Build(), reloadOnChange: false);
+                    options.Listen(address, endpoint.Port, listener => listener.UseHttps(https => {
+                        https.ServerCertificate = tls.Certificate; https.ServerCertificateChain = tls.Chain;
+                    }));
+                }
                 options.Limits.MaxConcurrentUpgradedConnections = ProcessBudget.MaxEvents;
             });
             app = builder.Build();

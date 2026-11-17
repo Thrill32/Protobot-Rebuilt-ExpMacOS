@@ -187,6 +187,8 @@ The core smoke exercises the managed host launcher, Unity's actual networking ru
 
 ## Standalone server
 
+For direct HTTPS with an operator-provided PFX, use standalone `serve --tls-file <private-protobot-tls-v1.json> --listen https://<IP>:<port>`. The bounded private file contains the existing certificate path/password; failure never falls back to HTTP. See [direct HTTPS configuration and fixed errors](TLS.md). The existing Caddy path and default in-app Host/Resume remain available. Readiness labels binding/advertisement only; test client trust and reachability from the actual network.
+
 Initialize an empty durable room with the exact player catalog, or seed it from **Export current build for CLI...**:
 
 ```sh

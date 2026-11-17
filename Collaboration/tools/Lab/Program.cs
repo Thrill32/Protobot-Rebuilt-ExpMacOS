@@ -32,6 +32,10 @@ internal static partial class Program {
             if (args.Contains("--make-test-certificate")) {
                 using var tls = new UntrustedTlsFixture(); tls.Export(args[Array.IndexOf(args, "--make-test-certificate") + 1]); return 0;
             }
+            if (args.Contains("--tls-only")) {
+                await TlsChecks(directory);
+                Console.WriteLine("TLS passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--admission-only")) {
                 await AdmissionChecks(directory);
                 Console.WriteLine("Admission passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -75,6 +79,7 @@ internal static partial class Program {
             await AdministrationChecks(directory);
             await DurabilityChecks(directory);
             await DeploymentChecks(directory);
+            await TlsChecks(directory);
             await BackupChecks(directory);
             foreach (var transport in transports) await NetworkChecks(bots, transport, directory);
             await FailureChecks();
