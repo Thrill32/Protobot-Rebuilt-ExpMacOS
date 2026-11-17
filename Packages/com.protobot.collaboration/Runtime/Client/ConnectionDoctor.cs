@@ -27,7 +27,7 @@ namespace Protobot.Collaboration {
     public static class ConnectionDoctor {
         private static readonly HashSet<string> KnownCodes = new HashSet<string>(StringComparer.Ordinal) {
             "connection-attempt-timeout", "safe-retry-exhausted", "room-request-limit", "short-polling-unavailable", "invalid-event-wait", "invalid-endpoint", "https-required-use-explicit-lan-http", "server-version-mismatch", "invalid-capabilities", "endpoint-changed",
-            "catalog-or-room-mismatch", "diagnostic-role-mismatch", "event-stream-timeout", "event-stream-disconnected", "wrong-password",
+            "server-stopping", "catalog-or-room-mismatch", "diagnostic-role-mismatch", "event-stream-timeout", "event-stream-disconnected", "wrong-password",
             "invalid-session", "room-full", "join-rate-limit", "invalid-name", "invalid-request", "message-too-large", "schema-mismatch",
             "room-required", "room-not-found", "room-unavailable", "server-request-limit", "server-event-limit", "room-event-limit",
             "catalog-mismatch", "room-storage-failed-restart-required", "protocol-mismatch", "catalog-protocol-mismatch"

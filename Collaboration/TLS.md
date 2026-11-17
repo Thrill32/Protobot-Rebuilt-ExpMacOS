@@ -40,6 +40,8 @@ The explicit TLS file requires `https://<literal-IP>:<port>`; DNS belongs in the
 
 Readiness `url` describes the actual bound listener (a wildcard address is not an invite). Optional `publicUrl` is the operator's advertised HTTPS origin. Neither proves routing, firewall access, hostname validity or client trust. Direct HTTPS has no additional plaintext administration listener: use the trusted hostname and the same HTTPS port for owner/admin CLI operations. The server never changes OS trust, redirects HTTP, issues certificates or hot-reloads keys. Replace private input and restart the stopped service to use a renewed certificate; existing room data/memberships/receipts remain independent.
 
+Ctrl+C/service SIGTERM uses the shared bounded shutdown notice on that same HTTPS listener. Participants may receive `server-stopping`; restart with the renewed certificate and the same room/origin/catalog, then use explicit Reconnect to resolve receipts. Delivery is best effort and production trust/name checks still apply. See [shutdown and recovery semantics](README.md#standalone-server).
+
 In Unity's Join page enter the final `https://hostname:port`, select the room/transport and use **Test Connection**, then **Join Room**. Cancel/Close/Escape retain accepted scenes and local saves; connection loss requires explicit **Reconnect** to resolve known receipts. Platform trust and hostname checks, redirect refusal, proxy separation, three-transport support, bounded retries and single-send admission/mutations all remain active. A certificate trusted only by a local test is not public or school-network acceptance. Keep private server filesystem/password details out of participant instructions and invitations.
 
 ## Fixed failures

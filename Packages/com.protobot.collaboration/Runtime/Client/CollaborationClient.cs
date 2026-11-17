@@ -302,6 +302,8 @@ namespace Protobot.Collaboration {
                                             heartbeat.CancelAfter(TimeSpan.FromSeconds(45));
                                             received = await socket.ReceiveAsync(new ArraySegment<byte>(bytes), heartbeat.Token).ConfigureAwait(false);
                                         }
+                                        if (received.MessageType == WebSocketMessageType.Close && received.CloseStatus == WebSocketCloseStatus.EndpointUnavailable && received.CloseStatusDescription == "server-stopping")
+                                            throw new CollaborationException("server-stopping");
                                         if (received.MessageType == WebSocketMessageType.Close && received.CloseStatus == WebSocketCloseStatus.PolicyViolation)
                                             throw new CollaborationException(received.CloseStatusDescription == "membership-revoked" ? "membership-revoked" : "event-session-ended");
                                         DocumentModel.Require(received.MessageType == WebSocketMessageType.Text && stream.Length + received.Count <= WireJson.MaxMessageBytes, "invalid-event-stream");
@@ -371,7 +373,7 @@ namespace Protobot.Collaboration {
                         var bytes = output.ToArray();
                         if (!response.IsSuccessStatusCode) {
                             var rejection = ConnectionRetry.Rejection(response, bytes); string reason = rejection.Code;
-                            if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
+                            if ((reason == "membership-revoked" || reason == "server-stopping") && ConnectionEpoch == epoch) Freeze(reason);
                             throw rejection;
                         }
                         var value = WireJson.Decode<T>(bytes);

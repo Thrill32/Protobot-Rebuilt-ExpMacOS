@@ -287,7 +287,9 @@ namespace Protobot {
             connected.Presence += update => { lock (queueGate) { latestPresence = update; presenceClient = connected; } };
             connected.Disconnected += reason => Enqueue(() => {
                 if (client != connected) return;
-                CancelTools(); CancelPose(); ClearGhosts(); status = WireFailure.Code(new CollaborationException(reason));
+                CancelTools(); CancelPose(); ClearGhosts(); status = reason == "server-stopping"
+                    ? FriendlyStatus(reason)
+                    : WireFailure.Code(new CollaborationException(reason));
                 CollaborationScene.ApplyParts(committed.parts);
             });
             connected.PendingResolved += message => Enqueue(() => status = "Pending edit outcome checked. Reconnect to synchronize the accepted build.");

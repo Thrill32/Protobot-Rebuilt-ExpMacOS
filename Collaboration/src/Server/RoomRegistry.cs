@@ -42,6 +42,7 @@ namespace Protobot.Collaboration.Server {
         private readonly FileStream ownership;
         private readonly ServerConfiguration configuration;
         private readonly object gate = new object();
+        private bool stopping;
         private sealed class Entry {
             public string name, failure;
             public RoomRegistration registration;
@@ -204,7 +205,12 @@ namespace Protobot.Collaboration.Server {
                 RoomBackup.PublishDirectory(stage, Path.Combine(root, "rooms", registration.room)); published = true;
                 Open(entry, Path.Combine(root, "rooms", registration.room), attachBudget: false);
                 entry.room.AdoptBudget(Budget); capacity.Commit();
-                lock (gate) entries.Add(registration.room, entry);
+                lock (gate) {
+                    // An already admitted atomic publication may finish while draining.
+                    // Fence its room before it becomes visible to any existing request.
+                    if (stopping) entry.room.BeginShutdown();
+                    entries.Add(registration.room, entry);
+                }
             }
             catch (Exception error) {
                 entry.store?.Dispose(); entry.store = null; entry.room = null; entry.failure = Failure(error);
@@ -234,9 +240,23 @@ namespace Protobot.Collaboration.Server {
             Regular(path);
             foreach (string child in Directory.EnumerateFileSystemEntries(path)) { Regular(child); if (Directory.Exists(child)) NoLinks(child); }
         }
+        internal void BeginShutdown() {
+            Room[] rooms;
+            lock (gate) { stopping = true; rooms = entries.Values.Where(e => e.room != null).Select(e => e.room).ToArray(); }
+            foreach (var room in rooms) room.BeginShutdown();
+        }
         public void Dispose() {
-            foreach (var entry in entries.Values) { entry.room?.DetachBudget(); entry.store?.Dispose(); }
-            entries.Clear(); ownership?.Dispose();
+            // HTTP cancellation cannot interrupt synchronous staging/publication.
+            // Drain its existing permit before releasing registry/storage ownership.
+            Creation.Wait();
+            try {
+                Entry[] snapshot; lock (gate) { snapshot = entries.Values.ToArray(); entries.Clear(); }
+                foreach (var entry in snapshot) {
+                    if (entry.room != null) entry.room.CloseStorage(); else entry.store?.Dispose();
+                }
+                ownership?.Dispose();
+            }
+            finally { Creation.Release(); }
         }
     }
 }

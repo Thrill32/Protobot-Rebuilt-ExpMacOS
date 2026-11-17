@@ -32,6 +32,10 @@ internal static partial class Program {
             if (args.Contains("--make-test-certificate")) {
                 using var tls = new UntrustedTlsFixture(); tls.Export(args[Array.IndexOf(args, "--make-test-certificate") + 1]); return 0;
             }
+            if (args.Contains("--shutdown-only")) {
+                await ShutdownChecks(directory);
+                Console.WriteLine("Shutdown passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--tls-only")) {
                 await TlsChecks(directory);
                 Console.WriteLine("TLS passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -63,6 +67,7 @@ internal static partial class Program {
                 Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await ShutdownChecks(directory);
             await AssetChecks(directory);
             await ConnectionChecks(directory);
             await AdmissionChecks(directory);

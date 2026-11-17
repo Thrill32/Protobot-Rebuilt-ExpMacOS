@@ -343,6 +343,7 @@ namespace Protobot {
         }
 
         private static string FriendlyStatus(string value) => value switch {
+            "server-stopping" => "The host stopped the server. Your last received accepted build stays open. Reconnect after it restarts to check pending edits; local files are unchanged.",
             "proxy-authentication-required" => "The proxy requires supported credentials. Check its Basic username/password with your network operator and reconnect. Integrated authentication is available only through tested system defaults.",
             "proxy-config-version" or "proxy-route-unsupported" or "proxy-auth-unsupported" or "proxy-auth-route-mismatch" => "Choose System, Direct, or an HTTP proxy with None or Basic authentication. Other explicit proxy mechanisms are unsupported.",
             "proxy-address-invalid" => "Enter an HTTP proxy address such as http://host:port, without credentials, paths or query text.",

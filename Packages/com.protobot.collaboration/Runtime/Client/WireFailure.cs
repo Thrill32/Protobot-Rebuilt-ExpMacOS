@@ -25,7 +25,7 @@ namespace Protobot.Collaboration {
             "resync-required", "room-event-limit", "room-export-version-mismatch", "room-full", "room-not-found",
             "room-request-limit", "room-storage-failed-restart-required", "room-unavailable", "schema-mismatch", "sequence-reused",
             "server-event-limit", "server-geometry-quota", "server-request-limit", "server-transfer-busy", "server-version-mismatch",
-            "short-polling", "snapshot-byte-limit", "stale-chain", "stale-document", "stale-entity",
+            "server-stopping", "short-polling", "snapshot-byte-limit", "stale-chain", "stale-document", "stale-entity",
             "stale-history", "unknown-part", "unreferenced-asset", "unsupported-mutation", "viewer-read-only",
             "server-admin-required", "write-set-limit", "wrong-password", "join-rate-limit", "connection-attempt-timeout", "safe-retry-exhausted",
         };

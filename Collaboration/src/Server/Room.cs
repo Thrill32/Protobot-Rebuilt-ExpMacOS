@@ -43,6 +43,7 @@ namespace Protobot.Collaboration.Server {
         private readonly Func<long> clock;
         private readonly RoomStore store;
         private volatile bool storageFailed;
+        private volatile bool stopping;
         private ProcessBudget processBudget;
         private long SceneBytes(Document value) => value.parts.Where(p => p.catalogId == "CUSTOM").Sum(p => assetArrayBytes[p.assetHash]);
         internal (long bytes, long arrays, long instances) GeometryUsage => (assetBytes.Values.Sum(b => (long)b.Length), assetArrayBytes.Values.Sum(), SceneBytes(document));
@@ -403,7 +404,21 @@ namespace Protobot.Collaboration.Server {
             DocumentModel.Require(clock() - member.lastSeen < 60000 || ActiveCount() < 10, "room-full");
             member.lastSeen = clock();
         }
-        private void Healthy() => DocumentModel.Require(!storageFailed, "room-storage-failed-restart-required");
+        internal void BeginShutdown() {
+            // Fence new work and wake existing reads without waiting on a room's
+            // synchronous durable write. An already admitted atomic write settles
+            // normally; shutdown never rewrites its receipt or revokes a member.
+            stopping = true; Volatile.Read(ref changed).TrySetResult(true);
+        }
+        internal void CloseStorage() {
+            // Kestrel can abort a request while its synchronous durable write is
+            // still settling. Never dispose SQLite/budget underneath that write.
+            lock (gate) { DetachBudget(); store?.Dispose(); }
+        }
+        private void Healthy() {
+            DocumentModel.Require(!stopping, "server-stopping");
+            DocumentModel.Require(!storageFailed, "room-storage-failed-restart-required");
+        }
         private void Persist(Action write) {
             if (store == null) return;
             try { write(); }

@@ -112,7 +112,7 @@ namespace Protobot.Collaboration {
                             if ((int)response.StatusCode == 409 && !response.Headers.Contains("X-Protobot-Rejection")) throw new CollaborationException("missing-asset");
                             if (response.Headers.Contains("X-Protobot-Rejection")) {
                                 var rejected = ConnectionRetry.Rejection(response, Array.Empty<byte>());
-                                if (rejected.Code == "membership-revoked" && ConnectionEpoch == epoch) Freeze(rejected.Code);
+                                if ((rejected.Code == "membership-revoked" || rejected.Code == "server-stopping") && ConnectionEpoch == epoch) Freeze(rejected.Code);
                                 throw rejected;
                             }
                             // A HEAD error carries no body; authenticate a bounded ordinary request to recover its terminal reason.
@@ -120,7 +120,7 @@ namespace Protobot.Collaboration {
                             throw new CollaborationException("asset-http-" + (int)response.StatusCode);
                         }
                         var rejection = ConnectionRetry.Rejection(response, bytes); string reason = rejection.Code;
-                        if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
+                        if ((reason == "membership-revoked" || reason == "server-stopping") && ConnectionEpoch == epoch) Freeze(reason);
                         throw rejection;
                     }
                     return bytes;

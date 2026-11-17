@@ -41,6 +41,8 @@ The options also apply to `participants`, `remove-participant`, `room create` an
 
 The policy is identical for System, Direct and explicit HTTP-proxy routes. Safe retries reuse the same private input, handler and origin; they never change routes. TLS/name failure, redirects, 401/403/407, wrong passwords, revoked membership, incompatible versions/catalogs and malformed responses are terminal. Bare HTTP 429/503 or arbitrary proxy bodies do not authorize a retry. Only recognized request/transfer congestion codes or a network interruption/timeout at an explicitly safe call site do.
 
+Recognized `server-stopping` is terminal, including a 503 before WebSocket upgrade; Auto does not fall back after that reason. During deliberate shutdown the listener stays briefly available for polling notice within its existing stop budget. Proxies may prevent delivery; generic transport loss retains the same explicit receipt-resolving Reconnect path. No route change or safe retry is authorized by a stopping response.
+
 | Operation | Automatic behavior within one explicit attempt |
 | --- | --- |
 | Capability/health reads; explicit CLI participant/admin lists and diagnostic GETs | At most **3 sends per read**, **12 seconds total**, **4 seconds per request**, one request at a time. |

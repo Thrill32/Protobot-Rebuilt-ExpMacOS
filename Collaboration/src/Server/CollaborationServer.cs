@@ -65,6 +65,8 @@ namespace Protobot.Collaboration.Server {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = Array.Empty<string>() });
             // Application stdout is reserved for the private readiness protocol. Do not log bodies/credentials.
             builder.Logging.ClearProviders();
+            builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(5));
+            builder.Services.AddSingleton<IHostedService>(_ => new ShutdownNotice(this));
             builder.WebHost.UseUrls(listen);
             builder.WebHost.ConfigureKestrel(options => {
                 options.Limits.MaxRequestBodySize = WireJson.MaxMessageBytes;
@@ -87,6 +89,7 @@ namespace Protobot.Collaboration.Server {
             app.Use(async (context, next) => {
                 if (context.Request.Headers.ContainsKey("Origin")) { context.Response.StatusCode = 403; return; }
                 context.Response.Headers.CacheControl = "no-store";
+                if (Volatile.Read(ref stopping) != 0) { await Reject(context, "server-stopping", 503); return; }
                 bool admitted = await requests.WaitAsync(0, context.RequestAborted);
                 if (!admitted) { await Reject(context, "server-request-limit", 503); return; }
                 SemaphoreSlim roomRequests = null; bool roomAdmitted = false;
@@ -103,7 +106,7 @@ namespace Protobot.Collaboration.Server {
                     if (context.Response.HasStarted) context.Abort();
                     if (!context.Response.HasStarted) {
                         context.Response.StatusCode = error.Code == "owner-required" || error.Code == "server-admin-required" ? 403 :
-                            error.Code == "room-not-found" ? 404 : error.Code == "room-unavailable" || error.Code == "room-storage-failed-restart-required" ? 503 :
+                            error.Code == "room-not-found" ? 404 : error.Code == "server-stopping" || error.Code == "room-unavailable" || error.Code == "room-storage-failed-restart-required" ? 503 :
                             error.Code == "invalid-session" || error.Code == "membership-revoked" ? 401 : 409;
                         await Reject(context, error.Code, context.Response.StatusCode, error.RetryAfterMilliseconds);
                     }
@@ -242,7 +245,13 @@ namespace Protobot.Collaboration.Server {
                         // A wake from durable revocation must terminate this event connection with
                         // the same reason as held requests. Bound the close even for a stalled peer.
                         using var close = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-                        try { await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, error.Code, close.Token); }
+                        try {
+                            await socket.CloseOutputAsync(error.Code == "server-stopping" ? WebSocketCloseStatus.EndpointUnavailable : WebSocketCloseStatus.PolicyViolation, error.Code, close.Token);
+                            // An immediate Abort can discard the queued close frame
+                            // before a delayed peer reads it. Allow its receive/close
+                            // to finish within this same one-second close budget.
+                            await Task.WhenAny(closed, Task.Delay(Timeout.Infinite, close.Token));
+                        }
                         catch (WebSocketException) { }
                         catch (OperationCanceledException) { }
                     }
@@ -271,7 +280,7 @@ namespace Protobot.Collaboration.Server {
         public Task WaitAsync(CancellationToken cancellation) => app.WaitForShutdownAsync(cancellation);
         public async ValueTask DisposeAsync() {
             try { await app.StopAsync(TimeSpan.FromSeconds(5)); await app.DisposeAsync(); }
-            finally { Room?.DetachBudget(); storage?.Dispose(); registry?.Dispose(); }
+            finally { Room?.CloseStorage(); registry?.Dispose(); }
         }
         private static string Token(HttpContext context) {
             string auth = context.Request.Headers.Authorization;
@@ -294,7 +303,7 @@ namespace Protobot.Collaboration.Server {
             int delay = ConnectionRetry.CooldownMilliseconds(code, hint);
             if (delay > 0) context.Response.Headers.RetryAfter = ((delay + 999) / 1000).ToString(System.Globalization.CultureInfo.InvariantCulture);
             // HEAD carries no JSON body. Only a fixed vocabulary is projected by clients.
-            if (context.Request.Method == "HEAD") context.Response.Headers["X-Protobot-Rejection"] = code;
+            if (context.Request.Method == "HEAD" || code == "server-stopping") context.Response.Headers["X-Protobot-Rejection"] = code;
             return Write(context, new WireError { error = code });
         }
         private static async Task Write<T>(HttpContext context, T value) {

@@ -219,6 +219,8 @@ Local automated checks establish CLI/protocol behavior, not approval or compatib
 
 ## Stop and preserve the room
 
+Service SIGTERM/Ctrl+C starts a 1,500 ms best-effort participant notice within a five-second host shutdown budget, then closes the listener. Connected clients may show `server-stopping`; proxies/crashes can still produce generic transport loss. New work is fenced, already admitted atomic work may settle, and room memberships/history/geometry/accepted receipts remain recoverable. After restarting the same room/origin/catalog, use explicit **Reconnect** to resolve pending outcomes without replay. Stopping a service does not save participant `.pbb` files or revoke memberships. This does not add a remote stop endpoint. Actual Debian/Pi signal/storage behavior remains field acceptance.
+
 ```sh
 sudo systemctl stop protobot-collab
 ```

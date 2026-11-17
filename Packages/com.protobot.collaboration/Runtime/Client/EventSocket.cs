@@ -22,6 +22,10 @@ namespace Protobot.Collaboration {
             var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false);
             try {
                 NetworkPolicy.CheckProxyResponse(response);
+                // A stopping listener can reject before an upgrade is established.
+                // Keep this terminal reason out of Auto's upgrade fallback path.
+                if ((int)response.StatusCode == 503 && response.Headers.TryGetValues("X-Protobot-Rejection", out var reasons) && reasons.SequenceEqual(new[] { "server-stopping" }))
+                    throw new CollaborationException("server-stopping");
                 DocumentModel.Require((int)response.StatusCode == 101 && response.Headers.Upgrade.Any(u => string.Equals(u.Name, "websocket", StringComparison.OrdinalIgnoreCase)) &&
                     response.Headers.Connection.Any(c => string.Equals(c, "Upgrade", StringComparison.OrdinalIgnoreCase)), "websocket-unavailable");
                 string expected;
