@@ -43,7 +43,8 @@ namespace Protobot {
                 ValidateSettings(true);
                 var requested = new[] { transport };
                 var report = await ConnectionDoctor.RunAsync(endpoint, CollaborationScene.Catalog, room, password, requested, lan,
-                    progress: step => Enqueue(() => { if (connectionTest == activeTest && !activeTest.IsCancellationRequested) status = step; }), cancellation: activeTest.Token);
+                    progress: step => Enqueue(() => { if (connectionTest == activeTest && !activeTest.IsCancellationRequested) status = step; }), cancellation: activeTest.Token,
+                    networkPolicy: await SelectedNetworkAsync(activeTest.Token));
                 uiTestReport.text = string.Join("\n", report.checks.Select(c => c.name + ": " + c.status + (c.code == null ? "" : " (" + c.code + ")")));
                 status = report.passed ? "Read-only connection checks passed. Join to open the room." : "Some connection checks failed. See the results on the Join page.";
             }

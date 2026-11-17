@@ -7,6 +7,7 @@ try {
     Copy-Item ../Assets/Resources/Collaboration/catalog.json "artifacts/$Runtime/catalog.json"
     Copy-Item ../LICENSE "artifacts/$Runtime/LICENSE-Protobot.txt"
     Copy-Item THIRD-PARTY-NOTICES.md "artifacts/$Runtime/"
+    Copy-Item NETWORK.md "artifacts/$Runtime/"
     Copy-Item licenses/*.txt "artifacts/$Runtime/"
     New-Item -ItemType Directory -Force "artifacts/$Runtime/deploy" | Out-Null
     Copy-Item deploy/* "artifacts/$Runtime/deploy/"

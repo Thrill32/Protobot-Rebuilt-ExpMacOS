@@ -120,9 +120,10 @@ internal static partial class Program {
         finally { if (!process.HasExited) { process.Kill(); await process.WaitForExitAsync(); } await errors; }
     }
     private static async Task<(int code, string output, string error)> RunCli(params string[] arguments) {
-        var start = new ProcessStartInfo { FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet", UseShellExecute = false,
+        string published = Environment.GetEnvironmentVariable("PROTOBOT_TEST_CLI");
+        var start = new ProcessStartInfo { FileName = published ?? Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet", UseShellExecute = false,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        start.ArgumentList.Add(Path.GetFullPath("src/Cli/bin/Debug/net10.0/protobot-collab.dll"));
+        if (published == null) start.ArgumentList.Add(Path.GetFullPath("src/Cli/bin/Debug/net10.0/protobot-collab.dll"));
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
         using var process = Process.Start(start);
         var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); process.StandardInput.Close();
@@ -145,6 +146,16 @@ internal static partial class Program {
         string address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>().Addresses.Single();
         var result = await ConnectionDoctor.RunAsync(address);
         Check(!result.passed && result.checks.Single(c => c.name == "capabilities").code == "tls-trust-or-name-failed", "doctor rejects an untrusted HTTPS certificate without any trust bypass");
+        using (var proxy = new OutboundProxyFixture(address, "proxy-user", "private-proxy-password")) {
+            result = await ConnectionDoctor.RunAsync(address, networkPolicy: ProxyPolicy(proxy));
+            Check(!result.passed && result.checks.Single(c => c.name == "capabilities").code == "tls-trust-or-name-failed" && proxy.Connects > 0 && proxy.Authenticated > 0 && !proxy.OriginCredentialInConnect,
+                "authenticated HTTPS CONNECT reaches TLS and retains platform certificate/name validation without leaking origin credentials in CONNECT");
+            try { await DiagnosticExport.FetchAsync(address, seed.room, seed.ownerCredential, networkPolicy: ProxyPolicy(proxy)); throw new Exception("Expected untrusted TLS"); }
+            catch (System.Net.Http.HttpRequestException error) { Check(ConnectionDoctor.Code(error) == "tls-trust-or-name-failed" && !proxy.OriginCredentialInConnect, "protected owner authorization stays inside TLS, never on the proxy CONNECT challenge"); }
+            proxy.RejectAll = true; proxy.ReflectedError = "private-proxy-password";
+            result = await ConnectionDoctor.RunAsync(address, networkPolicy: ProxyPolicy(proxy));
+            Check(!result.passed && result.checks.Single(c => c.name == "capabilities").code == "proxy-authentication-required", "failed authenticated HTTPS CONNECT reports a fixed 407 code without reflected text");
+        }
         await app.StopAsync();
     }
 }

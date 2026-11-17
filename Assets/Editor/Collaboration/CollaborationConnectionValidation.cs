@@ -40,7 +40,7 @@ namespace ProtobotEditorTools {
             try { await Check(); Debug.Log("Collaboration connection validation passed: visible real-byte geometry progress, pointer Cancel and Escape, unchanged accepted scenes/local files, same-membership retry, stale-progress isolation, canceled host/resume cleanup and successful recovered-room retry."); EditorApplication.Exit(0); }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
         }
-        private static async Task Check() {
+        internal static async Task Check(bool proxyMode = false) {
             string root = Path.Combine(LocalPreferences.ProfileDirectory ?? Path.GetTempPath(), "connection-check"); RecoveryFiles.CreateDirectory(root);
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild); PartsManager.GeneratePart("CCHL-1x2-5", Vector3.zero, Quaternion.identity);
             var local = SceneBuild.ToBuildData(); var catalog = CollaborationScene.Catalog;
@@ -56,10 +56,28 @@ namespace ProtobotEditorTools {
             var info = CollaborationRecovery.Create(seed, 0);
             using var authority = new CollaborationHost(); await authority.StartAsync(seed, 0, false, info.directory); info.port = authority.BoundPort; CollaborationRecovery.Save(info);
             try {
-                using var relay = new SlowRelay(authority.Url); relay.Hold();
+                using var relay = new SlowRelay(authority.Url);
+                using var outbound = proxyMode ? new OutboundProxyFixture(relay.Url, "proxy-user", "private-proxy-password") : null;
                 using var editor = new CollaborationClient(authority.Url, seed.room, catalog, CollaborationTransport.LongPolling); await editor.JoinAsync("Remote owner", ownerCredential: seed.ownerCredential);
                 Set(session, "endpoint", relay.Url); Set(session, "room", seed.room); Set(session, "transport", CollaborationArguments.Get("--collab-transport", "long-polling") == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.LongPolling); Set(session, "password", seed.password);
                 Invoke(session, "OpenPanel", 1);
+                if (proxyMode) {
+                    Get<Dropdown>(session, "uiNetworkRoute").value = 2; Get<Dropdown>(session, "uiProxyAuthentication").value = 1;
+                    Get<Dropdown>(session, "uiTransport").value = (int)CollaborationTransport.ShortPolling; Invoke(session, "RefreshUI");
+                    var proxyAddress = Get<InputField>(session, "uiProxyAddress");
+                    await CollaborationUIValidation.Click(proxyAddress.gameObject); proxyAddress.text = outbound.Url;
+                    Get<InputField>(session, "uiProxyUsername").text = "proxy-user"; Get<InputField>(session, "uiProxyPassword").text = "private-proxy-password";
+                    Require(Get<InputField>(session, "uiProxyPassword").contentType == InputField.ContentType.Password && Get<InputField>(session, "uiProxyUsername").contentType == InputField.ContentType.Password, "Proxy input is not private.");
+                    outbound.RejectAll = true; outbound.ReflectedError = WireJson.Text(new WireError { error = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("proxy-user:private-proxy-password")) });
+                    await Click(session, "Join Room"); await Until(() => !Get<bool>(session, "busy"));
+                    string report = WireJson.Text(Get<DiagnosticReport>(session, "lastDiagnostic"));
+                    Require(!CollaborationSession.IsShared && PartsManager.FindLoadedObjects().Count == 1 && manager.buildPath == originalSave && File.ReadAllBytes(originalSave).SequenceEqual(originalBytes) && !report.Contains("private-proxy") && !report.Contains(outbound.Url) && !report.Contains(outbound.ReflectedError), "407 reflected private data or changed the scene/file.");
+                    outbound.RejectAll = false; Get<InputField>(session, "uiPassword").text = seed.password;
+                    await Click(session, "Test Connection"); await Until(() => !Get<bool>(session, "busy"));
+                    Require(Get<Text>(session, "uiTestReport").text.Contains("passed") && outbound.Authenticated > 0, "Actual Unity connection-test control did not follow proxy policy.");
+                    Get<InputField>(session, "uiPassword").text = seed.password;
+                }
+                relay.Hold();
                 await Click(session, "Join Room"); await Until(() => relay.Partial.Task.IsCompleted);
                 Invoke(session, "RefreshUI");
                 Require(Get<Text>(session, "uiStatus").text.Contains("Downloading model") && Get<Text>(session, "uiStatus").text.Contains("MiB"), "UI did not report model count and actual transferred bytes.");
@@ -91,6 +109,21 @@ namespace ProtobotEditorTools {
                 Require(manager.buildPath == joinedSave && File.ReadAllBytes(joinedSave).SequenceEqual(joinedBytes), "Canceled reconnect changed a local file.");
                 relay.Release(); Invoke(session, "OpenPanel", -1); await Click(session, "Reconnect"); await Until(() => client.IsConnected && !Get<bool>(session, "busy"));
                 Require(client.Participant.id == identity && PartsManager.FindLoadedObjects().Count == 4 && !manager.CurrentBuildIsSaved && File.ReadAllBytes(originalSave).SequenceEqual(originalBytes), "Reconnect retry lost identity, latest content or independent saved bytes.");
+                if (proxyMode) {
+                    await Click(session, "Pause Network"); await Until(() => !Get<bool>(session, "busy") && !client.IsConnected);
+                    string routeHash = CollaborationSession.CommittedHash; byte[] cache = File.ReadAllBytes(CollaborationRecovery.SessionFile(relay.Url, seed.room, catalog.hash));
+                    outbound.RejectAll = true; Get<Dropdown>(session, "uiNetworkRoute").value = 1;
+                    await Click(session, "Reconnect"); await Until(() => !Get<bool>(session, "busy"));
+                    Require(client.IsConnected && client.NetworkRoute == "direct" && client.Participant.id == identity && CollaborationSession.CommittedHash == routeHash, "Direct-route UI reconnect lost membership/content or used the failed explicit proxy.");
+                    await Click(session, "Pause Network"); await Until(() => !Get<bool>(session, "busy") && !client.IsConnected);
+                    Get<Dropdown>(session, "uiNetworkRoute").value = 2;
+                    await Click(session, "Reconnect"); await Until(() => !Get<bool>(session, "busy"));
+                    Require(!client.IsConnected && client.Participant.id == identity && CollaborationSession.CommittedHash == routeHash && File.ReadAllBytes(CollaborationRecovery.SessionFile(relay.Url, seed.room, catalog.hash)).SequenceEqual(cache) && manager.buildPath == joinedSave && File.ReadAllBytes(joinedSave).SequenceEqual(joinedBytes), "Failed route change altered scene/file/membership.");
+                    outbound.RejectAll = false; await Click(session, "Reconnect"); await Until(() => !Get<bool>(session, "busy"));
+                    Require(client.IsConnected && client.NetworkRoute == "http-proxy" && client.Participant.id == identity, "Proxy-route retry lost identity.");
+                    // Owned helper control ignores this failed participant proxy.
+                    outbound.RejectAll = true;
+                }
                 Invoke(session, "Detach"); await Get<Task>(session, "hostShutdown");
                 int count = PartsManager.FindLoadedObjects().Count;
                 var hosting = (Task)Invoke(session, "HostAsync"); var canceledHost = Get<CollaborationHost>(session, "host"); Invoke(session, "CancelConnection"); await hosting;
@@ -102,6 +135,7 @@ namespace ProtobotEditorTools {
                 Require(!CollaborationSession.IsShared && !Get<bool>(session, "busy") && PartsManager.FindLoadedObjects().Count == count && File.Exists(Path.Combine(info.directory, "room.sqlite")), "Canceled Resume changed the scene or discarded durable room data.");
                 await (Task)Invoke(session, "RecoverHostAsync", info);
                 Require(CollaborationSession.IsShared && Get<CollaborationClient>(session, "client").Participant.role == "owner" && PartsManager.FindLoadedObjects().Count == 4 && manager.buildPath == "", "Resume retry failed to restore the accepted room with Save As.");
+                if (proxyMode) Require(Get<CollaborationClient>(session, "client").NetworkRoute == "direct", "Owned-helper loopback control inherited an outbound proxy.");
                 Invoke(session, "Detach"); await Get<Task>(session, "hostShutdown");
             }
             finally { await authority.StopAsync(); }

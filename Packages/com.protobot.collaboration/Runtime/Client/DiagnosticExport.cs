@@ -39,6 +39,7 @@ namespace Protobot.Collaboration {
         public int schema = 1;
         public string version = CollaborationProtocol.Version;
         public string source, transport, stage, code;
+        [System.Runtime.Serialization.OptionalField] public string networkRoute, proxyAuthentication;
         public bool connected, durable;
         public int pendingOperations;
         public int documentVersion = 2;
@@ -92,6 +93,8 @@ namespace Protobot.Collaboration {
             DocumentModel.Require(value != null && value.schema == Version && value.format == "protobot-diagnostics" && value.version == CollaborationProtocol.Version && value.documentVersion == 2, "invalid-diagnostics");
             return new DiagnosticReport { source = new[] { "unity", "client", "doctor", "room-owner", "server-admin" }.Contains(value.source) ? value.source : null,
                 transport = Transport(value.transport), stage = Stage(value.stage), code = SafeCode(value.code), connected = value.connected, durable = value.durable,
+                networkRoute = new[] { "system", "direct", "http-proxy" }.Contains(value.networkRoute) ? value.networkRoute : null,
+                proxyAuthentication = new[] { "none", "basic" }.Contains(value.proxyAuthentication) ? value.proxyAuthentication : null,
                 pendingOperations = Math.Max(0, Math.Min(256, value.pendingOperations)), elapsedMilliseconds = Math.Max(0, value.elapsedMilliseconds),
                 completedModels = Math.Max(0, Math.Min(256, value.completedModels)), totalModels = Math.Max(0, Math.Min(256, value.totalModels)),
                 transferAttempt = Math.Max(0, Math.Min(3, value.transferAttempt)), transferredBytes = Math.Max(0, value.transferredBytes),
@@ -106,13 +109,14 @@ namespace Protobot.Collaboration {
         public static DiagnosticReport Decode(byte[] bytes) {
             DocumentModel.Require(bytes != null && bytes.Length <= MaxBytes, "invalid-diagnostics"); return Sanitize(WireJson.Decode<DiagnosticReport>(bytes));
         }
-        public static async Task<DiagnosticReport> FetchAsync(string origin, string room, string credential, CancellationToken cancellation = default) {
+        public static async Task<DiagnosticReport> FetchAsync(string origin, string room, string credential, CancellationToken cancellation = default, NetworkPolicy networkPolicy = null) {
             string path = room == null ? "/admin/diagnostics" : "/rooms/" + Id(room) + "/diagnostics";
-            using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+            using var http = (networkPolicy ?? NetworkPolicy.SystemDefault).CreateHttpClient();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(TimeSpan.FromSeconds(10));
             using var request = new HttpRequestMessage(HttpMethod.Get, origin.TrimEnd('/') + path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            NetworkPolicy.CheckProxyResponse(response);
             using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
             using var bytes = new MemoryStream(); var buffer = new byte[4096]; int read;
             while ((read = await input.ReadAsync(buffer, 0, buffer.Length, timeout.Token).ConfigureAwait(false)) > 0) {

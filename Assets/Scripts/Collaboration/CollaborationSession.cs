@@ -88,6 +88,8 @@ namespace Protobot {
             endpoint = CollaborationArguments.Get("--collab-server", endpoint);
             room = CollaborationArguments.Get("--collab-room", room);
             var requestedTransport = CollaborationArguments.Get("--collab-transport", "auto");
+            networkRoute = CollaborationArguments.Get("--collab-network-route", "system") == "direct" ? 1 : 0;
+            invalidNetworkArgument = CollaborationArguments.Get("--collab-network-route", "system") != "system" && CollaborationArguments.Get("--collab-network-route") != "direct";
             transport = requestedTransport == "long-polling" ? CollaborationTransport.LongPolling : requestedTransport == "websocket" ? CollaborationTransport.WebSocket : requestedTransport == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.Auto;
             RefreshRecoveredRooms();
             InitializeUI();
@@ -243,7 +245,8 @@ namespace Protobot {
         private async Task ConnectAsync(string owner, bool hosting, ConnectionAttempt attempt) {
             attempt.Token.ThrowIfCancellationRequested();
             string recovery = owner != null && hostedRoom != null ? CollaborationRecovery.OwnerSession(hostedRoom) : CollaborationRecovery.SessionFile(endpoint, room, catalog.hash);
-            var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan, recovery);
+            var network = owner != null ? NetworkPolicy.Direct : await SelectedNetworkAsync(attempt.Token);
+            var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan, recovery, network);
             attempt.Candidate = candidate;
             try {
                 await candidate.JoinAsync(displayName, password, owner, owner == null && joinAsViewer, attempt.Token, attempt);
@@ -284,10 +287,10 @@ namespace Protobot {
             connected.Presence += update => { lock (queueGate) { latestPresence = update; presenceClient = connected; } };
             connected.Disconnected += reason => Enqueue(() => {
                 if (client != connected) return;
-                CancelTools(); CancelPose(); ClearGhosts(); status = reason;
+                CancelTools(); CancelPose(); ClearGhosts(); status = WireFailure.Code(new CollaborationException(reason));
                 CollaborationScene.ApplyParts(committed.parts);
             });
-            connected.PendingResolved += message => Enqueue(() => status = message);
+            connected.PendingResolved += message => Enqueue(() => status = "Pending edit outcome checked. Reconnect to synchronize the accepted build.");
         }
 
         private bool Enqueue(Action action, int bytes = 0) {
@@ -651,6 +654,7 @@ namespace Protobot {
             try {
                 await client.PrepareReconnectAsync();
                 attempt.Token.ThrowIfCancellationRequested();
+                await client.SetNetworkPolicyAsync(host != null ? NetworkPolicy.Direct : await SelectedNetworkAsync(attempt.Token), attempt.Token);
                 if (host != null && !host.IsRunning) await host.RestartAsync(attempt.Token);
                 await client.JoinAsync(displayName, cancellation: attempt.Token, progress: attempt);
                 attempt.Token.ThrowIfCancellationRequested();
@@ -746,8 +750,8 @@ namespace Protobot {
             "room-request-limit" or "room-event-limit" or "server-request-limit" or "server-event-limit" => "The room or server has reached its connection limit. Close extra sessions and retry.",
             "asset-transfer-busy" => "Another model is transferring. Retry when it finishes.",
             "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
-            _ => error.Message
-        } : error.Message; InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
+            _ => FriendlyStatus(WireFailure.Code(error))
+        } : FriendlyStatus(WireFailure.Code(error)); InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
         private void OnQuitting() { closing = true; CancelDiagnosticExport(); CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
         private void OnDestroy() { OnQuitting(); Application.quitting -= OnQuitting; ClearGhosts(); DisposeUI(); if (instance == this) instance = null; }
     }

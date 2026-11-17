@@ -34,6 +34,7 @@ namespace Protobot.Collaboration {
         }
         public DiagnosticReport CaptureDiagnostics() {
             lock (gate) return DiagnosticExport.Sanitize(new DiagnosticReport { source = "client", connected = IsConnected, durable = IsDurable,
+                networkRoute = network.Route, proxyAuthentication = network.Authentication,
                 pendingOperations = pending.Count, transport = ActiveTransport ?? (Transport == CollaborationTransport.Auto ? "auto" : Transport == CollaborationTransport.WebSocket ? "websocket" : Transport == CollaborationTransport.ShortPolling ? "short-polling" : "long-polling"),
                 stage = diagnosticStage, code = diagnosticCode, elapsedMilliseconds = diagnosticClock.ElapsedMilliseconds,
                 completedModels = diagnosticTransfer?.CompletedItems ?? 0, totalModels = diagnosticTransfer?.TotalItems ?? 0, transferAttempt = diagnosticTransfer?.Attempt ?? 0,
@@ -46,7 +47,7 @@ namespace Protobot.Collaboration {
                 DocumentModel.Require(SupportsDiagnostics, "diagnostics-unavailable"); credential = token;
             }
             // Independent of edit/pump lifetime: failure/cancellation never freezes a session.
-            return DiagnosticExport.FetchAsync(endpoint.GetLeftPart(UriPartial.Authority), room, credential, cancellation);
+            return DiagnosticExport.FetchAsync(endpoint.GetLeftPart(UriPartial.Authority), room, credential, cancellation, network);
         }
     }
 }

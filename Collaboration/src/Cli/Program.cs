@@ -35,6 +35,7 @@ internal static partial class Program {
                     "protobot-collab remove-participant --url <origin> --owner-file <protected-owner.json> --participant <stable-id> [--allow-lan-http]\n" +
                     "protobot-collab diagnostics --url <origin> (--owner-file <private-owner.json> | --admin-file <private-admin.json>) [--output <new-report.json>]\n" +
                     "protobot-collab doctor --url <https-origin> [--catalog <catalog.json>] [--room <id>] [--password-prompt | --password-file <file>] [--transport all|auto|websocket|requests|short-polling] [--quick] [--output <report.json>]\n" +
+                    "Remote commands: [--network-route system|direct | --network-file <private-protobot-network-v1.json>]. Proxy passwords are file input only.\n" +
                     "Development alpha: bounded rooms; server recovery and participant Save are independent. Debian deployment: Collaboration/deploy/README.md"); return 0;
             }
             if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir" }, Array.Empty<string>()));
@@ -43,15 +44,15 @@ internal static partial class Program {
                 DocumentModel.Require(operation == "create" || operation == "list" || operation == "restore", "unknown-room-operation");
                 var roomArgs = new string[args.Length - 1]; roomArgs[0] = "room"; Array.Copy(args, 2, roomArgs, 1, args.Length - 2);
                 return await Hosting(operation, new Options(roomArgs,
-                    operation == "list" ? new[] { "--url", "--admin-file" } : operation == "restore" ? new[] { "--config", "--admin-file", "--input" } :
-                        new[] { "--url", "--admin-file", "--room", "--catalog", "--snapshot", "--password-file", "--owner-output" },
+                    operation == "list" ? new[] { "--url", "--admin-file", "--network-route", "--network-file" } : operation == "restore" ? new[] { "--config", "--admin-file", "--input" } :
+                        new[] { "--url", "--admin-file", "--room", "--catalog", "--snapshot", "--password-file", "--owner-output", "--network-route", "--network-file" },
                     operation == "restore" ? Array.Empty<string>() : operation == "list" ? new[] { "--allow-lan-http" } : new[] { "--password-prompt", "--allow-lan-http" }));
             }
             if (args[0] == "init") return Initialize(new Options(args, new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
-            if (args[0] == "diagnostics") return await Diagnostics(new Options(args, new[] { "--url", "--owner-file", "--admin-file", "--output" }, new[] { "--allow-lan-http" }));
-            if (args[0] == "doctor") return await Doctor(new Options(args, new[] { "--url", "--catalog", "--room", "--password-file", "--transport", "--output" }, new[] { "--password-prompt", "--quick", "--allow-lan-http" }));
+            if (args[0] == "diagnostics") return await Diagnostics(new Options(args, new[] { "--url", "--owner-file", "--admin-file", "--output", "--network-route", "--network-file" }, new[] { "--allow-lan-http" }));
+            if (args[0] == "doctor") return await Doctor(new Options(args, new[] { "--url", "--catalog", "--room", "--password-file", "--transport", "--output", "--network-route", "--network-file" }, new[] { "--password-prompt", "--quick", "--allow-lan-http" }));
             if (args[0] == "participants" || args[0] == "remove-participant") return await Administer(args[0],
-                new Options(args, args[0] == "participants" ? new[] { "--url", "--owner-file" } : new[] { "--url", "--owner-file", "--participant" }, new[] { "--allow-lan-http" }));
+                new Options(args, args[0] == "participants" ? new[] { "--url", "--owner-file", "--network-route", "--network-file" } : new[] { "--url", "--owner-file", "--participant", "--network-route", "--network-file" }, new[] { "--allow-lan-http" }));
             if (args[0] == "backup") {
                 var backup = new Options(args, new[] { "--data-dir", "--output" }, Array.Empty<string>());
                 RoomBackup.Backup(backup.Required("--data-dir"), backup.Required("--output"));
@@ -94,7 +95,7 @@ internal static partial class Program {
         catch (OperationCanceledException) { return 0; }
         catch (Exception error) {
             // Never print a bootstrap payload, URL credentials or request body.
-            Console.Error.WriteLine(error is CollaborationException known ? known.Code : error.GetType().Name + ": server startup or configuration failed."); return 1;
+            Console.Error.WriteLine(NetworkPolicy.FailureCode(error) ?? (error is CollaborationException known ? known.Code : error.GetType().Name + ": server startup or configuration failed.")); return 1;
         }
     }
 }

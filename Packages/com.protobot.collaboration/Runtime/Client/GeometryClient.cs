@@ -98,6 +98,7 @@ namespace Protobot.Collaboration {
                     if (content != null) request.Headers.ExpectContinue = true;
                     if (content != null) { request.Content = new ByteArrayContent(content); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
                     using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+                    NetworkPolicy.CheckProxyResponse(response);
                     DocumentModel.Require(!response.Content.Headers.ContentLength.HasValue || response.Content.Headers.ContentLength <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
                     if (response.IsSuccessStatusCode) progress?.Invoke(0, response.Content.Headers.ContentLength, attempt + 1);
                     using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
@@ -115,7 +116,7 @@ namespace Protobot.Collaboration {
                             await Get<WireError>("receipt?operationId=assetAuthorization", timeout.Token).ConfigureAwait(false);
                             throw new CollaborationException("asset-http-" + (int)response.StatusCode);
                         }
-                        string reason; try { reason = WireJson.Decode<WireError>(bytes)?.error; } catch { reason = null; }
+                        string reason; try { reason = WireFailure.Code(WireJson.Decode<WireError>(bytes)?.error); } catch { reason = null; }
                         if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
                         if ((reason == "asset-transfer-busy" || reason == "server-transfer-busy") && attempt < 30) { await Task.Delay(250, timeout.Token).ConfigureAwait(false); continue; }
                         throw new CollaborationException(reason ?? "asset-http-" + (int)response.StatusCode);

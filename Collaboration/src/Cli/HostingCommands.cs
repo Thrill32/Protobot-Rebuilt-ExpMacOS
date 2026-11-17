@@ -32,7 +32,8 @@ internal static partial class Program {
             Console.WriteLine(WireJson.Text(registry.Restore(options.Required("--input")))); return 0;
         }
         string origin = ConnectionDoctor.Origin(options.Required("--url"), options.Has("--allow-lan-http"));
-        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(2) };
+        using var stop = CommandCancellation(); var network = await Network(options, stop.Token);
+        using var http = network.CreateHttpClient();
         Bootstrap seed = null;
         if (operation == "create") {
             DocumentModel.Require(options.Has("--catalog") != options.Has("--snapshot"), "use-catalog-or-snapshot");
@@ -53,8 +54,9 @@ internal static partial class Program {
         using var request = new HttpRequestMessage(seed == null ? HttpMethod.Get : HttpMethod.Post, origin + "/admin/rooms");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", admin.credential);
         if (seed != null) { request.Content = new ByteArrayContent(LocalJson.Encode(seed)); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); request.Headers.ExpectContinue = true; }
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token); timeout.CancelAfter(TimeSpan.FromMinutes(2));
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        NetworkPolicy.CheckProxyResponse(response);
         using var stream = await response.Content.ReadAsStreamAsync(); using var bytes = new MemoryStream();
         var buffer = new byte[8192]; int read;
         while ((read = await stream.ReadAsync(buffer, timeout.Token)) > 0) { DocumentModel.Require(bytes.Length + read <= 65536, "invalid-hosting-response"); bytes.Write(buffer, 0, read); }

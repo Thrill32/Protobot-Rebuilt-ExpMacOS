@@ -7,6 +7,7 @@ dotnet publish src/Cli/Cli.csproj -c Release -r "$rid" --self-contained true -p:
 cp ../Assets/Resources/Collaboration/catalog.json "artifacts/$rid/catalog.json"
 cp ../LICENSE "artifacts/$rid/LICENSE-Protobot.txt"
 cp THIRD-PARTY-NOTICES.md "artifacts/$rid/"
+cp NETWORK.md "artifacts/$rid/"
 cp licenses/*.txt "artifacts/$rid/"
 mkdir -p "artifacts/$rid/deploy"
 cp deploy/* "artifacts/$rid/deploy/"

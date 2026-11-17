@@ -80,8 +80,9 @@ internal static partial class Program {
             selection == "auto" ? CollaborationTransport.Auto : selection == "websocket" ? CollaborationTransport.WebSocket : selection == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.LongPolling };
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+        var network = await Network(options, stop.Token);
         var report = await ConnectionDoctor.RunAsync(url, catalog, options.Get("--room"), Password(options), transports, options.Has("--allow-lan-http"), !options.Has("--quick"),
-            progress: step => Console.Error.WriteLine(step), cancellation: stop.Token);
+            progress: step => Console.Error.WriteLine(step), cancellation: stop.Token, networkPolicy: network);
         if (options.Has("--output")) RecoveryFiles.Write(options.Get("--output"), report);
         Console.WriteLine(WireJson.Text(report));
         return report.passed ? 0 : 2;
@@ -117,13 +118,15 @@ internal static partial class Program {
     private static async Task<int> Administer(string operation, Options options) {
         string origin = ConnectionDoctor.Origin(options.Required("--url"), options.Has("--allow-lan-http"));
         var owner = ReadOwnerFile(options.Required("--owner-file"));
-        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
+        using var stop = CommandCancellation(); var network = await Network(options, stop.Token);
+        using var http = network.CreateHttpClient();
         async Task<T> Request<T>(HttpMethod method, string path, byte[] body = null, bool authenticate = true) {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token); timeout.CancelAfter(TimeSpan.FromSeconds(30));
             using var request = new HttpRequestMessage(method, origin + path);
             if (authenticate) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.credential);
             if (body != null) { request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            NetworkPolicy.CheckProxyResponse(response);
             using var input = await response.Content.ReadAsStreamAsync(); using var output = new MemoryStream();
             var buffer = new byte[8192]; int count;
             while ((count = await input.ReadAsync(buffer, timeout.Token)) > 0) { DocumentModel.Require(output.Length + count <= WireJson.MaxMessageBytes, "message-too-large"); output.Write(buffer, 0, count); }

@@ -117,6 +117,7 @@ namespace Protobot {
             UIButton(uiRecovery.transform, "Refresh Rooms", "Refresh recovered rooms", () => { RefreshRecoveredRooms(); recoverySignature = null; });
 
             uiConnected = UIColumn(uiContent, "Session Page").gameObject;
+            InitializeNetworkUI(uiContent);
             uiConnection = UIText(uiConnected.transform, "Connection", "", 18);
             uiReachability = UIText(uiConnected.transform, "Reachability", "", 13);
             var invite = UIRow(uiConnected.transform, "Invites");
@@ -230,6 +231,7 @@ namespace Protobot {
             if (!uiModal.activeSelf) return;
             uiTabs.SetActive(!IsShared); uiFormGroup.gameObject.SetActive(!IsShared); uiConnected.SetActive(IsShared);
             uiFormGroup.interactable = !busy; uiFormGroup.blocksRaycasts = !busy;
+            RefreshNetworkUI();
             uiUtilityGroup.interactable = !busy;
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
@@ -340,6 +342,12 @@ namespace Protobot {
         }
 
         private static string FriendlyStatus(string value) => value switch {
+            "proxy-authentication-required" => "The proxy requires supported credentials. Check its Basic username/password with your network operator and reconnect. Integrated authentication is available only through tested system defaults.",
+            "proxy-config-version" or "proxy-route-unsupported" or "proxy-auth-unsupported" or "proxy-auth-route-mismatch" => "Choose System, Direct, or an HTTP proxy with None or Basic authentication. Other explicit proxy mechanisms are unsupported.",
+            "proxy-address-invalid" => "Enter an HTTP proxy address such as http://host:port, without credentials, paths or query text.",
+            "proxy-credentials-invalid" => "Basic proxy input needs a username without a colon and a password, each 1–256 printable ASCII characters.",
+            "tls-trust-or-name-failed" => "The server certificate or name could not be trusted. Ask your network operator to check platform trust and the server address.",
+            "http-connection-failed" or "connection-refused" or "network-unreachable" or "dns-failed" or "request-timeout" => "The selected network route could not reach the server. Check the route with your network operator and reconnect; accepted content and saved membership are kept.",
             "wrong-password" => "The room password was not accepted. Check it with the host and try again.",
             "catalog-or-room-mismatch" => "Room ID or catalog differs. Check the room ID and use the same build as the host.",
             "server-version-mismatch" => "The server uses a different collaboration version. Use matching builds and helpers.",

@@ -35,14 +35,20 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public string RejectedAdministrationError;
     public string RejectedDiagnosticsError;
     public bool RejectHeldEvents, HideShortPollingCapability;
+    public string ReportedGeneration { get; set; }
     public readonly ConcurrentQueue<long> ShortPollTimes = new ConcurrentQueue<long>();
     public int JoinRequests;
+    public bool OriginProxyAuthorizationObserved, OriginBasicAuthorizationObserved;
+    public bool OriginBasicChallenge { get; set; }
     public TaskCompletionSource<bool> PauseShortPoll;
     public TaskCompletionSource<bool> ShortPollPaused = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public LoopbackProxy(string upstream) {
         var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
         app = builder.Build();
         app.Run(async context => {
+            OriginProxyAuthorizationObserved |= context.Request.Headers.ContainsKey("Proxy-Authorization");
+            OriginBasicAuthorizationObserved |= context.Request.Headers.Authorization.ToString().StartsWith("Basic ", StringComparison.OrdinalIgnoreCase);
+            if (OriginBasicChallenge) { context.Response.StatusCode = 401; context.Response.Headers.WWWAuthenticate = "Basic realm=\"origin\""; return; }
             bool events = context.Request.Path.Value.EndsWith("/events", StringComparison.Ordinal);
             if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal)) Interlocked.Increment(ref JoinRequests);
             if (events && RejectHeldEvents && context.Request.Query["wait"] != "0") { context.Response.StatusCode = 403; return; }
@@ -68,8 +74,10 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
             if ((context.Request.Method == "POST" || context.Request.Method == "PUT")) request.Content = new StreamContent(context.Request.Body);
             try {
                 using var response = await forward.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
-                if (HideShortPollingCapability && context.Request.Path.Value.EndsWith("/capabilities", StringComparison.Ordinal)) {
-                    var capability = WireJson.Decode<Capabilities>(await response.Content.ReadAsByteArrayAsync()); capability.shortPollingVersion = 0;
+                if ((HideShortPollingCapability || ReportedGeneration != null) && context.Request.Path.Value.EndsWith("/capabilities", StringComparison.Ordinal)) {
+                    var capability = WireJson.Decode<Capabilities>(await response.Content.ReadAsByteArrayAsync());
+                    if (HideShortPollingCapability) capability.shortPollingVersion = 0;
+                    if (ReportedGeneration != null) capability.generation = ReportedGeneration;
                     context.Response.StatusCode = (int)response.StatusCode; await context.Response.WriteAsync(WireJson.Text(capability)); return;
                 }
                 if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal) && ContinueJoinReply != null) {

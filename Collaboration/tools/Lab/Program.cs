@@ -22,6 +22,20 @@ internal static partial class Program {
         if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : args[index + 1] == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
+            if (args.Contains("--players-only")) {
+                index = Array.IndexOf(args, "--player"); DocumentModel.Require(index >= 0 && index + 1 < args.Length, "player-required");
+                await PlayerChecks(args[index + 1], directory);
+                string shortDirectory = Path.Combine(directory, "short-polling players"); Directory.CreateDirectory(shortDirectory);
+                await PlayerChecks(args[index + 1], shortDirectory, "short-polling");
+                Console.WriteLine("Players passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
+            if (args.Contains("--make-test-certificate")) {
+                using var tls = new UntrustedTlsFixture(); tls.Export(args[Array.IndexOf(args, "--make-test-certificate") + 1]); return 0;
+            }
+            if (args.Contains("--proxy-only")) {
+                await ProxyChecks(directory);
+                Console.WriteLine("Proxy passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--multi-room-only")) {
                 await MultiRoomChecks(directory);
                 Console.WriteLine("Multi-room passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -45,6 +59,7 @@ internal static partial class Program {
             await ConnectionChecks(directory);
             await DiagnosticChecks(directory);
             await ShortPollingChecks(directory);
+            await ProxyChecks(directory);
             index = Array.IndexOf(args, "--current-helper");
             if (index >= 0) await CurrentDiagnosticCompatibility(directory, args[index + 1]);
             index = Array.IndexOf(args, "--legacy-helper");

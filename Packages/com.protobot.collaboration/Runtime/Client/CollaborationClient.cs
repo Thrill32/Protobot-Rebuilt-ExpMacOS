@@ -18,7 +18,9 @@ namespace Protobot.Collaboration {
             public long sequence;
             public string[] pendingIds = Array.Empty<string>();
         }
-        private readonly HttpClient http;
+        private HttpClient http;
+        private NetworkPolicy network;
+        public string NetworkRoute => network.Route;
         private readonly Uri endpoint;
         private readonly string room;
         private readonly CatalogManifest catalog;
@@ -26,6 +28,7 @@ namespace Protobot.Collaboration {
         private Document document;
         private string token;
         private string resumeToken;
+        private string membershipGeneration;
         private readonly string recoveryPath;
         private FileStream recoveryOwnership;
         private bool loadedRecovery, disposed;
@@ -53,15 +56,14 @@ namespace Protobot.Collaboration {
         public Document Snapshot { get { lock (gate) return document == null ? null : GeometryTransfer.CloneDocument(document); } }
         public int PendingCount { get { lock (gate) return pending.Count; } }
 
-        public CollaborationClient(string url, string roomId, CatalogManifest manifest, CollaborationTransport transport = CollaborationTransport.Auto, bool allowInsecureLan = false, string recoveryFile = null) {
+        public CollaborationClient(string url, string roomId, CatalogManifest manifest, CollaborationTransport transport = CollaborationTransport.Auto, bool allowInsecureLan = false, string recoveryFile = null, NetworkPolicy networkPolicy = null) {
             endpoint = new Uri(url.TrimEnd('/') + "/");
             DocumentModel.Require(string.IsNullOrEmpty(endpoint.UserInfo) && string.IsNullOrEmpty(endpoint.Query) && string.IsNullOrEmpty(endpoint.Fragment) &&
                 endpoint.AbsolutePath == "/" && DocumentModel.ValidId(roomId), "invalid-endpoint");
             DocumentModel.Require(endpoint.Scheme == "https" || endpoint.Scheme == "http" && (endpoint.IsLoopback || allowInsecureLan), "https-required-use-explicit-lan-http");
             room = roomId; catalog = WireJson.Clone(manifest); Transport = transport;
             recoveryPath = recoveryFile == null ? null : Path.GetFullPath(recoveryFile);
-            // Default OS trust/proxy behavior is intentional. No certificate bypass callbacks.
-            http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+            network = networkPolicy ?? NetworkPolicy.SystemDefault; http = network.CreateHttpClient();
         }
 
         public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false,
@@ -85,6 +87,7 @@ namespace Protobot.Collaboration {
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
+                lock (gate) DocumentModel.Require(membershipGeneration == null || membershipGeneration == capabilities.generation, "saved-room-does-not-match");
                 LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
                 Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.Authenticating), progress); Check();
                 // Admission can create durable membership. Once sent, settle its
@@ -99,7 +102,7 @@ namespace Protobot.Collaboration {
                     joined.room == room && joined.document.generation == capabilities.generation, "invalid-join-response");
                 lock (gate) {
                     DocumentModel.Require(!disposed && ConnectionEpoch == epoch, "client-closed");
-                    token = joined.token; resumeToken = joined.resumeToken; Participant = joined.participant;
+                    token = joined.token; resumeToken = joined.resumeToken; membershipGeneration = joined.document.generation; Participant = joined.participant;
                     sequence = Math.Max(sequence, joined.sequence); SaveRecovery(joined.document.generation);
                 }
                 Check();
@@ -112,7 +115,7 @@ namespace Protobot.Collaboration {
                     string operation = unresolved[i];
                     var receipt = await Get<Receipt>("receipt?operationId=" + Uri.EscapeDataString(operation), cancellation).ConfigureAwait(false);
                     lock (gate) { pending.Remove(operation); SaveRecovery(joined.document.generation); }
-                    string message = receipt.accepted ? "Recovered accepted edit at revision " + receipt.revision : receipt.error ?? "Edit was not accepted; retry explicitly.";
+                    string message = receipt.accepted ? "Recovered accepted edit at revision " + receipt.revision : WireFailure.Code(receipt.error) ?? "Edit was not accepted; retry explicitly.";
                     recovery.Add(message); PendingResolved?.Invoke(message);
                 }
                 Check();
@@ -145,7 +148,7 @@ namespace Protobot.Collaboration {
                         DocumentModel.Require(!string.IsNullOrEmpty(saved.resumeToken) && saved.resumeToken.Length < 256 && saved.sequence >= 0 &&
                             saved.pendingIds != null && saved.pendingIds.Length <= 256 && saved.pendingIds.All(DocumentModel.ValidId) &&
                             saved.pendingIds.Distinct().Count() == saved.pendingIds.Length, "invalid-session-recovery-file");
-                        resumeToken = saved.resumeToken; sequence = saved.sequence;
+                        resumeToken = saved.resumeToken; membershipGeneration = saved.generation; sequence = saved.sequence;
                         foreach (var id in saved.pendingIds) pending[id] = new Transaction { operationId = id };
                     }
                     loadedRecovery = true;
@@ -229,12 +232,28 @@ namespace Protobot.Collaboration {
             finally {
                 token = null; await StopPump().ConfigureAwait(false);
                 if (left) lock (gate) {
-                    resumeToken = null; pending.Clear(); sequence = 0;
+                    resumeToken = membershipGeneration = null; pending.Clear(); sequence = 0;
                     if (recoveryPath != null && File.Exists(recoveryPath)) File.Delete(recoveryPath);
                 }
             }
         }
         public async Task PrepareReconnectAsync() => await StopPump().ConfigureAwait(false);
+
+        // Route is deliberately absent from the membership scope. Keep this client,
+        // accepted document, pending IDs and credentials; only an explicit Join resolves them.
+        public async Task SetNetworkPolicyAsync(NetworkPolicy policy, CancellationToken cancellation = default) {
+            DocumentModel.Require(policy != null, "proxy-route-unsupported");
+            DocumentModel.Require(Interlocked.CompareExchange(ref joining, 1, 0) == 0, "already-connecting");
+            try {
+                await StopPump().ConfigureAwait(false); cancellation.ThrowIfCancellationRequested();
+                var replacement = await Task.Run(() => policy.CreateHttpClient(), cancellation).ConfigureAwait(false);
+                lock (gate) {
+                    if (disposed || cancellation.IsCancellationRequested) { replacement.Dispose(); cancellation.ThrowIfCancellationRequested(); throw new CollaborationException("client-closed"); }
+                    Interlocked.Increment(ref connectionEpoch); var previous = http; http = replacement; network = policy; previous.Dispose();
+                }
+            }
+            finally { Interlocked.Exchange(ref joining, 0); }
+        }
 
         public Task<MembershipList> MembershipsAsync(CancellationToken cancellation = default) {
             DocumentModel.Require(SupportsParticipantAdministration, "participant-administration-unavailable");
@@ -255,17 +274,16 @@ namespace Protobot.Collaboration {
         private async Task Pump(CancellationToken cancellation) {
             try {
                 if (Transport == CollaborationTransport.Auto || Transport == CollaborationTransport.WebSocket) {
-                    using (var socket = new ClientWebSocket()) {
-                        socket.Options.SetRequestHeader("Authorization", "Bearer " + token);
-                        var uri = new UriBuilder(EventUri()) { Scheme = endpoint.Scheme == "https" ? "wss" : "ws" };
+                    WebSocket socket = null;
+                    try {
                         bool connected = false;
                         try {
                             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation)) {
-                                timeout.CancelAfter(5000); await socket.ConnectAsync(uri.Uri, timeout.Token).ConfigureAwait(false); connected = true;
+                                timeout.CancelAfter(5000); socket = await OpenEventSocketAsync(timeout.Token).ConfigureAwait(false); connected = true;
                             }
                         }
                         catch (Exception error) when (Transport == CollaborationTransport.Auto && !cancellation.IsCancellationRequested &&
-                            (error is WebSocketException || error is HttpRequestException || error is OperationCanceledException || error is PlatformNotSupportedException)) { }
+                            (error is WebSocketException || error is HttpRequestException || error is OperationCanceledException || error is PlatformNotSupportedException || error is CollaborationException known && known.Code == "websocket-unavailable")) { }
                         if (connected) {
                             ActiveTransport = "websocket";
                             var bytes = new byte[8192];
@@ -288,11 +306,12 @@ namespace Protobot.Collaboration {
                             return;
                         }
                     }
+                    finally { socket?.Dispose(); }
                 }
                 await PumpRequestsAsync(cancellation).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-            catch (Exception error) { Freeze(error is CollaborationException known ? known.Code : "Connection lost. Reconnect to synchronize."); }
+            catch (Exception error) { Freeze(WireFailure.Code(error)); }
         }
 
         private async Task ApplyAsync(EventBatch batch, CancellationToken cancellation) {
@@ -335,6 +354,7 @@ namespace Protobot.Collaboration {
                 if (token != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 if (content != null) { request.Content = new ByteArrayContent(content); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
                 using (var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestCancellation).ConfigureAwait(false)) {
+                    NetworkPolicy.CheckProxyResponse(response);
                     using (var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
                     using (var output = new MemoryStream()) {
                         var buffer = new byte[8192]; int read;
@@ -344,11 +364,13 @@ namespace Protobot.Collaboration {
                         var bytes = output.ToArray();
                         if (!response.IsSuccessStatusCode) {
                             string reason;
-                            try { reason = WireJson.Decode<WireError>(bytes)?.error; } catch { reason = null; }
+                            try { reason = WireFailure.Code(WireJson.Decode<WireError>(bytes)?.error); } catch { reason = null; }
                             if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
                             throw new CollaborationException(reason ?? "http-" + (int)response.StatusCode);
                         }
-                        return WireJson.Decode<T>(bytes);
+                        var value = WireJson.Decode<T>(bytes);
+                        if (value is Receipt receipt) receipt.error = WireFailure.Code(receipt.error);
+                        return value;
                     }
                 }
             }

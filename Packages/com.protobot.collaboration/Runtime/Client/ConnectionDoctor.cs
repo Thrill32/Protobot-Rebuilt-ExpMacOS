@@ -42,7 +42,8 @@ namespace Protobot.Collaboration {
         // Supplying a catalog opts into authenticated, read-only room probes.
         // Every probe uses the actual shared client and revokes its test membership.
         public static async Task<ConnectionReport> RunAsync(string origin, CatalogManifest catalog = null, string room = null, string password = "",
-            CollaborationTransport[] transports = null, bool allowInsecureLan = false, bool checkIdle = true, Action<string> progress = null, CancellationToken cancellation = default) {
+            CollaborationTransport[] transports = null, bool allowInsecureLan = false, bool checkIdle = true, Action<string> progress = null, CancellationToken cancellation = default, NetworkPolicy networkPolicy = null) {
+            networkPolicy = networkPolicy ?? NetworkPolicy.SystemDefault;
             origin = Origin(origin, allowInsecureLan);
             DocumentModel.Require(transports == null || transports.Length > 0 && transports.Length <= 4 && transports.Distinct().Count() == transports.Length &&
                 transports.All(t => Enum.IsDefined(typeof(CollaborationTransport), t)), "invalid-transport");
@@ -55,7 +56,7 @@ namespace Protobot.Collaboration {
             }
             DocumentModel.Require(room == null || DocumentModel.ValidId(room), "invalid-room");
             Capabilities caps = null; string healthPath = "/health";
-            using (var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) }) {
+            using (var http = networkPolicy.CreateHttpClient()) {
                 if (await Check("capabilities", async () => {
                     caps = await Get<Capabilities>(http, origin + "/capabilities", cancellation).ConfigureAwait(false);
                     DocumentModel.Require(caps != null && caps.protocol == 1 && caps.version == CollaborationProtocol.Version, "server-version-mismatch");
@@ -83,7 +84,7 @@ namespace Protobot.Collaboration {
                             new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling, CollaborationTransport.ShortPolling } :
                             new[] { CollaborationTransport.WebSocket, CollaborationTransport.LongPolling })) {
                             string label = transport == CollaborationTransport.WebSocket ? "websocket" : transport == CollaborationTransport.LongPolling ? "requests" : transport == CollaborationTransport.ShortPolling ? "short-polling" : "auto";
-                            using (var client = new CollaborationClient(origin, caps.room, catalog, transport, allowInsecureLan)) {
+                            using (var client = new CollaborationClient(origin, caps.room, catalog, transport, allowInsecureLan, networkPolicy: networkPolicy)) {
                                 int frames = 0;
                                 var first = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                                 var idle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -130,6 +131,7 @@ namespace Protobot.Collaboration {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             timeout.CancelAfter(TimeSpan.FromSeconds(12)); cancellation = timeout.Token;
             using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false)) {
+                NetworkPolicy.CheckProxyResponse(response);
                 using (var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
                 using (var output = new MemoryStream()) {
                     var buffer = new byte[4096]; int count;
@@ -145,7 +147,9 @@ namespace Protobot.Collaboration {
             }
         }
         public static string Code(Exception error) {
+            string proxyCode = NetworkPolicy.FailureCode(error); if (proxyCode != null) return proxyCode;
             if (error is CollaborationException known) {
+                if (NetworkPolicy.IsCode(known.Code)) return known.Code;
                 if (known.Code != null && known.Code.StartsWith("Connection ", StringComparison.Ordinal)) return "event-stream-disconnected";
                 if (known.Code != null && (KnownCodes.Contains(known.Code) || known.Code.Length == 8 && known.Code.StartsWith("http-", StringComparison.Ordinal) && known.Code.Substring(5).All(c => c >= '0' && c <= '9'))) return known.Code;
                 // A proxy/server error body is untrusted and can echo submitted

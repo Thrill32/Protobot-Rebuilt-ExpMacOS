@@ -4,6 +4,8 @@ This documents single-room and bounded multi-room deployment for connecting from
 
 Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux-arm64` for `aarch64`/`arm64` systems such as a 64-bit Raspberry Pi 4. These self-contained .NET 10 publishes include the managed runtime, but still require the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. A 32-bit `armv7l` operating system is not supported by the supplied artifacts.
 
+Remote operators behind an outbound proxy can configure Unity or `doctor`, diagnostics and protected CLI operations using the [outbound network guide](../NETWORK.md). This is per-client System/Direct/HTTP-proxy routing with separate private Basic input; it does not change the inbound listener, Caddy, systemd, OS proxy or certificate trust. Keep proxy files separate from room/owner/admin credentials. Test trusted HTTPS and all chosen transports from the actual operator/participant network; local proxy fixtures do not establish school/public-network acceptance.
+
 ## Prepare the matching release
 
 On the development computer, publish with the pinned SDK:
