@@ -159,6 +159,9 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;
         [System.Runtime.Serialization.OptionalField] public int shortPollingVersion;
+        [System.Runtime.Serialization.OptionalField] public int roomCreationVersion;
+        [System.Runtime.Serialization.OptionalField] public string roomCreationPolicy;
+        [System.Runtime.Serialization.OptionalField] public string serverId;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {

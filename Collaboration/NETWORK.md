@@ -1,5 +1,7 @@
 # Outbound proxy configuration
 
+Shared-server Create Room, retained owner Check/Join and server-admin inspection use the same selected per-operation route and normal TLS trust as Join. Creator/admin input stays separate from proxy Basic credentials. Mutation sends remain single-send; proxy authentication may challenge before forwarding to the origin. See [room-management controls and recovery](ROOM_MANAGEMENT.md).
+
 Inbound standalone direct HTTPS is configured separately with a private [protobot-tls schema-1 file](TLS.md). Outbound route/proxy input never contains server certificate material, and participant Join/test/Cancel/Reconnect retains platform trust/name validation for either direct HTTPS or Caddy.
 
 This is local client configuration, independent of room passwords, participant credentials and owner/admin capabilities. Wire stays **0.9.0-alpha**, room/SQLite/archive formats **v2**, and server configuration/registry/admin **v1**. No server capability or storage migration is required.

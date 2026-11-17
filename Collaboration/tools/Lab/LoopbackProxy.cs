@@ -22,6 +22,8 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public string Url { get; private set; }
     public bool ForwardWebSockets;
     public bool DropNextCreationResponse;
+    public TaskCompletionSource<bool> ContinueCreationReply;
+    public readonly TaskCompletionSource<bool> CreationReplyStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool DropNextJoinResponse;
     public string FaultPathSuffix, FaultCode, FaultHint, FaultBody;
     public int FaultRemaining, FaultDelayMilliseconds, FaultRequests, CommitRequests;
@@ -114,7 +116,11 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
                     if (ReportedGeneration != null) capability.generation = ReportedGeneration;
                     context.Response.StatusCode = (int)response.StatusCode; await context.Response.WriteAsync(WireJson.Text(capability)); return;
                 }
-                if (requestPath == "/admin/rooms" && context.Request.Method == "POST" && DropNextCreationResponse) { DropNextCreationResponse = false; context.Abort(); return; }
+                if ((requestPath == "/admin/rooms" || requestPath == "/rooms") && context.Request.Method == "POST") {
+                    CreationReplyStarted.TrySetResult(true);
+                    if (ContinueCreationReply != null) await ContinueCreationReply.Task.WaitAsync(context.RequestAborted);
+                    if (DropNextCreationResponse) { DropNextCreationResponse = false; context.Abort(); return; }
+                }
                 if (requestPath.EndsWith("/join", StringComparison.Ordinal) && DropNextJoinResponse) { DropNextJoinResponse = false; context.Abort(); return; }
                 if (response.Headers.TryGetValues("Retry-After", out var hints)) context.Response.Headers["Retry-After"] = hints.ToArray();
                 if (response.Headers.TryGetValues("X-Protobot-Rejection", out var rejection)) context.Response.Headers["X-Protobot-Rejection"] = rejection.ToArray();

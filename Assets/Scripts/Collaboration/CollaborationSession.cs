@@ -225,6 +225,9 @@ namespace Protobot {
         }
 
         private void RequestJoin() {
+            ownerJoin = null; RequestJoinCore();
+        }
+        private void RequestJoinCore() {
             if (busy || IsShared || AdmissionCooldownSeconds > 0) return;
             try { ValidateSettings(true); } catch (Exception error) { Report(error); return; }
             CancelTools(); ClosePanel();
@@ -235,17 +238,26 @@ namespace Protobot {
         private async Task JoinAsync() {
             if (busy || IsShared || AdmissionCooldownSeconds > 0) return;
             var attempt = BeginConnection("Connecting to room…");
-            try { ValidateSettings(true); await hostShutdown; attempt.Token.ThrowIfCancellationRequested(); catalog = CollaborationScene.Catalog; await ConnectAsync(null, false, attempt); status = "Connected to " + room; }
+            try {
+                ValidateSettings(true); await hostShutdown; attempt.Token.ThrowIfCancellationRequested(); catalog = CollaborationScene.Catalog;
+                if (ownerJoin != null) {
+                    DocumentModel.Require(ownerJoin.catalogHash == catalog.hash, "catalog-or-room-mismatch");
+                    using var remote = new RemoteRoomCreation(endpoint, lan, await SelectedNetworkAsync(attempt.Token));
+                    await remote.CheckAsync(ownerJoin, attempt.Token);
+                }
+                await ConnectAsync(ownerJoin?.ownerCredential, false, attempt, ownerJoin); status = "Connected to " + room;
+            }
             catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
                 status = "Connection canceled. The current build and local file are unchanged. Saved membership is kept for retry.";
             }
             catch (Exception error) { if (!closing) Report(error); client?.Dispose(); client = null; }
-            finally { ClearPassword(); EndConnection(attempt); }
+            finally { ownerJoin = null; ClearPassword(); EndConnection(attempt); }
         }
-        private async Task ConnectAsync(string owner, bool hosting, ConnectionAttempt attempt) {
+        private async Task ConnectAsync(string owner, bool hosting, ConnectionAttempt attempt, CreatedRoom createdRoom = null) {
             attempt.Token.ThrowIfCancellationRequested();
-            string recovery = owner != null && hostedRoom != null ? CollaborationRecovery.OwnerSession(hostedRoom) : CollaborationRecovery.SessionFile(endpoint, room, catalog.hash);
-            var network = owner != null ? NetworkPolicy.Direct : await SelectedNetworkAsync(attempt.Token);
+            string recovery = createdRoom != null ? CreatedRoomRecovery.FileName(CreatedRoomsRoot, endpoint, room) + ".session" :
+                owner != null && hostedRoom != null ? CollaborationRecovery.OwnerSession(hostedRoom) : CollaborationRecovery.SessionFile(endpoint, room, catalog.hash);
+            var network = owner != null && hostedRoom != null ? NetworkPolicy.Direct : await SelectedNetworkAsync(attempt.Token);
             var candidate = new CollaborationClient(endpoint, room, catalog, transport, lan, recovery, network);
             attempt.Candidate = candidate;
             try {
@@ -759,7 +771,7 @@ namespace Protobot {
             "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
             _ => FriendlyStatus(WireFailure.Code(error))
         } : FriendlyStatus(WireFailure.Code(error)); InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
-        private void OnQuitting() { closing = true; CancelDiagnosticExport(); CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
+        private void OnQuitting() { closing = true; CancelRoomOperation(); ClearRoomKeys(); CancelDiagnosticExport(); CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
         private void OnDestroy() { OnQuitting(); Application.quitting -= OnQuitting; ClearGhosts(); DisposeUI(); if (instance == this) instance = null; }
     }
 }

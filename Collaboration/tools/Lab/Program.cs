@@ -22,6 +22,10 @@ internal static partial class Program {
         if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : args[index + 1] == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
+            if (args.Contains("--room-creation-only")) {
+                await RoomCreationChecks(directory);
+                Console.WriteLine("Room creation passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--players-only")) {
                 index = Array.IndexOf(args, "--player"); DocumentModel.Require(index >= 0 && index + 1 < args.Length, "player-required");
                 await PlayerChecks(args[index + 1], directory);
@@ -67,6 +71,7 @@ internal static partial class Program {
                 Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await RoomCreationChecks(directory);
             await ShutdownChecks(directory);
             await AssetChecks(directory);
             await ConnectionChecks(directory);

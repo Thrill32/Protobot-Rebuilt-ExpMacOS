@@ -221,6 +221,8 @@ Join the HTTPS origin, not the backend URL. Direct HTTPS can use the ordinary Ke
 
 ## Dedicated multi-room hosting
 
+The in-app **Create room** and **Server admin** pages now support shared-server creation and existing administration inspection. Operators select admin-only (default), a separate creation key, or explicit open creation. Every new room retains private per-room ownership; creator keys grant no directory/global-admin rights. See [room-management controls, configuration, recovery and exact contracts](ROOM_MANAGEMENT.md). Online replacement, deletion and role/password changes remain separate work.
+
 Protocol **0.9.0-alpha** adds explicit room discovery; document/SQLite/archive formats stay **v2**. Server configuration, registry header, per-room registration and server admin files each use **schema 1**. Keep the server directory on local storage under one service account. Initialize once, then start the independent service:
 
 ```sh

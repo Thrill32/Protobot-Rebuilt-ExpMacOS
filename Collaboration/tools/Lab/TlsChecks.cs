@@ -124,6 +124,19 @@ internal static partial class Program {
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", RoomRegistry.Read<ServerAdministration>(Path.Combine(directory, "admin.json")).credential);
         using var response = await http.SendAsync(request);
         Check(response.IsSuccessStatusCode && (await response.Content.ReadAsStringAsync()).Contains("tls-broken"), "protected server administration uses the same HTTPS listener");
+        string ownership = Path.Combine(root, "tls-created-owners");
+        using (var untrustedCreation = new RemoteRoomCreation(url, network: NetworkPolicy.Direct)) {
+            try { await untrustedCreation.CreateAsync(CreationContent(), "tls-untrusted-creation", "", null, true, ownership, CancellationToken.None); throw new Exception("Expected TLS rejection"); }
+            catch (HttpRequestException error) { Check(ConnectionDoctor.Code(error) == "tls-trust-or-name-failed" && !Directory.Exists(ownership), "production room creation rejects untrusted TLS before retaining ownership or sending a mutation"); }
+        }
+        using (var trustedCreation = new RemoteRoomCreation(url, network: NetworkPolicy.Direct)) {
+            var field = typeof(RemoteRoomCreation).GetField("http", BindingFlags.Instance | BindingFlags.NonPublic);
+            ((HttpClient)field.GetValue(trustedCreation)).Dispose(); field.SetValue(trustedCreation, TlsFixtureHttp(certificate));
+            var admin = RoomRegistry.Read<ServerAdministration>(Path.Combine(directory, "admin.json"));
+            var created = await trustedCreation.CreateAsync(CreationContent(), "tls-created", "", admin.credential, true, ownership, CancellationToken.None);
+            await trustedCreation.CheckAsync(created, CancellationToken.None);
+            Check(created.confirmed && (await trustedCreation.ListAsync(admin.credential, CancellationToken.None)).rooms.Any(r => r.room == created.room), "test-scoped ephemeral TLS trust covers creation, owner check and admin listing on one HTTPS listener");
+        }
         await a.LeaveAsync(); await b.LeaveAsync();
     }
     // Test-scoped trust of this ephemeral leaf, retaining the platform's name

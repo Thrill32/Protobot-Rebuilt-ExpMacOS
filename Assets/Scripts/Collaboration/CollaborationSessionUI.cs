@@ -65,6 +65,8 @@ namespace Protobot {
             UIButton(uiTabs.transform, "Host Tab", "Host", () => SelectUITab(0));
             UIButton(uiTabs.transform, "Join Tab", "Join", () => SelectUITab(1));
             UIButton(uiTabs.transform, "Recovery Tab", "Recovered rooms", () => { RefreshRecoveredRooms(); SelectUITab(2); });
+            UIButton(uiTabs.transform, "Create Room Tab", "Create room", () => SelectUITab(3));
+            UIButton(uiTabs.transform, "Server Admin Tab", "Server admin", () => SelectUITab(4));
 
             var viewport = UIRect("Scroll View", uiCard); viewport.anchorMin = Vector2.zero; viewport.anchorMax = Vector2.one;
             viewport.offsetMin = new Vector2(22, 103); viewport.offsetMax = new Vector2(-22, -130);
@@ -115,6 +117,7 @@ namespace Protobot {
             uiRecoveryNotice = UIText(uiRecovery.transform, "Recovery Notice", "");
             uiRecoveryRows = UIColumn(uiRecovery.transform, "Saved Rooms");
             UIButton(uiRecovery.transform, "Refresh Rooms", "Refresh recovered rooms", () => { RefreshRecoveredRooms(); recoverySignature = null; });
+            InitializeRoomsUI(form);
 
             uiConnected = UIColumn(uiContent, "Session Page").gameObject;
             InitializeNetworkUI(uiContent);
@@ -164,7 +167,7 @@ namespace Protobot {
             var footer = UIRect("Footer", uiCard); footer.anchorMin = Vector2.zero; footer.anchorMax = Vector2.right;
             footer.pivot = Vector2.zero; footer.anchoredPosition = new Vector2(22, 12); footer.sizeDelta = new Vector2(-44, 78);
             uiStatus = UIText(footer, "Status", status, 13); UIStretch(uiStatus.rectTransform);
-            uiCancelConnection = UIButton(footer, "Cancel Connection", "Cancel", () => { CancelConnection(); CancelDiagnosticExport(); });
+            uiCancelConnection = UIButton(footer, "Cancel Connection", "Cancel", () => { CancelConnection(); CancelDiagnosticExport(); CancelRoomOperation(); });
             var cancelRect = (RectTransform)uiCancelConnection.transform;
             cancelRect.anchorMin = cancelRect.anchorMax = cancelRect.pivot = new Vector2(1, .5f);
             cancelRect.anchoredPosition = Vector2.zero; cancelRect.sizeDelta = new Vector2(100, 36);
@@ -178,7 +181,7 @@ namespace Protobot {
             panel = true; nextUIRefresh = 0; RefreshUI();
         }
         private void ClosePanel() {
-            connectionTest?.Cancel(); CancelDiagnosticExport();
+            connectionTest?.Cancel(); CancelDiagnosticExport(); CancelRoomOperation(); ClearRoomKeys();
             if (connectionAttempt != null) { connectionAttempt.ClosePanelRequested = true; CancelConnection(); }
             panel = false; ClearUIFocus();
             if (uiModal != null) uiModal.SetActive(busy);
@@ -186,6 +189,9 @@ namespace Protobot {
         private void SelectUITab(int tab) {
             ClearUIFocus(); uiTab = tab;
             uiHost.SetActive(tab == 0); uiJoin.SetActive(tab == 1); uiRecovery.SetActive(tab == 2);
+            uiCreateRoom.SetActive(tab == 3); uiServerAdmin.SetActive(tab == 4);
+            uiCreateConfirmation.SetActive(false); ClearRoomKeys();
+            if (tab == 3) { createdRoomSignature = null; RefreshCreatedRoomsUI(); }
             uiScroll.verticalNormalizedPosition = 1;
             for (int i = 0; i < uiTabs.transform.childCount; i++) uiTabs.transform.GetChild(i).GetComponent<Image>().color = i == tab ? uiAccent : new Color(.15f, .19f, .24f);
         }
@@ -236,9 +242,12 @@ namespace Protobot {
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
             uiName.SetTextWithoutNotify(displayName); uiRoom.SetTextWithoutNotify(room); uiEndpoint.SetTextWithoutNotify(endpoint);
-            uiCancelConnection.gameObject.SetActive(connectionAttempt != null || diagnosticExport != null);
-            uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested || diagnosticExport != null && !diagnosticExport.IsCancellationRequested;
-            uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null && diagnosticExport == null ? 0 : -116, 0);
+            uiCreateAddress.SetTextWithoutNotify(endpoint); uiAdminAddress.SetTextWithoutNotify(endpoint);
+            uiCreationKey.interactable = creationAuthority != 1;
+            if (uiTab == 3) RefreshCreatedRoomsUI();
+            uiCancelConnection.gameObject.SetActive(connectionAttempt != null || diagnosticExport != null || roomOperation != null);
+            uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested || diagnosticExport != null && !diagnosticExport.IsCancellationRequested || roomOperation != null && !roomOperation.IsCancellationRequested;
+            uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null && diagnosticExport == null && roomOperation == null ? 0 : -116, 0);
             uiStatus.text = ConnectionStatus();
             uiJoinRoom.interactable = !busy && AdmissionCooldownSeconds == 0;
             if (IsShared) {

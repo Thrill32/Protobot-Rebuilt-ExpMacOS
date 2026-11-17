@@ -105,7 +105,7 @@ namespace Protobot.Collaboration.Server {
                 catch (CollaborationException error) {
                     if (context.Response.HasStarted) context.Abort();
                     if (!context.Response.HasStarted) {
-                        context.Response.StatusCode = error.Code == "owner-required" || error.Code == "server-admin-required" ? 403 :
+                        context.Response.StatusCode = error.Code == "owner-required" || error.Code == "server-admin-required" || error.Code == "room-creation-key-required" ? 403 :
                             error.Code == "room-not-found" ? 404 : error.Code == "server-stopping" || error.Code == "room-unavailable" || error.Code == "room-storage-failed-restart-required" ? 503 :
                             error.Code == "invalid-session" || error.Code == "membership-revoked" ? 401 : 409;
                         await Reject(context, error.Code, context.Response.StatusCode, error.RetryAfterMilliseconds);
@@ -119,7 +119,9 @@ namespace Protobot.Collaboration.Server {
                 finally { if (roomAdmitted) roomRequests.Release(); requests.Release(); }
             });
             app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
-            var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version, diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" } };
+            var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version,
+                roomCreationVersion = ServerRooms.CreationVersion, roomCreationPolicy = registry.CreationPolicy, serverId = registry.ServerId,
+                diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" } };
             app.MapGet("/capabilities", context => Write(context, rootCapabilities));
             app.MapGet("/health", context => { context.Response.StatusCode = registry != null || Room.IsHealthy ? 200 : 503; return Write(context, rootCapabilities); });
             const string path = "/rooms/{room}";
@@ -127,8 +129,9 @@ namespace Protobot.Collaboration.Server {
             app.MapGet(path + "/health", context => { var room = Resolve(context); context.Response.StatusCode = room.IsHealthy ? 200 : 503; return Write(context, room.Capabilities); });
             if (registry != null) {
                 app.MapGet("/admin/rooms", context => { registry.Authenticate(Token(context)); return Write(context, RoomList()); });
-                app.MapPost("/admin/rooms", async context => {
-                    registry.Authenticate(Token(context));
+                async Task CreateRoom(HttpContext context, bool admin) {
+                    if (admin) registry.Authenticate(Token(context));
+                    else registry.AuthorizeCreation(context.Request.Headers.ContainsKey("Authorization") ? Token(context) : null);
                     DocumentModel.Require(await registry.Creation.WaitAsync(0, context.RequestAborted), "server-creation-busy");
                     try {
                         // Admin seeds have a separate bounded local-export envelope; ordinary wire messages stay 4 MiB.
@@ -140,7 +143,9 @@ namespace Protobot.Collaboration.Server {
                         await Write(context, await Task.Run(() => registry.Create(seed)));
                     }
                     finally { registry.Creation.Release(); }
-                });
+                }
+                app.MapPost("/admin/rooms", context => CreateRoom(context, true));
+                app.MapPost("/rooms", context => CreateRoom(context, false));
             }
             app.MapGet(path + "/diagnostics", context => {
                 var selected = Resolve(context); selected.AuthorizeDiagnostics(Token(context));

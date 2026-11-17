@@ -28,6 +28,8 @@ namespace Protobot.Collaboration {
             "server-stopping", "short-polling", "snapshot-byte-limit", "stale-chain", "stale-document", "stale-entity",
             "stale-history", "unknown-part", "unreferenced-asset", "unsupported-mutation", "viewer-read-only",
             "server-admin-required", "write-set-limit", "wrong-password", "join-rate-limit", "connection-attempt-timeout", "safe-retry-exhausted",
+            "room-creation-key-required", "server-creation-busy", "server-room-limit", "room-already-registered", "duplicate-room-identity",
+            "registry-destination-exists", "invalid-room-bootstrap", "server-storage-write-failed",
         };
         public static string Code(string value) => value == null ? null : Codes.Contains(value) ? value : "server-rejected-request";
         public static string Code(Exception error) => error is CollaborationException known && Codes.Contains(known.Code ?? "") ? known.Code : DiagnosticExport.Code(error);

@@ -12,6 +12,8 @@ namespace Protobot.Collaboration.Server {
     [Serializable] public sealed class ServerConfiguration {
         public int schema = 1;
         public string serverId, adminHash;
+        [System.Runtime.Serialization.OptionalField] public string creationPolicy;
+        [System.Runtime.Serialization.OptionalField] public string creationKeyHash;
     }
     [Serializable] public sealed class ServerAdministration {
         public int schema = 1;
@@ -20,18 +22,6 @@ namespace Protobot.Collaboration.Server {
     [Serializable] public sealed class RoomRegistration {
         public int schema = 1;
         public string room, generation, catalogHash, ownerHash;
-    }
-    [Serializable] public sealed class HostedRoomStatus {
-        public string room, generation, catalogHash, status, action;
-        public long? revision;
-        public string documentHash;
-        public RoomUsage usage;
-    }
-    [Serializable] public sealed class HostedRoomList {
-        public int registryVersion = 1;
-        public int diagnosticsVersion = DiagnosticExport.Version;
-        public ProcessUsage process;
-        public HostedRoomStatus[] rooms = Array.Empty<HostedRoomStatus>();
     }
 
     // A registry entry IS an atomically published complete room directory. There is
@@ -58,13 +48,21 @@ namespace Protobot.Collaboration.Server {
             IncludeFields = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
         };
 
-        public static void Initialize(string directory) {
+        public string ServerId => configuration.serverId;
+        public string CreationPolicy => configuration.creationPolicy ?? "admin-only";
+        public static void Initialize(string directory, string creationPolicy = "admin-only") {
+            DocumentModel.Require(ServerRooms.ValidPolicy(creationPolicy), "invalid-creation-policy");
             string target = Path.GetFullPath(directory);
             New(target);
             string staging = RoomBackup.Stage(target);
             try {
                 var admin = new ServerAdministration { serverId = Guid.NewGuid().ToString("N"), credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
-                var config = new ServerConfiguration { serverId = admin.serverId, adminHash = Hash(admin.credential) };
+                var config = new ServerConfiguration { serverId = admin.serverId, adminHash = Hash(admin.credential), creationPolicy = creationPolicy };
+                if (creationPolicy == "key") {
+                    var creator = new RoomCreationKey { format = "protobot-room-creator", schema = 1, serverId = admin.serverId, credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
+                    config.creationKeyHash = Hash(creator.credential);
+                    WriteNew(Path.Combine(staging, "creator.json"), creator);
+                }
                 WriteNew(Path.Combine(staging, "server.json"), config);
                 WriteNew(Path.Combine(staging, "admin.json"), admin);
                 WriteNew(Path.Combine(staging, "registry.json"), new RegistryHeader { serverId = config.serverId });
@@ -83,6 +81,8 @@ namespace Protobot.Collaboration.Server {
             root = Path.GetDirectoryName(configFile); Regular(root); Regular(configFile);
             configuration = Read<ServerConfiguration>(configFile);
             DocumentModel.Require(configuration.schema == 1 && DocumentModel.ValidId(configuration.serverId) && DocumentModel.ValidAssetHash(configuration.adminHash), "server-config-version-or-identity-mismatch");
+            DocumentModel.Require(ServerRooms.ValidPolicy(CreationPolicy) && (CreationPolicy == "key" ?
+                DocumentModel.ValidAssetHash(configuration.creationKeyHash) && configuration.creationKeyHash != configuration.adminHash : configuration.creationKeyHash == null), "invalid-creation-policy");
             var header = Read<RegistryHeader>(Path.Combine(root, "registry.json"));
             DocumentModel.Require(header.schema == Version && header.serverId == configuration.serverId, "registry-version-or-identity-mismatch");
             string lockPath = Path.Combine(root, "server.lock"); if (File.Exists(lockPath)) Regular(lockPath);
@@ -136,8 +136,29 @@ namespace Protobot.Collaboration.Server {
             DocumentModel.Require(credential != null && credential.Length == 64 &&
                 CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(Hash(credential)), Encoding.ASCII.GetBytes(configuration.adminHash)), "server-admin-required");
         }
+        public void AuthorizeCreation(string credential) {
+            if (Matches(credential, configuration.adminHash)) return;
+            DocumentModel.Require(CreationPolicy != "admin-only", "server-admin-required");
+            DocumentModel.Require(CreationPolicy == "open" ? string.IsNullOrEmpty(credential) : Matches(credential, configuration.creationKeyHash), "room-creation-key-required");
+        }
+        private static bool Matches(string credential, string expected) => DocumentModel.ValidAssetHash(credential) && expected != null &&
+            CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(Hash(credential)), Encoding.ASCII.GetBytes(expected));
         public void Authenticate(ServerAdministration admin) {
             DocumentModel.Require(admin != null && admin.schema == 1 && admin.serverId == configuration.serverId, "server-admin-required"); Authenticate(admin.credential);
+        }
+        // Offline operator workflow: constructor's exclusive registry lock fences a live server.
+        public void ConfigureCreation(ServerAdministration admin, string policy, string creatorOutput = null) {
+            Authenticate(admin);
+            DocumentModel.Require(ServerRooms.ValidPolicy(policy) && (policy == "key") == (creatorOutput != null), "invalid-creation-policy");
+            var updated = new ServerConfiguration { serverId = configuration.serverId, adminHash = configuration.adminHash, creationPolicy = policy };
+            if (policy == "key") {
+                var key = new RoomCreationKey { format = "protobot-room-creator", schema = 1, serverId = updated.serverId, credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
+                updated.creationKeyHash = Hash(key.credential);
+                // Keep the new private key before an ambiguous config write. Never overwrite a key file.
+                WriteNew(Path.GetFullPath(creatorOutput), key);
+            }
+            RecoveryFiles.Write(Path.Combine(root, "server.json"), updated, 16384);
+            configuration.creationPolicy = updated.creationPolicy; configuration.creationKeyHash = updated.creationKeyHash;
         }
         public Room Resolve(string name) {
             lock (gate) {
@@ -160,16 +181,17 @@ namespace Protobot.Collaboration.Server {
             lock (gate) {
                 DocumentModel.Require(entries.Count < ProcessBudget.MaxRooms, "server-room-limit");
                 DocumentModel.Require(!entries.ContainsKey(name), "room-already-registered");
-                DocumentModel.Require(ownerHash != configuration.adminHash && !entries.Values.Any(e => e.registration != null &&
+                DocumentModel.Require(ownerHash != configuration.adminHash && ownerHash != configuration.creationKeyHash && !entries.Values.Any(e => e.registration != null &&
                     (e.registration.generation == generation || e.registration.ownerHash == ownerHash)), "duplicate-room-identity");
             }
             New(Path.Combine(root, "rooms", name));
         }
         // Caller owns Creation. No room edit gate is held during staging or publication.
         public HostedRoomStatus Create(Bootstrap seed) {
-            DocumentModel.Require(seed != null && DocumentModel.ValidId(seed.room) && seed.ownerCredential?.Length == 64 &&
-                seed.password?.Length <= 256 && seed.document != null && seed.document.revision == 0, "invalid-room-bootstrap");
+            DocumentModel.Require(seed != null && DocumentModel.ValidId(seed.room) && DocumentModel.ValidAssetHash(seed.ownerCredential) &&
+                (seed.password == null || seed.password.Length <= 256) && seed.document != null && seed.document.revision == 0, "invalid-room-bootstrap");
             Admission(seed.room, seed.document.generation, Hash(seed.ownerCredential));
+            new RoomExport { catalog = seed.catalog, document = seed.document }.Validate();
             string stage = Path.Combine(root, "staging", "create-" + Guid.NewGuid().ToString("N"));
             RecoveryFiles.CreateDirectory(stage);
             try {

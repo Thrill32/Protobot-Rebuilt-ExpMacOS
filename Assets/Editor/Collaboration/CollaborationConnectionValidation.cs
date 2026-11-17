@@ -179,7 +179,7 @@ namespace ProtobotEditorTools {
 
         // Local-only relay gives deterministic real HTTP body boundaries without
         // adding failure controls or delays to the production helper.
-        private sealed class SlowRelay : IDisposable {
+        internal sealed class SlowRelay : IDisposable {
             private readonly HttpListener listener = new HttpListener();
             private readonly HttpClient http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(40) };
             private readonly CancellationTokenSource stop = new CancellationTokenSource();
@@ -187,6 +187,8 @@ namespace ProtobotEditorTools {
             public TaskCompletionSource<bool> Partial;
             public int BusyCapabilities, CapabilityRequests, JoinRequests;
             public string RejectAdmission, RetryAfter = "1";
+            public bool HoldCreation;
+            public int CreationRequests;
             public string Url { get; }
             public SlowRelay(string upstream) {
                 var port = new TcpListener(IPAddress.Loopback, 0); port.Start(); int number = ((IPEndPoint)port.LocalEndpoint).Port; port.Stop();
@@ -207,6 +209,8 @@ namespace ProtobotEditorTools {
                     bool capabilities = path.EndsWith("/capabilities", StringComparison.Ordinal), join = path.EndsWith("/join", StringComparison.Ordinal);
                     if (capabilities) Interlocked.Increment(ref CapabilityRequests);
                     if (join) Interlocked.Increment(ref JoinRequests);
+                    bool creation = context.Request.HttpMethod == "POST" && (path == "/rooms" || path == "/admin/rooms");
+                    if (creation) Interlocked.Increment(ref CreationRequests);
                     if (capabilities && Interlocked.Decrement(ref BusyCapabilities) >= 0 || join && RejectAdmission != null) {
                         byte[] error = WireJson.Encode(new WireError { error = join ? RejectAdmission : "server-request-limit" });
                         context.Response.StatusCode = 409; context.Response.Headers["Retry-After"] = RetryAfter;
@@ -219,6 +223,10 @@ namespace ProtobotEditorTools {
                     using var response = await http.SendAsync(request, stop.Token); var bytes = await response.Content.ReadAsByteArrayAsync();
                     context.Response.StatusCode = (int)response.StatusCode; context.Response.ContentType = "application/json"; context.Response.ContentLength64 = bytes.Length;
                     var held = release;
+                    if (held != null && HoldCreation && creation && response.IsSuccessStatusCode) {
+                        Partial.TrySetResult(true);
+                        using (stop.Token.Register(() => held.TrySetCanceled())) await held.Task;
+                    }
                     if (held != null && response.IsSuccessStatusCode && context.Request.HttpMethod == "GET" && context.Request.Url.AbsolutePath.Contains("/assets/")) {
                         int prefix = Math.Min(65536, Math.Max(1, bytes.Length / 2));
                         await context.Response.OutputStream.WriteAsync(bytes, 0, prefix, stop.Token); await context.Response.OutputStream.FlushAsync(stop.Token); Partial.TrySetResult(true);

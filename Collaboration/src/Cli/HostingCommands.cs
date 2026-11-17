@@ -12,8 +12,10 @@ using Protobot.Collaboration.Server;
 internal static partial class Program {
     private static int InitializeServer(Options options) {
         string target = Path.GetFullPath(options.Required("--data-dir"));
-        RoomRegistry.Initialize(target);
-        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { config = Path.Combine(target, "server.json"), adminFile = Path.Combine(target, "admin.json"), registryVersion = RoomRegistry.Version }));
+        string policy = options.Get("--creation-policy", "admin-only");
+        RoomRegistry.Initialize(target, policy);
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { config = Path.Combine(target, "server.json"), adminFile = Path.Combine(target, "admin.json"),
+            creationPolicy = policy, creatorFile = policy == "key" ? Path.Combine(target, "creator.json") : null, registryVersion = RoomRegistry.Version }));
         return 0;
     }
     private static ServerAdministration ReadServerAdmin(string path) {
@@ -22,8 +24,19 @@ internal static partial class Program {
         DocumentModel.Require(admin != null && admin.schema == 1 && DocumentModel.ValidId(admin.serverId) && DocumentModel.ValidAssetHash(admin.credential), "invalid-server-admin-file");
         return admin;
     }
-    private static async Task<int> Hosting(string operation, Options options) {
+    private static int ConfigureServerCreation(Options options) {
         var admin = ReadServerAdmin(options.Required("--admin-file"));
+        using var registry = new RoomRegistry(options.Required("--config"), recover: false);
+        string policy = options.Required("--creation-policy");
+        registry.ConfigureCreation(admin, policy, options.Get("--creator-output"));
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { creationPolicy = policy, creatorFile = options.Get("--creator-output") }));
+        return 0;
+    }
+    private static async Task<int> Hosting(string operation, Options options) {
+        bool delegated = options.Has("--creation-key-file") || options.Has("--open-creation");
+        DocumentModel.Require(operation == "create" || !delegated, "server-admin-required");
+        DocumentModel.Require(!delegated || !options.Has("--admin-file") && !(options.Has("--creation-key-file") && options.Has("--open-creation")), "use-one-creation-authority");
+        var admin = delegated ? null : ReadServerAdmin(options.Required("--admin-file"));
         if (operation == "restore") {
             // Offline registration is a restore into private registry staging,
             // preserving the archived room/generation/credentials/history.
@@ -34,6 +47,19 @@ internal static partial class Program {
         string origin = ConnectionDoctor.Origin(options.Required("--url"), options.Has("--allow-lan-http"));
         using var stop = CommandCancellation(); var network = await Network(options, stop.Token);
         using var http = network.CreateHttpClient();
+        string credential = admin?.credential;
+        if (delegated) {
+            var capabilities = await ConnectionRetry.GetAsync<Capabilities>(http, origin + "/capabilities", stop.Token);
+            ServerRooms.RequireCreation(capabilities);
+            if (options.Has("--creation-key-file")) {
+                string path = options.Get("--creation-key-file"); RequirePrivateCredential(path);
+                var key = RoomRegistry.Read<RoomCreationKey>(path);
+                DocumentModel.Require(key != null && key.format == "protobot-room-creator" && key.schema == 1 && key.serverId == capabilities.serverId && DocumentModel.ValidAssetHash(key.credential), "invalid-room-creation-key-file");
+                credential = key.credential;
+                DocumentModel.Require(capabilities.roomCreationPolicy == "key", "room-creation-key-required");
+            }
+            else DocumentModel.Require(capabilities.roomCreationPolicy == "open", "room-creation-key-required");
+        }
         Bootstrap seed = null;
         if (operation == "create") {
             DocumentModel.Require(options.Has("--catalog") != options.Has("--snapshot"), "use-catalog-or-snapshot");
@@ -60,8 +86,8 @@ internal static partial class Program {
                 throw new CollaborationException("hosting-http-" + error.HttpStatusCode + (error.Code == "server-admin-required" ? ": " + error.Code : ""));
             }
         }
-        using var request = new HttpRequestMessage(seed == null ? HttpMethod.Get : HttpMethod.Post, origin + "/admin/rooms");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", admin.credential);
+        using var request = new HttpRequestMessage(HttpMethod.Post, origin + (delegated ? "/rooms" : "/admin/rooms"));
+        if (credential != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         if (seed != null) { request.Content = new ByteArrayContent(LocalJson.Encode(seed)); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); request.Headers.ExpectContinue = true; }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token); timeout.CancelAfter(TimeSpan.FromMinutes(2));
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
@@ -71,7 +97,7 @@ internal static partial class Program {
         while ((read = await stream.ReadAsync(buffer, timeout.Token)) > 0) { DocumentModel.Require(bytes.Length + read <= 65536, "invalid-hosting-response"); bytes.Write(buffer, 0, read); }
         if (!response.IsSuccessStatusCode) {
             string reason = null; try { reason = WireJson.Decode<WireError>(bytes.ToArray())?.error; } catch { }
-            var codes = new[] { "server-admin-required", "server-creation-busy", "server-room-limit", "room-already-registered", "duplicate-room-identity", "server-geometry-quota", "registry-destination-exists", "invalid-room-bootstrap" };
+            var codes = new[] { "server-admin-required", "room-creation-key-required", "server-creation-busy", "server-room-limit", "room-already-registered", "duplicate-room-identity", "server-geometry-quota", "registry-destination-exists", "invalid-room-bootstrap" };
             throw new CollaborationException("hosting-http-" + (int)response.StatusCode + (codes.Contains(reason) ? ": " + reason : ""));
         }
         if (seed == null) Console.WriteLine(WireJson.Text(WireJson.Decode<HostedRoomList>(bytes.ToArray())));
