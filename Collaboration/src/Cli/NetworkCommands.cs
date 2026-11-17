@@ -4,6 +4,10 @@ using System.Threading.Tasks;
 using Protobot.Collaboration;
 
 internal static partial class Program {
+    private sealed class RetryProgress : IProgress<ConnectionProgress> {
+        public void Report(ConnectionProgress value) => Console.Error.WriteLine(ConnectionRetry.WaitingText(value));
+    }
+    private static readonly IProgress<ConnectionProgress> retryProgress = new RetryProgress();
     private static async Task<NetworkPolicy> Network(Options options, CancellationToken cancellation) {
         DocumentModel.Require(!options.Has("--network-file") || !options.Has("--network-route"), "proxy-auth-route-mismatch");
         if (options.Has("--network-file")) return await NetworkPolicy.LoadAsync(options.Get("--network-file"), path => {

@@ -39,19 +39,19 @@ namespace Protobot.Collaboration {
                 cancellation.ThrowIfCancellationRequested(); int completed = i;
                 progress?.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, i, references.Length));
                 await ObtainAssetAsync(references[i], cancellation, progress == null ? null :
-                    (Action<long, long?, int>)((bytes, length, attempt) => progress.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, completed, references.Length, bytes, length, attempt)))).ConfigureAwait(false);
+                    (Action<long, long?, int>)((bytes, length, attempt) => progress.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, completed, references.Length, bytes, length, attempt))), progress).ConfigureAwait(false);
                 progress?.Report(new ConnectionProgress(ConnectionStage.DownloadingGeometry, i + 1, references.Length));
             }
             lock (gate) HydrateCached(value);
         }
-        private async Task ObtainAssetAsync(GeometryAsset reference, CancellationToken cancellation, Action<long, long?, int> progress = null) {
+        private async Task ObtainAssetAsync(GeometryAsset reference, CancellationToken cancellation, Action<long, long?, int> progress = null, IProgress<ConnectionProgress> retryProgress = null) {
             GeometryTransfer.ValidateReference(reference);
             await transferGate.WaitAsync(cancellation).ConfigureAwait(false);
             try {
                 lock (gate) if (geometry.ContainsKey(reference.hash)) {
                     DocumentModel.Require(geometry[reference.hash].name == reference.name, "asset-hash-mismatch"); return;
                 }
-                byte[] bytes = await TransferAsync(HttpMethod.Get, reference.hash, null, cancellation, progress).ConfigureAwait(false);
+                byte[] bytes = await TransferAsync(HttpMethod.Get, reference.hash, null, cancellation, progress, retryProgress).ConfigureAwait(false);
                 var asset = GeometryTransfer.Decode(bytes);
                 DocumentModel.Require(asset.hash == reference.hash && asset.name == reference.name, "asset-hash-mismatch");
                 Cache(asset, bytes.Length);
@@ -84,49 +84,47 @@ namespace Protobot.Collaboration {
                 chainWrites = transaction.chainWrites, chainDeletes = transaction.chainDeletes, assetWrites = refs };
             return WireJson.Clone(metadata);
         }
-        private async Task<byte[]> TransferAsync(HttpMethod method, string hash, byte[] content, CancellationToken cancellation, Action<long, long?, int> progress = null) {
+        private async Task<byte[]> TransferAsync(HttpMethod method, string hash, byte[] content, CancellationToken cancellation, Action<long, long?, int> progress = null, IProgress<ConnectionProgress> retryProgress = null) {
             DocumentModel.Require(DocumentModel.ValidAssetHash(hash), "invalid-asset-hash");
             long epoch = ConnectionEpoch;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime?.Token ?? CancellationToken.None);
-            timeout.CancelAfter(TimeSpan.FromMinutes(2));
             // Immutable PUT/GET can restart from byte zero safely. No partial server object survives a request.
-            for (int attempt = 0; ; attempt++) {
-                try {
-                    progress?.Invoke(0, null, attempt + 1);
+            return await ConnectionRetry.TransferAsync(async (attempt, requestCancellation) => {
+                    progress?.Invoke(0, null, attempt);
                     using var request = new HttpRequestMessage(method, new Uri(endpoint, "rooms/" + room + "/assets/" + hash));
                     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     if (content != null) request.Headers.ExpectContinue = true;
                     if (content != null) { request.Content = new ByteArrayContent(content); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
-                    using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+                    using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestCancellation).ConfigureAwait(false);
                     NetworkPolicy.CheckProxyResponse(response);
                     DocumentModel.Require(!response.Content.Headers.ContentLength.HasValue || response.Content.Headers.ContentLength <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
-                    if (response.IsSuccessStatusCode) progress?.Invoke(0, response.Content.Headers.ContentLength, attempt + 1);
+                    if (response.IsSuccessStatusCode) progress?.Invoke(0, response.Content.Headers.ContentLength, attempt);
                     using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
                     using var output = new MemoryStream(); var buffer = new byte[GeometryTransfer.BufferBytes]; int read;
                     int maximum = response.IsSuccessStatusCode && method == HttpMethod.Get ? GeometryTransfer.MaxAssetBytes : 16384;
-                    while ((read = await input.ReadAsync(buffer, 0, buffer.Length, timeout.Token).ConfigureAwait(false)) > 0) {
+                    while ((read = await input.ReadAsync(buffer, 0, buffer.Length, requestCancellation).ConfigureAwait(false)) > 0) {
                         DocumentModel.Require(output.Length + read <= maximum, "asset-byte-limit"); output.Write(buffer, 0, read);
-                        if (response.IsSuccessStatusCode) progress?.Invoke(output.Length, response.Content.Headers.ContentLength, attempt + 1);
+                        if (response.IsSuccessStatusCode) progress?.Invoke(output.Length, response.Content.Headers.ContentLength, attempt);
                     }
                     var bytes = output.ToArray();
                     if (!response.IsSuccessStatusCode) {
                         if (method == HttpMethod.Head) {
-                            if ((int)response.StatusCode == 409) throw new CollaborationException("missing-asset");
+                            if ((int)response.StatusCode == 409 && !response.Headers.Contains("X-Protobot-Rejection")) throw new CollaborationException("missing-asset");
+                            if (response.Headers.Contains("X-Protobot-Rejection")) {
+                                var rejected = ConnectionRetry.Rejection(response, Array.Empty<byte>());
+                                if (rejected.Code == "membership-revoked" && ConnectionEpoch == epoch) Freeze(rejected.Code);
+                                throw rejected;
+                            }
                             // A HEAD error carries no body; authenticate a bounded ordinary request to recover its terminal reason.
-                            await Get<WireError>("receipt?operationId=assetAuthorization", timeout.Token).ConfigureAwait(false);
+                            await Get<WireError>("receipt?operationId=assetAuthorization", requestCancellation).ConfigureAwait(false);
                             throw new CollaborationException("asset-http-" + (int)response.StatusCode);
                         }
-                        string reason; try { reason = WireFailure.Code(WireJson.Decode<WireError>(bytes)?.error); } catch { reason = null; }
+                        var rejection = ConnectionRetry.Rejection(response, bytes); string reason = rejection.Code;
                         if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
-                        if ((reason == "asset-transfer-busy" || reason == "server-transfer-busy") && attempt < 30) { await Task.Delay(250, timeout.Token).ConfigureAwait(false); continue; }
-                        throw new CollaborationException(reason ?? "asset-http-" + (int)response.StatusCode);
+                        throw rejection;
                     }
                     return bytes;
-                }
-                catch (Exception error) when (attempt < 2 && !timeout.IsCancellationRequested && (error is HttpRequestException || error is IOException)) {
-                    await Task.Delay(100 * (attempt + 1), timeout.Token).ConfigureAwait(false);
-                }
-            }
+            }, timeout.Token, retryProgress).ConfigureAwait(false);
         }
     }
 }

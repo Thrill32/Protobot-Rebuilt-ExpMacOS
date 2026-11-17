@@ -121,6 +121,14 @@ internal static partial class Program {
         using var stop = CommandCancellation(); var network = await Network(options, stop.Token);
         using var http = network.CreateHttpClient();
         async Task<T> Request<T>(HttpMethod method, string path, byte[] body = null, bool authenticate = true) {
+            if (method == HttpMethod.Get) {
+                try { return await ConnectionRetry.GetAsync<T>(http, origin + path, stop.Token,
+                    authenticate ? owner.credential : null, WireJson.MaxMessageBytes, retryProgress); }
+                catch (CollaborationException error) when (error.HttpStatusCode > 0) {
+                    bool recognized = new[] { "owner-required", "owner-removal-protected", "participant-not-found", "invalid-participant-id", "invalid-session", "room-storage-failed-restart-required" }.Contains(error.Code);
+                    throw new CollaborationException("participant-administration-http-" + error.HttpStatusCode + (recognized ? ": " + error.Code : ""));
+                }
+            }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token); timeout.CancelAfter(TimeSpan.FromSeconds(30));
             using var request = new HttpRequestMessage(method, origin + path);
             if (authenticate) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", owner.credential);

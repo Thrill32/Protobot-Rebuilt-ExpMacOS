@@ -31,6 +31,7 @@ internal static partial class Program {
             var raw = server.Registry.Resolve(a.room).Join(new JoinRequest { catalogHash = a.catalog.hash, password = a.password, name = "Raw editor" });
             foreach (string credential in new[] { null, a.ownerCredential, raw.token, raw.resumeToken })
                 Check((await HostingRequest(server.Url, "/admin/diagnostics", credential)).code == (credential == null ? 401 : 403), "only server admin can inspect process/all-room metrics");
+            await RejectAsync(() => DiagnosticExport.FetchAsync(server.Url, null, a.ownerCredential), "server-admin-required");
             foreach (string credential in new[] { null, admin.credential, b.ownerCredential, raw.token, raw.resumeToken })
                 Check((await HostingRequest(server.Url, "/rooms/" + a.room + "/diagnostics", credential)).code == (credential == null ? 401 : 403), "room metrics reject anonymous, admin, other-room and participant credentials");
             try { await viewer.ResourcesAsync(); throw new Exception("Expected owner scope"); } catch (CollaborationException error) { Check(error.Code == "owner-required" && viewer.IsConnected, "viewer inspection refusal preserves its connection"); }
@@ -130,6 +131,17 @@ internal static partial class Program {
                 Check((await client.MembershipsAsync()).memberships.Length == membershipsBefore && cacheBeforeShortRefusal.SequenceEqual(File.ReadAllBytes(cache)), "real original 0.9 refuses optional short polling locally without creating a membership or touching an existing cache");
                 var oldDoctor = await ConnectionDoctor.RunAsync(origin, seed.catalog, seed.room, checkIdle: false);
                 Check(oldDoctor.passed && oldDoctor.diagnostics.Length == 2 && !oldDoctor.checks.Any(c => c.name == "short-polling"), "default doctor retains the two supported transports on real original 0.9");
+                var fullClients = new System.Collections.Generic.List<CollaborationClient>();
+                try {
+                    for (int i = 0; i < 9; i++) {
+                        var peer = new CollaborationClient(origin, seed.room, seed.catalog, CollaborationTransport.LongPolling);
+                        fullClients.Add(peer); await peer.JoinAsync("Old helper full " + i);
+                    }
+                    using var rejected = new CollaborationClient(origin, seed.room, seed.catalog);
+                    try { await rejected.JoinAsync("Old helper rejection"); throw new Exception("Expected old-helper room full"); }
+                    catch (CollaborationException error) { Check(error.Code == "room-full" && error.RetryAfterMilliseconds == 10000 && rejected.Participant == null,
+                        "actual original 0.9 rejection uses bounded local cooldown without Retry-After or capability migration"); }
+                } finally { foreach (var peer in fullClients) { await peer.LeaveAsync(); peer.Dispose(); } }
                 Check(ready.version == CollaborationProtocol.Version && !client.SupportsDiagnostics && client.CaptureDiagnostics().selectedRoom.documentHash == DocumentModel.Hash(client.Snapshot), "new client joins original 0.9 without optional metrics capability and can export local metadata");
                 Check((await client.SubmitAsync(client.CreateTransaction("AddParts", new[] { Cube("original-nine-edit") }))).accepted, "original 0.9 accepts new-client edits without a wire change");
                 hash = DocumentModel.Hash(client.Snapshot); sequence = client.Snapshot.revision;

@@ -28,7 +28,7 @@ namespace Protobot {
         private InputField uiName, uiRoom, uiPassword, uiEndpoint, uiPort;
         private Toggle uiLan, uiViewer;
         private Dropdown uiTransport;
-        private Button uiReconnect, uiSave, uiSaveAs, uiLeave, uiCancelConnection;
+        private Button uiJoinRoom, uiReconnect, uiSave, uiSaveAs, uiLeave, uiCancelConnection;
         private Transform uiRecoveryRows;
         private ScrollRect uiScroll;
         private int uiTab;
@@ -102,7 +102,7 @@ namespace Protobot {
             uiViewer = UIToggle(uiJoin.transform, "Join as Viewer", "Join as viewer (read-only)", value => joinAsViewer = value);
             UIText(uiJoin.transform, "Viewer Help", "A saved membership keeps its existing role and personal history. Forget it below to join as a new member.", 12);
             uiTransport = UIDropdown(uiJoin.transform, "Connection transport", new[] { "Auto (WebSocket, then requests)", "WebSocket only", "HTTPS / HTTP requests only", "Short polling (proxy compatibility)" }, (int)transport, value => transport = (CollaborationTransport)value);
-            UIButton(uiJoin.transform, "Join Room", "Join room", RequestJoin, true);
+            uiJoinRoom = UIButton(uiJoin.transform, "Join Room", "Join room", RequestJoin, true);
             UIButton(uiJoin.transform, "Test Connection", "Test server connection (read-only)", () => _ = TestServerAsync());
             uiTestReport = UIText(uiJoin.transform, "Connection Test Results", "", 12);
             UIButton(uiJoin.transform, "Forget Membership", "Forget saved membership for this address / room", () => {
@@ -240,6 +240,7 @@ namespace Protobot {
             uiCancelConnection.interactable = connectionAttempt != null && !connectionAttempt.Token.IsCancellationRequested || diagnosticExport != null && !diagnosticExport.IsCancellationRequested;
             uiStatus.rectTransform.offsetMax = new Vector2(connectionAttempt == null && diagnosticExport == null ? 0 : -116, 0);
             uiStatus.text = ConnectionStatus();
+            uiJoinRoom.interactable = !busy && AdmissionCooldownSeconds == 0;
             if (IsShared) {
                 uiConnection.text = $"{room}  |  {(client.IsConnected ? "Connected" : "Disconnected - editing paused")}\nRevision {committed.revision}  |  {client.ActiveTransport ?? "connecting"}  |  {client.Participant.role}";
                 uiReachability.text = "Server: " + endpoint + "\n" + (host != null ? host.AllowLan ? "LAN host. Share a reachable LAN address; internet access is not configured." : "Local host. Only players on this computer can connect." : "Connected to a remote host.") + "\n" + (client.IsDurable ? "Room recovery enabled." : "Temporary room. Save accepted content locally.");
@@ -251,7 +252,7 @@ namespace Protobot {
                 bool fileBusy = builds == null || builds.IsFileOperationInProgress || NativeFileDialogs.IsOpen;
                 uiSaveStatus.text = "Your local file: " + (string.IsNullOrEmpty(builds?.buildPath) ? "Unsaved - first save uses Save As" : builds.GetFileName() + (builds.CurrentBuildIsSaved ? " - saved" : " - unsaved changes")) + (client.PendingCount > 0 ? $"\n{client.PendingCount} edit(s) awaiting an outcome." : "");
                 uiSave.interactable = uiSaveAs.interactable = !busy && !fileBusy && client.PendingCount == 0;
-                uiReconnect.gameObject.SetActive(!client.IsConnected && !client.IsMembershipRevoked); uiReconnect.interactable = !busy;
+                uiReconnect.gameObject.SetActive(!client.IsConnected && !client.IsMembershipRevoked); uiReconnect.interactable = !busy && AdmissionCooldownSeconds == 0;
                 uiReconnect.GetComponentInChildren<Text>().text = host != null && !host.IsRunning ? "Restart host and reconnect" : "Reconnect";
                 uiLeave.interactable = !busy && !fileBusy;
                 uiLeave.GetComponentInChildren<Text>().text = host != null ? "Stop hosting and continue offline..." : "Leave and continue offline...";

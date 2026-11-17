@@ -6,6 +6,8 @@ Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux
 
 Remote operators behind an outbound proxy can configure Unity or `doctor`, diagnostics and protected CLI operations using the [outbound network guide](../NETWORK.md). This is per-client System/Direct/HTTP-proxy routing with separate private Basic input; it does not change the inbound listener, Caddy, systemd, OS proxy or certificate trust. Keep proxy files separate from room/owner/admin credentials. Test trusted HTTPS and all chosen transports from the actual operator/participant network; local proxy fixtures do not establish school/public-network acceptance.
 
+Admission/connection guidance is bounded and advisory: 60 join/resume requests per room per minute, 10 active / 1,000 retained memberships, existing room/process request and transfer limits. Saturation returns fixed codes and optional `Retry-After`; no forwarded-address trust or IP bans are introduced. [Safe read/immutable-transfer retries](../NETWORK.md#admission-feedback-and-bounded-safe-retries) use at most three sends and fixed deadlines. Rejected/lost join or administration mutation replies are never automatically resent. Inspect room lists/receipts and retry explicitly after cooldown; a full retained-membership budget requires operator planning, not a promise that ten seconds will free it. No deployment or target-network acceptance is inferred from local validation.
+
 ## Prepare the matching release
 
 On the development computer, publish with the pinned SDK:

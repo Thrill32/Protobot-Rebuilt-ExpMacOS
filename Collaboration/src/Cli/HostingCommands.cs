@@ -51,6 +51,15 @@ internal static partial class Program {
             string output = Path.GetFullPath(options.Required("--owner-output"));
             RoomRegistry.WriteNew(output, owner);
         }
+        if (seed == null) {
+            try {
+                var rooms = await ConnectionRetry.GetAsync<HostedRoomList>(http, origin + "/admin/rooms", stop.Token, admin.credential, progress: retryProgress);
+                Console.WriteLine(WireJson.Text(rooms)); return 0;
+            }
+            catch (CollaborationException error) when (error.HttpStatusCode > 0) {
+                throw new CollaborationException("hosting-http-" + error.HttpStatusCode + (error.Code == "server-admin-required" ? ": " + error.Code : ""));
+            }
+        }
         using var request = new HttpRequestMessage(seed == null ? HttpMethod.Get : HttpMethod.Post, origin + "/admin/rooms");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", admin.credential);
         if (seed != null) { request.Content = new ByteArrayContent(LocalJson.Encode(seed)); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); request.Headers.ExpectContinue = true; }

@@ -180,7 +180,13 @@ namespace Protobot.Collaboration {
 
     public sealed class CollaborationException : Exception {
         public string Code { get; }
-        public CollaborationException(string code) : base(code) { Code = code; }
+        // Local exception metadata only; HTTP guidance is optional Retry-After.
+        public int RetryAfterMilliseconds { get; }
+        public int HttpStatusCode { get; }
+        public CollaborationException(string code, int retryAfterMilliseconds = 0, int httpStatusCode = 0) : base(code) {
+            Code = code; RetryAfterMilliseconds = Math.Max(0, Math.Min(60000, retryAfterMilliseconds));
+            HttpStatusCode = httpStatusCode >= 100 && httpStatusCode <= 599 ? httpStatusCode : 0;
+        }
     }
 
     public static class WireJson {

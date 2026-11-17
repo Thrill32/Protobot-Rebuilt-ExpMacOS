@@ -20,6 +20,12 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     private readonly WebApplication app;
     private readonly HttpClient forward = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     public string Url { get; private set; }
+    public bool ForwardWebSockets;
+    public bool DropNextCreationResponse;
+    public bool DropNextJoinResponse;
+    public string FaultPathSuffix, FaultCode, FaultHint, FaultBody;
+    public int FaultRemaining, FaultDelayMilliseconds, FaultRequests, CommitRequests;
+    public readonly ConcurrentDictionary<string, int> Requests = new ConcurrentDictionary<string, int>();
     public bool DropNextCommitResponse;
     public bool DropNextRemovalResponse;
     public int CommitDelayMilliseconds;
@@ -44,11 +50,21 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public TaskCompletionSource<bool> ShortPollPaused = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public LoopbackProxy(string upstream) {
         var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
-        app = builder.Build();
+        app = builder.Build(); app.UseWebSockets();
         app.Run(async context => {
             OriginProxyAuthorizationObserved |= context.Request.Headers.ContainsKey("Proxy-Authorization");
             OriginBasicAuthorizationObserved |= context.Request.Headers.Authorization.ToString().StartsWith("Basic ", StringComparison.OrdinalIgnoreCase);
             if (OriginBasicChallenge) { context.Response.StatusCode = 401; context.Response.Headers.WWWAuthenticate = "Basic realm=\"origin\""; return; }
+            string requestPath = context.Request.Path.Value;
+            Requests.AddOrUpdate(requestPath, 1, (_, count) => count + 1);
+            if (requestPath.EndsWith("/commit", StringComparison.Ordinal)) Interlocked.Increment(ref CommitRequests);
+            if (FaultPathSuffix != null && requestPath.EndsWith(FaultPathSuffix, StringComparison.Ordinal) && Interlocked.Decrement(ref FaultRemaining) >= 0) {
+                Interlocked.Increment(ref FaultRequests);
+                if (FaultDelayMilliseconds > 0) { try { await Task.Delay(FaultDelayMilliseconds, context.RequestAborted); } catch (OperationCanceledException) { return; } }
+                context.Response.StatusCode = 503;
+                if (FaultHint != null) context.Response.Headers["Retry-After"] = FaultHint;
+                await context.Response.WriteAsync(FaultBody ?? WireJson.Text(new WireError { error = FaultCode })); return;
+            }
             bool events = context.Request.Path.Value.EndsWith("/events", StringComparison.Ordinal);
             if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal)) Interlocked.Increment(ref JoinRequests);
             if (events && RejectHeldEvents && context.Request.Query["wait"] != "0") { context.Response.StatusCode = 403; return; }
@@ -68,7 +84,25 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
             if (RejectedJoinError != null && context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal)) {
                 context.Response.StatusCode = 409; await context.Response.WriteAsync(WireJson.Text(new WireError { error = RejectedJoinError })); return;
             }
-            if (string.Equals(context.Request.Headers.Upgrade, "websocket", StringComparison.OrdinalIgnoreCase)) { context.Response.StatusCode = 403; return; }
+            if (string.Equals(context.Request.Headers.Upgrade, "websocket", StringComparison.OrdinalIgnoreCase)) {
+                if (!ForwardWebSockets) { context.Response.StatusCode = 403; return; }
+                using var remote = new System.Net.WebSockets.ClientWebSocket();
+                remote.Options.SetRequestHeader("Authorization", context.Request.Headers.Authorization.ToString());
+                var address = new UriBuilder(upstream + context.Request.Path + context.Request.QueryString) { Scheme = "ws" };
+                await remote.ConnectAsync(address.Uri, context.RequestAborted);
+                using var local = await context.WebSockets.AcceptWebSocketAsync();
+                using var closed = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+                async Task Copy(System.Net.WebSockets.WebSocket source, System.Net.WebSockets.WebSocket target) {
+                    var buffer = new byte[8192];
+                    try { while (!closed.IsCancellationRequested) {
+                        var data = await source.ReceiveAsync(new ArraySegment<byte>(buffer), closed.Token);
+                        if (data.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                        await target.SendAsync(new ArraySegment<byte>(buffer, 0, data.Count), data.MessageType, data.EndOfMessage, closed.Token);
+                    } } catch (Exception error) when (error is OperationCanceledException || error is System.Net.WebSockets.WebSocketException) { }
+                    finally { closed.Cancel(); }
+                }
+                await Task.WhenAll(Copy(remote, local), Copy(local, remote)); return;
+            }
             using var request = new HttpRequestMessage(new HttpMethod(context.Request.Method), upstream + context.Request.Path + context.Request.QueryString);
             if (context.Request.Headers.TryGetValue("Authorization", out var auth)) request.Headers.TryAddWithoutValidation("Authorization", auth.ToArray());
             if ((context.Request.Method == "POST" || context.Request.Method == "PUT")) request.Content = new StreamContent(context.Request.Body);
@@ -80,6 +114,10 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
                     if (ReportedGeneration != null) capability.generation = ReportedGeneration;
                     context.Response.StatusCode = (int)response.StatusCode; await context.Response.WriteAsync(WireJson.Text(capability)); return;
                 }
+                if (requestPath == "/admin/rooms" && context.Request.Method == "POST" && DropNextCreationResponse) { DropNextCreationResponse = false; context.Abort(); return; }
+                if (requestPath.EndsWith("/join", StringComparison.Ordinal) && DropNextJoinResponse) { DropNextJoinResponse = false; context.Abort(); return; }
+                if (response.Headers.TryGetValues("Retry-After", out var hints)) context.Response.Headers["Retry-After"] = hints.ToArray();
+                if (response.Headers.TryGetValues("X-Protobot-Rejection", out var rejection)) context.Response.Headers["X-Protobot-Rejection"] = rejection.ToArray();
                 if (context.Request.Path.Value.EndsWith("/join", StringComparison.Ordinal) && ContinueJoinReply != null) {
                     JoinReplyStarted.TrySetResult(true); await ContinueJoinReply.Task.WaitAsync(context.RequestAborted);
                 }

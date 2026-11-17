@@ -56,7 +56,7 @@ namespace Protobot.Collaboration {
     public static class DiagnosticExport {
         public const int Version = 1, MaxBytes = 65536, MaxEvents = 32, MaxRooms = 8;
         private static readonly HashSet<string> Codes = new HashSet<string>(StringComparer.Ordinal) {
-            "canceled", "ready", "export-failed", "diagnostics-unavailable", "invalid-diagnostics", "owner-required", "server-admin-required",
+            "connection-attempt-timeout", "safe-retry-exhausted", "join-rate-limit", "canceled", "ready", "export-failed", "diagnostics-unavailable", "invalid-diagnostics", "owner-required", "server-admin-required",
             "membership-revoked", "pending-operation-limit", "asset-transfer-busy", "server-transfer-busy", "asset-byte-limit", "asset-room-quota",
             "asset-materialization-quota", "asset-scene-quota", "asset-client-quota", "asset-unused-quota", "server-geometry-quota", "alpha-history-limit",
             "room-request-limit", "room-data-in-use", "room-data-unreadable-or-locked", "room-storage-corrupt", "registered-room-database-missing",
@@ -109,27 +109,14 @@ namespace Protobot.Collaboration {
         public static DiagnosticReport Decode(byte[] bytes) {
             DocumentModel.Require(bytes != null && bytes.Length <= MaxBytes, "invalid-diagnostics"); return Sanitize(WireJson.Decode<DiagnosticReport>(bytes));
         }
-        public static async Task<DiagnosticReport> FetchAsync(string origin, string room, string credential, CancellationToken cancellation = default, NetworkPolicy networkPolicy = null) {
+        public static async Task<DiagnosticReport> FetchAsync(string origin, string room, string credential, CancellationToken cancellation = default,
+            NetworkPolicy networkPolicy = null, IProgress<ConnectionProgress> progress = null) {
             string path = room == null ? "/admin/diagnostics" : "/rooms/" + Id(room) + "/diagnostics";
             using var http = (networkPolicy ?? NetworkPolicy.SystemDefault).CreateHttpClient();
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            using var request = new HttpRequestMessage(HttpMethod.Get, origin.TrimEnd('/') + path);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
-            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
-            NetworkPolicy.CheckProxyResponse(response);
-            using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            using var bytes = new MemoryStream(); var buffer = new byte[4096]; int read;
-            while ((read = await input.ReadAsync(buffer, 0, buffer.Length, timeout.Token).ConfigureAwait(false)) > 0) {
-                DocumentModel.Require(bytes.Length + read <= MaxBytes, "invalid-diagnostics"); bytes.Write(buffer, 0, read);
-            }
-            if (!response.IsSuccessStatusCode) {
-                string code = null; try { code = WireJson.Decode<WireError>(bytes.ToArray())?.error; } catch { }
-                throw new CollaborationException(SafeCode(code) ?? "diagnostics-unavailable");
-            }
-            return Decode(bytes.ToArray());
+            var value = await ConnectionRetry.GetAsync<DiagnosticReport>(http, origin.TrimEnd('/') + path, cancellation, credential, MaxBytes, progress).ConfigureAwait(false);
+            return Sanitize(value);
         }
-        // New destination only. Cancellation/failure leaves existing files untouched;
-        // a private sibling is published atomically after the last cancellation check.
+        // New destination only: publish a private sibling after the final cancellation check.
         public static Task WriteAsync(string path, DiagnosticReport report, CancellationToken cancellation = default) => Task.Run(() => {
             cancellation.ThrowIfCancellationRequested(); var bytes = Encode(report);
             path = Path.GetFullPath(path); string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";

@@ -66,9 +66,13 @@ namespace Protobot.Collaboration {
             network = networkPolicy ?? NetworkPolicy.SystemDefault; http = network.CreateHttpClient();
         }
 
+        public const int ConnectionDeadlineMilliseconds = 180000;
         public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false,
             CancellationToken cancellation = default, IProgress<ConnectionProgress> progress = null) {
             DocumentModel.Require(Interlocked.CompareExchange(ref joining, 1, 0) == 0, "already-connecting");
+            var userCancellation = cancellation;
+            using var connectionDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            connectionDeadline.CancelAfter(ConnectionDeadlineMilliseconds); cancellation = connectionDeadline.Token;
             try {
                 DocumentModel.Require(lifetime == null, "already-connected");
                 DocumentModel.Require(!IsMembershipRevoked, "membership-revoked");
@@ -76,11 +80,11 @@ namespace Protobot.Collaboration {
                 void Check() { cancellation.ThrowIfCancellationRequested(); lock (gate) DocumentModel.Require(!disposed && ConnectionEpoch == epoch, "client-closed"); }
                 Check(); lock (gate) { diagnosticClock.Restart(); diagnosticCode = null; diagnosticStage = null; diagnosticTransfer = null; diagnosticEvents.Clear(); }
                 DiagnosticProgress(new ConnectionProgress(ConnectionStage.CheckingServer), progress);
-                var server = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, cancellation).ConfigureAwait(false);
+                var server = await ConnectionRetry.ReadAsync((_, token) => Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "capabilities"), null, token), cancellation, new DiagnosticProgressRelay(value => DiagnosticProgress(value, progress))).ConfigureAwait(false);
                 DocumentModel.Require(server.protocol == 1 && server.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(server.multiRoom || server.room == room, "catalog-or-room-mismatch");
                 Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.CheckingRoom), progress);
-                var capabilities = await Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, cancellation).ConfigureAwait(false);
+                var capabilities = await ConnectionRetry.ReadAsync((_, token) => Request<Capabilities>(HttpMethod.Get, new Uri(endpoint, "rooms/" + room + "/capabilities"), null, token), cancellation, new DiagnosticProgressRelay(value => DiagnosticProgress(value, progress))).ConfigureAwait(false);
                 DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
                 DocumentModel.Require(Transport != CollaborationTransport.ShortPolling || capabilities.shortPollingVersion == CollaborationProtocol.ShortPollingVersion, "short-polling-unavailable");
@@ -127,6 +131,9 @@ namespace Protobot.Collaboration {
                 }
                 DiagnosticProgress(new ConnectionProgress(ConnectionStage.Ready), progress);
                 return joined;
+            }
+            catch (OperationCanceledException) when (!userCancellation.IsCancellationRequested && connectionDeadline.IsCancellationRequested) {
+                DiagnosticEvent("connection-attempt-timeout"); throw new CollaborationException("connection-attempt-timeout");
             }
             catch (Exception error) { DiagnosticEvent(DiagnosticExport.Code(error)); throw; }
             finally { Interlocked.Exchange(ref joining, 0); }
@@ -363,10 +370,9 @@ namespace Protobot.Collaboration {
                         }
                         var bytes = output.ToArray();
                         if (!response.IsSuccessStatusCode) {
-                            string reason;
-                            try { reason = WireFailure.Code(WireJson.Decode<WireError>(bytes)?.error); } catch { reason = null; }
+                            var rejection = ConnectionRetry.Rejection(response, bytes); string reason = rejection.Code;
                             if (reason == "membership-revoked" && ConnectionEpoch == epoch) Freeze(reason);
-                            throw new CollaborationException(reason ?? "http-" + (int)response.StatusCode);
+                            throw rejection;
                         }
                         var value = WireJson.Decode<T>(bytes);
                         if (value is Receipt receipt) receipt.error = WireFailure.Code(receipt.error);

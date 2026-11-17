@@ -75,7 +75,7 @@ namespace Protobot.Collaboration.Server {
                 if (context.Request.Headers.ContainsKey("Origin")) { context.Response.StatusCode = 403; return; }
                 context.Response.Headers.CacheControl = "no-store";
                 bool admitted = await requests.WaitAsync(0, context.RequestAborted);
-                if (!admitted) { context.Response.StatusCode = 503; await Write(context, new WireError { error = "server-request-limit" }); return; }
+                if (!admitted) { await Reject(context, "server-request-limit", 503); return; }
                 SemaphoreSlim roomRequests = null; bool roomAdmitted = false;
                 try {
                     if (context.Request.RouteValues.ContainsKey("room")) {
@@ -92,7 +92,7 @@ namespace Protobot.Collaboration.Server {
                         context.Response.StatusCode = error.Code == "owner-required" || error.Code == "server-admin-required" ? 403 :
                             error.Code == "room-not-found" ? 404 : error.Code == "room-unavailable" || error.Code == "room-storage-failed-restart-required" ? 503 :
                             error.Code == "invalid-session" || error.Code == "membership-revoked" ? 401 : 409;
-                        await Write(context, new WireError { error = error.Code });
+                        await Reject(context, error.Code, context.Response.StatusCode, error.RetryAfterMilliseconds);
                     }
                 }
                 catch (Exception error) when (error is System.Runtime.Serialization.SerializationException || error is ArgumentException || error is BadHttpRequestException) {
@@ -138,7 +138,8 @@ namespace Protobot.Collaboration.Server {
                 var limits = roomLimits.GetOrAdd(room.Name, _ => new RouteLimits());
                 lock (limits.joinGate) {
                     if (Environment.TickCount64 - limits.window > 60000) { limits.window = Environment.TickCount64; limits.attempts = 0; }
-                    DocumentModel.Require(++limits.attempts <= 60, "join-rate-limit");
+                    if (limits.attempts >= 60) throw new CollaborationException("join-rate-limit", (int)Math.Max(250, 60000 - (Environment.TickCount64 - limits.window)));
+                    limits.attempts++;
                 }
                 await Write(context, room.Join(await Read<JoinRequest>(context)));
             });
@@ -274,6 +275,14 @@ namespace Protobot.Collaboration.Server {
                 stream.Write(buffer, 0, count);
             }
             return LocalJson.Decode<T>(stream.ToArray(), maximum);
+        }
+        private static Task Reject(HttpContext context, string code, int status, int hint = 0) {
+            context.Response.StatusCode = status;
+            int delay = ConnectionRetry.CooldownMilliseconds(code, hint);
+            if (delay > 0) context.Response.Headers.RetryAfter = ((delay + 999) / 1000).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            // HEAD carries no JSON body. Only a fixed vocabulary is projected by clients.
+            if (context.Request.Method == "HEAD") context.Response.Headers["X-Protobot-Rejection"] = code;
+            return Write(context, new WireError { error = code });
         }
         private static async Task Write<T>(HttpContext context, T value) {
             context.Response.ContentType = "application/json";

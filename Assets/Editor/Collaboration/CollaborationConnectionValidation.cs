@@ -37,7 +37,7 @@ namespace ProtobotEditorTools {
         private static async void Tick() {
             if (!EditorApplication.isPlaying || EditorApplication.isCompiling || ++frames < 20) return;
             EditorApplication.update -= Tick; SessionState.SetBool(Key, false);
-            try { await Check(); Debug.Log("Collaboration connection validation passed: visible real-byte geometry progress, pointer Cancel and Escape, unchanged accepted scenes/local files, same-membership retry, stale-progress isolation, canceled host/resume cleanup and successful recovered-room retry."); EditorApplication.Exit(0); }
+            try { await Check(); Debug.Log("Collaboration connection validation passed: bounded wait/exhaustion/admission cooldown, pointer Cancel/Close and physical Escape, visible real-byte geometry progress, unchanged accepted scenes/local files, same-membership retry, stale-progress isolation, canceled host/resume cleanup and successful recovered-room retry."); EditorApplication.Exit(0); }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
         }
         internal static async Task Check(bool proxyMode = false) {
@@ -77,6 +77,7 @@ namespace ProtobotEditorTools {
                     Require(Get<Text>(session, "uiTestReport").text.Contains("passed") && outbound.Authenticated > 0, "Actual Unity connection-test control did not follow proxy policy.");
                     Get<InputField>(session, "uiPassword").text = seed.password;
                 }
+                await AdmissionControls(session, relay, manager, originalSave, originalBytes);
                 relay.Hold();
                 await Click(session, "Join Room"); await Until(() => relay.Partial.Task.IsCompleted);
                 Invoke(session, "RefreshUI");
@@ -141,6 +142,41 @@ namespace ProtobotEditorTools {
             finally { await authority.StopAsync(); }
         }
 
+        private static async Task AdmissionControls(CollaborationSession session, SlowRelay relay, BuildsManager manager, string savedPath, byte[] savedBytes) {
+            string cache = CollaborationRecovery.SessionFile(relay.Url, Get<string>(session, "room"), CollaborationScene.Catalog.hash);
+            int joins = relay.JoinRequests;
+            foreach (string control in new[] { "Cancel Connection", "Close", "Escape" }) {
+                relay.BusyCapabilities = 100; relay.RetryAfter = "9999999999";
+                Invoke(session, "OpenPanel", 1); Get<InputField>(session, "uiPassword").text = "private-ui-password";
+                await Click(session, "Join Room"); await Until(() => {
+                    Invoke(session, "RefreshUI"); return Get<Text>(session, "uiStatus").text.Contains("safe retry");
+                });
+                Require(Get<bool>(session, "busy") && relay.JoinRequests == joins && !File.Exists(cache), "Safe wait reached admission/cache or did not stay asynchronous.");
+                if (control == "Escape") {
+                    InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(UnityEngine.InputSystem.Key.Escape)); await Task.Delay(80);
+                    InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+                } else await Click(session, control);
+                await Until(() => !Get<bool>(session, "busy"));
+                Require(!CollaborationSession.IsShared && relay.JoinRequests == joins && manager.buildPath == savedPath && manager.CurrentBuildIsSaved &&
+                    File.ReadAllBytes(savedPath).SequenceEqual(savedBytes) && PartsManager.FindLoadedObjects().Count == 1 && !File.Exists(cache), "Actual wait cancellation changed scene/file/membership.");
+            }
+            relay.BusyCapabilities = 3; relay.RetryAfter = "0";
+            Invoke(session, "OpenPanel", 1); Get<InputField>(session, "uiPassword").text = "private-ui-password";
+            int requests = relay.CapabilityRequests;
+            await Click(session, "Join Room"); await Until(() => !Get<bool>(session, "busy")); Invoke(session, "RefreshUI");
+            Require(relay.CapabilityRequests == requests + 3 && relay.JoinRequests == joins && Get<Text>(session, "uiStatus").text.Contains("exhausted"), "Actual UI did not expose bounded safe-read exhaustion.");
+            relay.BusyCapabilities = 0; relay.RejectAdmission = "join-rate-limit"; relay.RetryAfter = "9999999999";
+            Get<InputField>(session, "uiPassword").text = "private-ui-password";
+            await Click(session, "Join Room"); await Until(() => !Get<bool>(session, "busy")); Invoke(session, "RefreshUI");
+            Require(relay.JoinRequests == joins + 1 && Get<Text>(session, "uiStatus").text.Contains("Retry available in") &&
+                !Get<Button>(session, "uiJoinRoom").interactable && !File.Exists(cache), "Definitive admission rejection resent join or omitted manual cooldown.");
+            await Click(session, "Close"); Require(!Get<bool>(session, "panel"), "Close failed during admission cooldown.");
+            // Test only: advance a local cooldown to avoid sleeping a full minute.
+            Set(session, "admissionCooldownUntil", Time.realtimeSinceStartup - 1);
+            relay.RejectAdmission = null; relay.RetryAfter = "1";
+            Invoke(session, "OpenPanel", 1); Get<InputField>(session, "uiPassword").text = "private-ui-password";
+        }
+
         // Local-only relay gives deterministic real HTTP body boundaries without
         // adding failure controls or delays to the production helper.
         private sealed class SlowRelay : IDisposable {
@@ -149,6 +185,8 @@ namespace ProtobotEditorTools {
             private readonly CancellationTokenSource stop = new CancellationTokenSource();
             private TaskCompletionSource<bool> release;
             public TaskCompletionSource<bool> Partial;
+            public int BusyCapabilities, CapabilityRequests, JoinRequests;
+            public string RejectAdmission, RetryAfter = "1";
             public string Url { get; }
             public SlowRelay(string upstream) {
                 var port = new TcpListener(IPAddress.Loopback, 0); port.Start(); int number = ((IPEndPoint)port.LocalEndpoint).Port; port.Stop();
@@ -165,6 +203,16 @@ namespace ProtobotEditorTools {
             }
             private async Task Forward(HttpListenerContext context, string upstream) {
                 try {
+                    string path = context.Request.Url.AbsolutePath;
+                    bool capabilities = path.EndsWith("/capabilities", StringComparison.Ordinal), join = path.EndsWith("/join", StringComparison.Ordinal);
+                    if (capabilities) Interlocked.Increment(ref CapabilityRequests);
+                    if (join) Interlocked.Increment(ref JoinRequests);
+                    if (capabilities && Interlocked.Decrement(ref BusyCapabilities) >= 0 || join && RejectAdmission != null) {
+                        byte[] error = WireJson.Encode(new WireError { error = join ? RejectAdmission : "server-request-limit" });
+                        context.Response.StatusCode = 409; context.Response.Headers["Retry-After"] = RetryAfter;
+                        context.Response.ContentType = "application/json"; context.Response.ContentLength64 = error.Length;
+                        await context.Response.OutputStream.WriteAsync(error, 0, error.Length, stop.Token); return;
+                    }
                     using var request = new HttpRequestMessage(new HttpMethod(context.Request.HttpMethod), upstream + context.Request.RawUrl);
                     string token = context.Request.Headers["Authorization"]; if (token != null) request.Headers.TryAddWithoutValidation("Authorization", token);
                     if (context.Request.HasEntityBody) request.Content = new StreamContent(context.Request.InputStream);

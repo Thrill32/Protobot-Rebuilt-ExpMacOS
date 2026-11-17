@@ -23,6 +23,7 @@ namespace Protobot.Collaboration {
                     diagnosticStage = value.Stage.ToString(); DiagnosticEvent(null);
                 }
             }
+            if (value.Stage == ConnectionStage.WaitingToRetry) DiagnosticEvent(value.RetryCode);
             progress?.Report(value);
         }
         private void DiagnosticEvent(string code) {

@@ -225,7 +225,7 @@ namespace Protobot {
         }
 
         private void RequestJoin() {
-            if (busy || IsShared) return;
+            if (busy || IsShared || AdmissionCooldownSeconds > 0) return;
             try { ValidateSettings(true); } catch (Exception error) { Report(error); return; }
             CancelTools(); ClosePanel();
             var builds = FindFirstObjectByType<BuildsManager>();
@@ -233,7 +233,7 @@ namespace Protobot {
         }
         private async Task JoinFromUIAsync() { var joining = JoinAsync(); var attempt = connectionAttempt; await joining; if (!closing && attempt?.ClosePanelRequested != true) OpenPanel(); }
         private async Task JoinAsync() {
-            if (busy || IsShared) return;
+            if (busy || IsShared || AdmissionCooldownSeconds > 0) return;
             var attempt = BeginConnection("Connecting to room…");
             try { ValidateSettings(true); await hostShutdown; attempt.Token.ThrowIfCancellationRequested(); catalog = CollaborationScene.Catalog; await ConnectAsync(null, false, attempt); status = "Connected to " + room; }
             catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
@@ -649,6 +649,7 @@ namespace Protobot {
             finally { if (owned != null) await owned.StopAsync(); }
         }
         private async Task ReconnectAsync() {
+            if (AdmissionCooldownSeconds > 0) return;
             if (client == null || busy) return;
             var attempt = BeginConnection("Reconnecting to room…");
             try {
@@ -737,7 +738,11 @@ namespace Protobot {
             var ghost = ghosts[key]; Destroy(ghost.GetComponent<MeshFilter>().sharedMesh); Destroy(ghost.GetComponent<MeshRenderer>().sharedMaterial); Destroy(ghost); ghosts.Remove(key);
         }
         private void ClearGhosts() { foreach (var key in ghosts.Keys.ToArray()) RemoveGhost(key); }
-        private void Report(Exception error) { status = error is CollaborationException known ? known.Code switch {
+        private void Report(Exception error) { AdmissionFeedback(error); status = error is CollaborationException known ? known.Code switch {
+            "connection-attempt-timeout" => "The connection attempt reached its three-minute limit. Accepted content, known membership and pending outcomes are kept. Retry explicitly when ready.",
+            "safe-retry-exhausted" => "Safe connection attempts exhausted. Check the network or server, then retry explicitly. Accepted content and pending outcomes are kept.",
+            "room-full" => "The room is full (10 active participants or 1,000 retained memberships). Ask the owner to check usage, then retry explicitly.",
+            "join-rate-limit" => "The room has reached its admission rate limit (60 requests per minute). Wait for the cooldown, then retry explicitly.",
             "short-polling-unavailable" => "This helper does not support short polling. Use an existing transport or update the helper with the matching release and catalog.",
             "asset-unused-quota" => "The room's unused upload budget is full. Reuse an uploaded model or start a new room.",
             "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",

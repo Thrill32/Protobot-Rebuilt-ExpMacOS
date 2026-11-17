@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using Protobot.Collaboration;
+using UnityEngine;
 
 namespace Protobot {
     public sealed partial class CollaborationSession {
@@ -21,6 +22,16 @@ namespace Protobot {
         }
         private ConnectionAttempt connectionAttempt;
         private bool closing;
+        private float admissionCooldownUntil;
+        private string cooldownEndpoint, cooldownRoom;
+        private int AdmissionCooldownSeconds => cooldownEndpoint == endpoint && cooldownRoom == room ?
+            Mathf.Max(0, Mathf.CeilToInt(admissionCooldownUntil - Time.realtimeSinceStartup)) : 0;
+        private void AdmissionFeedback(Exception error) {
+            if (connectionAttempt == null || !(error is CollaborationException rejection)) return;
+            int delay = ConnectionRetry.CooldownMilliseconds(rejection.Code, rejection.RetryAfterMilliseconds);
+            if (delay == 0) return;
+            admissionCooldownUntil = Time.realtimeSinceStartup + delay / 1000f; cooldownEndpoint = endpoint; cooldownRoom = room;
+        }
         private ConnectionAttempt BeginConnection(string message) {
             var attempt = new ConnectionAttempt(message); connectionAttempt = attempt;
             busy = true; status = message; nextUIRefresh = 0; return attempt;
@@ -36,11 +47,12 @@ namespace Protobot {
         }
         private string ConnectionStatus() {
             var attempt = connectionAttempt;
-            if (attempt == null) return FriendlyStatus(status);
+            if (attempt == null) return FriendlyStatus(status) + (AdmissionCooldownSeconds > 0 ? $" Retry available in {AdmissionCooldownSeconds} s. Close or Escape returns to editing." : "");
             if (attempt.Token.IsCancellationRequested) return "Canceling connection… Finishing any membership reply and keeping recovery data for retry.";
             var progress = attempt.Latest;
             if (progress == null) return attempt.InitialStatus;
             switch (progress.Stage) {
+                case ConnectionStage.WaitingToRetry: return ConnectionRetry.WaitingText(progress);
                 case ConnectionStage.CheckingServer: return "Checking server…";
                 case ConnectionStage.CheckingRoom: return "Checking room and build compatibility…";
                 case ConnectionStage.Authenticating: return "Joining room…";

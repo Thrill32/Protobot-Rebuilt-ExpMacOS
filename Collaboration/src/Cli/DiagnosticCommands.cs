@@ -14,7 +14,7 @@ internal static partial class Program {
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
         var network = await Network(options, stop.Token);
-        var report = await DiagnosticExport.FetchAsync(origin, room, credential, stop.Token, network);
+        var report = await DiagnosticExport.FetchAsync(origin, room, credential, stop.Token, network, retryProgress);
         if (options.Has("--output")) await DiagnosticExport.WriteAsync(options.Get("--output"), report, stop.Token);
         Console.WriteLine(Encoding.UTF8.GetString(DiagnosticExport.Encode(report))); return 0;
     }
