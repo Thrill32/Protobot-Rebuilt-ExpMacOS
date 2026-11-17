@@ -1,5 +1,62 @@
 # Collaboration 0.9 manual acceptance
 
+## Release candidate review: 18b87b0, November 17, 2026
+
+**Local RC automation passes; release acceptance remains pending.** Use the new
+[two-person acceptance checklist](RELEASE_CHECKLIST.md) for the required human and external
+environment runs. Exact retained archive hashes, helper manifest/build identities, results,
+limitations and failed attempts are in [the portable RC evidence record](RC_18b87b0.json).
+
+The review began with a clean working tree on `network-collab-support`, with HEAD exactly
+`18b87b05c998fda01264e02498760018c347f370`. Main.unity remains byte-identical to that commit
+(Git blob `f87eab03ef569378afd6a3038c3fb11993fbba2d`). No production code, scene or settings
+were changed. Review changes add documentation, an evidence record and a package validator.
+
+| Fresh local check | Result and scope |
+| --- | --- |
+| CLI and Lab builds | Pass, pinned SDK 10.0.403; zero warnings/errors; cached packages, `NuGetAudit=false`; no online vulnerability audit |
+| Six retained archives, four helpers, two players | Pass against the prior package record; complete helper inventories/hashes, every player archive payload against its loose package, source/embedded catalog, managed helper assemblies, five operator guides, executable modes and sidecars |
+| Mac code signatures | Pass for loose and archive-extracted helper/app; local integrity only, no notarization/Gatekeeper/download acceptance claim |
+| Full collaboration lab | **1,671 assertions / 308.39 seconds**, ten bots on each transport; archive-extracted Mac CLI installation/update/rollback, replacement/resync, large HTTP replacement, restart/backup/restore, TLS/proxy, original compatibility fixtures and **8 assertions across four archive-extracted Mac player processes** |
+| Rendered packaged UI probe | Pass in **22.07 seconds**: archive-extracted player hosts through its UI, launches an isolated second player, joins a read-only viewer, shows two participants on the owner, then cleans up its test processes. Owner/viewer screenshots inspected. This is automation, not a human two-machine run |
+| Package verifier refusal | A deliberately incorrect expected archive digest fails without publishing success evidence |
+| Source comparison | All recorded production-source checksums match: 44 helper source files, plus 261 main/20 shared source files for each desktop player; other helper CLI targets match too. Fresh cached Mac Release build passes and all **1,308 method names/signatures/IL bodies** match the packaged helper assemblies |
+
+The retained packages were produced before the commit: their informational version names
+`fb9f6de614a1810eef0b7bf111b63daba71f71b4`. The source-checksum/method comparison supports
+using these exact packages for this candidate, but the fresh assemblies differ by 72 bytes
+each; a fully reproducible binary build is **not** established. The original twelve Unity
+Editor scenario results below were reviewed as historical evidence, not rerun in this review.
+
+No product defect was confirmed by the fresh checks. The old local packaging script also
+repacked archives and replaced checksum records, so this review added
+`tools/validate-release-artifacts.py` to verify retained bytes without those mutations.
+Run it with Python 3.12+ from the repository root:
+
+```sh
+python3 Collaboration/tools/validate-release-artifacts.py \
+  --record Collaboration/RC_18b87b0.json --output /private/tmp/new-rc-package-evidence.json
+```
+
+Raw evidence is retained under ignored `Collaboration/artifacts/rc-18b87b0/`, including
+`full-lab-final.log`, `full-lab-command-final.json`, `packages-reviewed.json`, source comparisons,
+rendered UI results/screenshots and earlier failed attempts. The sandboxed lab was stopped
+after a startup stall; local listener/process access was needed. The first unrestricted run
+used a newer helper for a pre-creation refusal test, correctly kept serving and timed out;
+the fixture was corrected before the passing final run. The batch-mode screenshot probe
+timed out; its rendered rerun passed. These are retained runner/environment failures, not
+silently omitted passes or confirmed application failures.
+
+**Still pending:** human two-person/two-machine acceptance, Windows/Linux runtime and
+launcher/ACL behavior, Mac↔Windows editing and native-dialog/focus/cancellation checks,
+cross-OS backup archives, Debian/Pi systemd/resource/reboot/restore/update behavior, trusted
+public HTTPS/proxy/school-network operation and downloaded-OS launch acceptance. Cross-builds,
+loopback TLS/proxy fixtures and local signatures do not close these gates. The checklist has
+separate result/evidence fields for each environment. No commit, publication, deployment,
+service installation, production installation change, archive repacking or signing was performed.
+
+## Historical implementation acceptance
+
 Requested local installation / owner replacement / integrated UI milestone completed November 17, 2026 on uncommitted baseline `fb9f6de` / `network-collab-support`:
 
 - **1,663 full-lab assertions / 339.42 seconds**, ten bots on all three transports. Includes the actual final native helper, isolated installation/update/rollback with real replaced-v3 data, all replacement suites, Basic-proxy and strict direct/CONNECT TLS checks, and original 0.7/v1, 0.8/v2, pre-diagnostics 0.9 plus selected TLS/shutdown/creation/installation compatibility fixtures.
