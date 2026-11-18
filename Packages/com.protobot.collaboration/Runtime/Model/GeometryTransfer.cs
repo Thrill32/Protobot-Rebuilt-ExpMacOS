@@ -63,7 +63,10 @@ namespace Protobot.Collaboration {
         public static byte[] Encode<T>(T value, int maximum = MaxBytes, CancellationToken cancellation = default) {
             cancellation.ThrowIfCancellationRequested();
             using (var stream = new LimitedStream(maximum, cancellation)) {
-                Serializer<T>().WriteObject(stream, value); return stream.ToArray();
+                try { Serializer<T>().WriteObject(stream, value); return stream.ToArray(); }
+                // Mono's serializer can wrap exceptions thrown by the output stream.
+                // Preserve our own bounded-write failure without exposing serializer text.
+                catch (Exception) when (stream.Exceeded) { throw new CollaborationException("local-serialization-limit"); }
             }
         }
         public static T Decode<T>(byte[] bytes, int maximum = MaxBytes) {
@@ -75,12 +78,18 @@ namespace Protobot.Collaboration {
         private sealed class LimitedStream : MemoryStream {
             private readonly int maximum;
             private readonly CancellationToken cancellation;
+            public bool Exceeded { get; private set; }
             public LimitedStream(int limit, CancellationToken cancellation) { maximum = limit; this.cancellation = cancellation; }
             public override void Write(byte[] buffer, int offset, int count) {
                 cancellation.ThrowIfCancellationRequested();
-                DocumentModel.Require(Length + count <= maximum, "local-serialization-limit"); base.Write(buffer, offset, count);
+                RequireSpace(count); base.Write(buffer, offset, count);
             }
-            public override void WriteByte(byte value) { cancellation.ThrowIfCancellationRequested(); DocumentModel.Require(Length < maximum, "local-serialization-limit"); base.WriteByte(value); }
+            public override void WriteByte(byte value) { cancellation.ThrowIfCancellationRequested(); RequireSpace(1); base.WriteByte(value); }
+            private void RequireSpace(int count) {
+                if (Length + count <= maximum) return;
+                Exceeded = true;
+                throw new CollaborationException("local-serialization-limit");
+            }
         }
     }
 }

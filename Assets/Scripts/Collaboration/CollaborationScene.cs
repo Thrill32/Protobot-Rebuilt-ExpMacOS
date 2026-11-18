@@ -63,6 +63,9 @@ namespace Protobot {
                 vertices = data.vertices.Select(value => (double)value).ToArray(), triangles = data.triangles.ToArray() };
             asset.hash = DocumentModel.GeometryHash(asset); return asset;
         }
+        // Pure geometry work; the importer calls this on its parsing worker before
+        // allocating Unity meshes/colliders or publishing any shared reference.
+        internal static void ValidateCustomImport(CustomModelData data) => DocumentModel.ValidateAsset(CaptureAsset(data));
         private static CustomMount CaptureMount(CustomMountData mount) => new CustomMount {
             position = new double[] { mount.x, mount.y, mount.z }, rotation = new double[] { mount.qx, mount.qy, mount.qz, mount.qw },
             diameter = mount.diameter, depth = mount.depth, threaded = mount.threaded

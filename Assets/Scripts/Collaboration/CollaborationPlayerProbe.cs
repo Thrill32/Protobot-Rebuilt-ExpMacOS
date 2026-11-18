@@ -19,6 +19,9 @@ namespace Protobot {
             string output = CollaborationArguments.Get("--collab-test-results");
             if (string.IsNullOrEmpty(output)) return;
             try {
+                if (CollaborationArguments.Get("--collab-probe") == "custom-model") {
+                    await session.RunCustomModelProbeAsync(output); return;
+                }
                 if (CollaborationArguments.Get("--collab-probe") == "ui" || CollaborationArguments.Get("--collab-probe") == "ui-child") {
                     await session.RunUIPlayerProbeAsync(output, CollaborationArguments.Get("--collab-probe") == "ui-child"); return;
                 }

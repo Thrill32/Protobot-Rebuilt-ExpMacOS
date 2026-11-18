@@ -463,23 +463,32 @@ namespace Protobot {
         }
         public static void PlaceCatalog(GameObject temporary, VersionRef[] dependencies = null) => PlaceCopies(new List<GameObject> { temporary }, dependencies);
         public static void PlaceCopies(List<GameObject> temporary, VersionRef[] dependencies = null, SelectionManager selectResult = null,
+            List<GameObject> temporaryChains = null) => _ = PlaceCopiesAsync(temporary, dependencies, selectResult, temporaryChains);
+        public static async Task<bool> PlaceCopiesAsync(List<GameObject> temporary, VersionRef[] dependencies = null, SelectionManager selectResult = null,
             List<GameObject> temporaryChains = null) {
-            var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
-            var existingAssets = instance?.committed == null ? new HashSet<string>(StringComparer.Ordinal) :
-                DocumentModel.Assets(instance.committed).Select(asset => asset.hash).ToHashSet(StringComparer.Ordinal);
-            var assets = CollaborationScene.CaptureAssets(temporary).Where(asset => !existingAssets.Contains(asset.hash)).ToArray();
-            var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj => obj.GetComponent<Simulation.ChainLoop>())
-                .Where(loop => loop != null).Select(loop => loop.Capture()).ToArray();
-            ObjectDuplicator.DiscardCopies(temporary);
-            if (temporaryChains != null) ObjectDuplicator.DiscardCopies(temporaryChains);
-            if (IsShared && CanEdit) {
-                try {
-                    var tx = instance.CreateTransaction("AddParts", parts, dependencies: dependencies,
-                        chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)), assetWrites: assets);
-                    if (selectResult != null) instance.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
-                    _ = instance.Submit(tx);
+            var session = instance;
+            try {
+                if (!IsShared || !CanEdit) {
+                    InteractionFeedback.Notify("Could not add parts to the shared room. Reconnect as an editor or wait for the current edit to finish.");
+                    return false;
                 }
-                catch (CollaborationException error) { instance.Report(error); }
+                var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
+                var existingAssets = DocumentModel.Assets(session.committed).Select(asset => asset.hash).ToHashSet(StringComparer.Ordinal);
+                var assets = CollaborationScene.CaptureAssets(temporary).Where(asset => !existingAssets.Contains(asset.hash)).ToArray();
+                var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj => obj.GetComponent<Simulation.ChainLoop>())
+                    .Where(loop => loop != null).Select(loop => loop.Capture()).ToArray();
+                var tx = session.CreateTransaction("AddParts", parts, dependencies: dependencies,
+                    chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)), assetWrites: assets);
+                if (selectResult != null) session.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
+                // Staging objects must disappear before the accepted event materializes their IDs.
+                ObjectDuplicator.DiscardCopies(temporary); temporary = null;
+                if (temporaryChains != null) { ObjectDuplicator.DiscardCopies(temporaryChains); temporaryChains = null; }
+                return await session.Submit(tx);
+            }
+            catch (Exception error) { if (session != null) session.Report(error); return false; }
+            finally {
+                if (temporary != null) ObjectDuplicator.DiscardCopies(temporary);
+                if (temporaryChains != null) ObjectDuplicator.DiscardCopies(temporaryChains);
             }
         }
         private static void SelectParts(SelectionManager manager, string[] ids) {
@@ -612,7 +621,7 @@ namespace Protobot {
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }
             finally { if (token != null) { try { await connection.ReleaseAsync(token); } catch { } } if (client == connection && connection.ConnectionEpoch == epoch) submitting = false; }
         }
-        private async Task Submit(Transaction transaction, Action rejected = null) {
+        private async Task<bool> Submit(Transaction transaction, Action rejected = null) {
             submitting = true;
             if (DocumentModel.AssetWrites(transaction).Length > 0) status = "Uploading custom geometry…";
             var connection = client;
@@ -621,17 +630,29 @@ namespace Protobot {
                 await reservationPending;
                 await releasePending;
                 var receipt = await connection.SubmitAsync(transaction);
-                if (client != connection || connection.ConnectionEpoch != epoch) return;
+                if (client != connection || connection.ConnectionEpoch != epoch) return false;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
                 if (!receipt.accepted) {
                     selectAfterApply.Remove(transaction.operationId); status = "Edit rejected: " + receipt.error;
+                    InteractionFeedback.Notify(status);
                     rejected?.Invoke(); CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id)));
+                    return false;
                 }
-                else status = "Accepted revision " + receipt.revision;
+                // A receipt confirms authority acceptance; the Unity event queue must also
+                // apply that revision before an import may claim visible local success.
+                while (client == connection && connection.ConnectionEpoch == epoch && connection.IsConnected && committed.revision < receipt.revision)
+                    await Task.Yield();
+                if (client != connection || connection.ConnectionEpoch != epoch || !connection.IsConnected) {
+                    InteractionFeedback.Notify("The room accepted the edit. Reconnect to synchronize its display before continuing.");
+                    return false;
+                }
+                status = "Accepted revision " + receipt.revision;
+                return true;
             }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) {
+                selectAfterApply.Remove(transaction.operationId);
                 Report(error); rejected?.Invoke(); CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id)));
-            } }
+            } return false; }
             finally { if (client == connection && connection.ConnectionEpoch == epoch) { submitting = false; CancelPose(); } }
         }
 
@@ -758,6 +779,7 @@ namespace Protobot {
             var ghost = ghosts[key]; Destroy(ghost.GetComponent<MeshFilter>().sharedMesh); Destroy(ghost.GetComponent<MeshRenderer>().sharedMaterial); Destroy(ghost); ghosts.Remove(key);
         }
         private void ClearGhosts() { foreach (var key in ghosts.Keys.ToArray()) RemoveGhost(key); }
+        internal static void ReportCustomImportFailure(Exception error) { if (instance != null) instance.Report(error); }
         private void Report(Exception error) { AdmissionFeedback(error); status = error is CollaborationException known ? known.Code switch {
             "connection-attempt-timeout" => "The connection attempt reached its three-minute limit. Accepted content, known membership and pending outcomes are kept. Retry explicitly when ready.",
             "safe-retry-exhausted" => "Safe connection attempts exhausted. Check the network or server, then retry explicitly. Accepted content and pending outcomes are kept.",
@@ -766,7 +788,7 @@ namespace Protobot {
             "short-polling-unavailable" => "This helper does not support short polling. Use an existing transport or update the helper with the matching release and catalog.",
             "asset-unused-quota" => "The room's unused upload budget is full. Reuse an uploaded model or start a new room.",
             "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",
-            "asset-byte-limit" or "local-serialization-limit" => "This custom geometry exceeds the collaboration size limit. Use a smaller mesh.",
+            "asset-byte-limit" or "local-serialization-limit" => $"This model exceeds the shared room's {GeometryTransfer.MaxAssetBytes / (1024 * 1024)} MiB encoded geometry limit. Reduce mesh detail and import again; OBJ/STL file size can differ.",
             "asset-scene-quota" => "This build has too much instanced custom geometry. Reduce mesh detail or the number of custom-model copies.",
             "room-not-found" => "That room ID is not registered on this server. Check the invitation's room ID.",
             "room-unavailable" or "room-storage-failed-restart-required" => "This room is unavailable. Ask the server operator to inspect its status and recovery data.",

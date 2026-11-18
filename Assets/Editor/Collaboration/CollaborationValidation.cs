@@ -21,6 +21,7 @@ namespace ProtobotEditorTools {
         private const string Key = "Protobot.CollaborationSmoke";
         private static int frames;
         public static void Smoke() {
+            CollaborationCustomImportValidation.Validate();
             CollaborationSetup.ExportCatalog();
             EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
             SessionState.SetBool(Key, true); EditorApplication.EnterPlaymode();

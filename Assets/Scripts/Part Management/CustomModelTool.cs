@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Protobot.Builds;
+using Protobot.Collaboration;
 using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.StateSystems;
@@ -22,7 +23,7 @@ namespace Protobot {
         [SerializeField] private Camera refCamera;
         private static CustomModelTool instance;
         private static int finishedFrame = -1;
-        private bool options, busy, placingMounts;
+        private bool options, busy, placingMounts, publishing;
         private int generation, startFrame;
         private int units;
         private InputField diameterField, depthField;
@@ -71,7 +72,8 @@ namespace Protobot {
             CancelMode();
             Simulation.SimulationTool.ExitForEdit();
             options = true;
-            var panel = CreatePanel("Import Custom Model", true, 340);
+            bool shared = CollaborationSession.IsShared;
+            var panel = CreatePanel("Import Custom Model", true, shared ? 390 : 340);
             AddLabel(panel, "OBJ and STL geometry is embedded in your build.\nChoose the source file's units before importing.", 50, 70);
             units = Mathf.Clamp(LocalPreferences.GetInt("customModelUnits", 0), 0, 2);
             Button unitButton = null;
@@ -81,8 +83,9 @@ namespace Protobot {
             });
             void UpdateUnitLabel() => unitButton.GetComponentInChildren<Text>().text = "Source units: " + UnitNames[units];
             AddLabel(panel, "Models use one editable color. OBJ material and texture files are not imported.", 185, 55);
-            AddButton(panel, "Choose OBJ / STL file…", 250, ChooseFile);
-            AddButton(panel, "Cancel", 292, CancelMode);
+            if (shared) AddLabel(panel, $"Shared rooms allow up to {GeometryTransfer.MaxAssetBytes / (1024 * 1024)} MiB of encoded geometry per model. File size can differ; reduce mesh detail for large models.", 235, 55);
+            AddButton(panel, "Choose OBJ / STL file…", shared ? 300 : 250, ChooseFile);
+            AddButton(panel, "Cancel", shared ? 342 : 292, CancelMode);
         }
 
         private async void ChooseFile() {
@@ -118,13 +121,25 @@ namespace Protobot {
             var panel = CreatePanel("Importing model…", true, 175);
             AddLabel(panel, "Reading " + Path.GetFileName(path), 55, 50);
             AddButton(panel, "Cancel", 120, CancelMode);
-            var data = await Task.Run(() => CustomModelImporter.Read(path, inchesPerUnit));
+            bool shared = CollaborationSession.IsShared;
+            var data = await Task.Run(() => {
+                var parsed = CustomModelImporter.Read(path, inchesPerUnit);
+                if (shared) CollaborationScene.ValidateCustomImport(parsed);
+                return parsed;
+            });
             if (this == null || request != generation || !isActiveAndEnabled) return null;
             var obj = CustomModel.Create(data, PivotCamera.Main.focusPosition, Quaternion.identity);
             if (CollaborationSession.IsShared) {
-                CollaborationSession.PlaceCopies(new List<GameObject> { obj }, selectResult: selectionManager);
-                LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
-                InteractionFeedback.Notify($"Submitted {data.name} to the shared room.");
+                publishing = true;
+                var confirmation = CreatePanel("Adding model to shared room…", true, 140);
+                AddLabel(confirmation, "Uploading geometry and waiting for accepted placement. The room may already have received the edit; wait for its outcome.", 50, 75);
+                try {
+                    if (await CollaborationSession.PlaceCopiesAsync(new List<GameObject> { obj }, selectResult: selectionManager)) {
+                        LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
+                        InteractionFeedback.Notify($"Imported {data.name} into the shared room. G: move · {mountInput.GetCurrentKeybind()}: add mounting points.");
+                    }
+                }
+                finally { publishing = false; }
                 return null;
             }
             StateSystem.AddElement(new ObjectElement(obj) { existing = false });
@@ -138,6 +153,9 @@ namespace Protobot {
         }
 
         private static void ReportFailure(Exception exception) {
+            if (exception is CollaborationException && CollaborationSession.IsShared) {
+                CollaborationSession.ReportCustomImportFailure(exception); return;
+            }
             Debug.LogWarning("Could not import model: " + exception.Message);
             InteractionFeedback.Notify("Could not import model: " + exception.Message);
         }
@@ -185,6 +203,7 @@ namespace Protobot {
         private void LateUpdate() {
             if (!options && !placingMounts && !busy) return;
             if (Keyboard.current?.escapeKey.wasPressedThisFrame == true && !NativeFileDialogs.IsOpen) {
+                if (publishing) return;
                 if (!EscapeDeselect.TryHandleEscape()) CancelMode();
                 return;
             }
@@ -265,6 +284,9 @@ namespace Protobot {
         }
         internal static bool TryCancelActive() {
             if (instance == null || !(instance.options || instance.busy || instance.placingMounts)) return false;
+            // Escape is routed here before LateUpdate. Once publication starts,
+            // consume it without implying that an already-sent edit was canceled.
+            if (instance.publishing) return true;
             if (instance.mountEditor?.CancelLevel() == true) return true;
             instance.CancelMode();
             return true;

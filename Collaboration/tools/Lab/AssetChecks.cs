@@ -20,6 +20,8 @@ internal static partial class Program {
     private static async Task AssetChecks(string directory) {
         var timer = Stopwatch.StartNew(); long allocated = GC.GetTotalAllocatedBytes();
         var seed = Fixture(); var asset = LargeAsset(); byte[] bytes = GeometryTransfer.Encode(asset);
+        Check(LocalJson.Encode(asset, bytes.Length).SequenceEqual(bytes), "exact local serialization byte limit accepts unchanged geometry");
+        Reject(() => LocalJson.Encode(asset, bytes.Length - 1), "local-serialization-limit");
         Check(bytes.Length > WireJson.MaxMessageBytes && bytes.Length <= GeometryTransfer.MaxAssetBytes, "representative geometry exceeds old inline and wire limits within the transfer quota");
         Reject(() => WireJson.Decode<GeometryAsset>(bytes), "message-too-large");
         var room = new Room(seed); var owner = room.Join(new JoinRequest { catalogHash = seed.catalog.hash, name = "Asset owner", ownerCredential = seed.ownerCredential });
