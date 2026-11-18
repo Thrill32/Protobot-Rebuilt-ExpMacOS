@@ -150,6 +150,18 @@ internal static partial class Program {
             Check(unsupported.code == 1 && unsupported.error.Contains("installation-probe-unsupported") && !Directory.Exists(refusedInstall),
                 "manifest claims and the same wire version cannot substitute for actual executable build/format support");
         }
+        if (currentDescription["build"]["capabilities"].AsArray().Any(n => n.GetValue<string>() == "editor-room-replacement-v1") &&
+            !previousDescription["build"]["capabilities"].AsArray().Any(n => n.GetValue<string>() == "editor-room-replacement-v1")) {
+            if (File.ReadAllLines(Path.Combine(install, "active"))[0] != currentHash)
+                Check((await InstalledCommand(launcher, "select", "--version", currentHash)).code == 0, "select policy-capable helper before enabling editors");
+            using (var registry = new RoomRegistry(config)) registry.Resolve("retained").ConfigureEditorReplacement(RoomRegistry.Hash("retained-owner"), true);
+            byte[] enabled = File.ReadAllBytes(database); pointer = File.ReadAllText(Path.Combine(install, "active"));
+            var refused = await InstalledCommand(launcher, "select", "--version", previousHash);
+            Check(refused.code == 1 && refused.error.Contains("installation-capability-incompatible") &&
+                File.ReadAllText(Path.Combine(install, "active")) == pointer && File.ReadAllBytes(database).SequenceEqual(enabled),
+                "enabled persisted room policy refuses an older helper without changing its database or installation");
+            using (var registry = new RoomRegistry(config)) registry.Resolve("retained").ConfigureEditorReplacement(RoomRegistry.Hash("retained-owner"), false);
+        }
         if (currentDescription["build"]["storage"].AsArray().Any(n => n.GetValue<int>() == 3) &&
             !previousDescription["build"]["storage"].AsArray().Any(n => n.GetValue<int>() == 3)) {
             if (File.ReadAllLines(Path.Combine(install, "active"))[0] != currentHash)
@@ -171,6 +183,19 @@ internal static partial class Program {
             using var reopened = new RoomRegistry(config);
             Check(DocumentModel.Hash(reopened.Resolve("retained").Snapshot) == replacedHash && reopened.Resolve("retained").Capabilities.roomReplacementVersion == 1,
                 "replacement-capable helper retains the authoritative migrated room after rollback refusal");
+        }
+        if (currentDescription["build"]["capabilities"].AsArray().Any(n => n.GetValue<string>() == "editor-room-replacement-v1")) {
+            string portable = Path.Combine(directory, "setup-policy-content.json"); RecoveryFiles.Write(portable, content);
+            foreach (bool allow in new[] { false, true }) {
+                string roomState = Path.Combine(directory, "installed-policy-" + allow);
+                string[] arguments = { "setup", "--profile", "policy-" + allow, "--kind", "room", "--room", "setup-policy", "--snapshot", portable, "--state-dir", roomState };
+                if (allow) arguments = arguments.Concat(new[] { "--allow-editor-project-replacement", "yes" }).ToArray();
+                var initialized = await InstalledCommand(launcher, arguments);
+                Check(initialized.code == 0, "installed single-room setup accepts explicit Yes and defaults to No");
+                using var store = new RoomStore(Path.Combine(roomState, "data"));
+                Check(new Room(null, storage: store).Capabilities.allowEditorProjectReplacement == allow,
+                    "installed setup persists the selected room policy independently of its portable snapshot");
+            }
         }
         File.WriteAllText(Path.Combine(directory, "installation-summary.json"), new JsonObject { ["passed"] = true, ["current"] = currentHash, ["previous"] = previousHash, ["assertions"] = assertions }.ToJsonString());
     }

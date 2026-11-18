@@ -17,14 +17,15 @@ namespace Protobot.Collaboration {
                 catalog.entries.Select(e => e.id).Distinct(StringComparer.Ordinal).Count() == catalog.entries.Length, "invalid-catalog");
             DocumentModel.Validate(document, catalog); GeometryTransfer.RequireHydrated(document);
         }
-        public Bootstrap CreateRoom(string room, string password, string ownerCredential) {
+        public Bootstrap CreateRoom(string room, string password, string ownerCredential, bool allowEditorProjectReplacement = false) {
             Validate(); DocumentModel.Require(DocumentModel.ValidId(room), "invalid-room");
             var copy = GeometryTransfer.CloneDocument(document);
             copy.generation = Guid.NewGuid().ToString("N"); copy.revision = 0; copy.tombstones = Array.Empty<VersionRef>();
             copy.chainTombstones = Array.Empty<VersionRef>();
             foreach (var part in copy.parts) part.version = 1;
             foreach (var chain in DocumentModel.Chains(copy)) chain.version = 1;
-            return new Bootstrap { room = room, password = password, ownerCredential = ownerCredential, catalog = WireJson.Clone(catalog), document = copy };
+            return new Bootstrap { room = room, password = password, ownerCredential = ownerCredential, catalog = WireJson.Clone(catalog), document = copy,
+                allowEditorProjectReplacement = allowEditorProjectReplacement };
         }
     }
 }

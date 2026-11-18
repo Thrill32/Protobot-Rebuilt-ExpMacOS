@@ -161,7 +161,8 @@ namespace Protobot {
                 bool wasSaved = builds.CurrentBuildIsSaved;
                 if (!int.TryParse(port, out var listenPort) || listenPort < 0 || listenPort > 65535) throw new ArgumentException("Use a port from 0 to 65535.");
                 var owner = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
-                var seed = new Bootstrap { room = room, password = password, ownerCredential = owner, catalog = catalog, document = committed };
+                var seed = new Bootstrap { room = room, password = password, ownerCredential = owner, catalog = catalog, document = committed,
+                    allowEditorProjectReplacement = allowEditorProjectReplacement };
                 hostedRoom = CollaborationRecovery.Create(seed, listenPort);
                 host = new CollaborationHost();
                 await host.StartAsync(seed, listenPort, lan, hostedRoom.directory, attempt.Token);

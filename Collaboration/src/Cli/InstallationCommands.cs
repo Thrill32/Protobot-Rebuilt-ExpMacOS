@@ -68,6 +68,7 @@ internal static partial class Program {
             foreach (var profile in Profiles(root)) {
                 string data = Path.Combine(profile.stateDirectory, "data");
                 var lease = InstallationData.Open(data, profile.kind == "server"); leases.Add(lease);
+                DocumentModel.Require(!lease.RequiresEditorReplacement || candidate.capabilities.Contains("editor-room-replacement-v1"), "installation-capability-incompatible");
                 DocumentModel.Require(!lease.StorageVersions.Contains(3) || candidate.capabilities.Contains("room-replacement-v1"), "installation-capability-incompatible");
                 DocumentModel.Require(candidate.storage != null && candidate.documents != null && candidate.configFields != null &&
                     lease.StorageVersions.All(candidate.storage.Contains) && lease.DocumentVersions.All(candidate.documents.Contains) &&

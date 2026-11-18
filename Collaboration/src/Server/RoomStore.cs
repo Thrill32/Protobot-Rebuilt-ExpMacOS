@@ -17,6 +17,7 @@ namespace Protobot.Collaboration.Server {
         [System.Runtime.Serialization.OptionalField] public string roomIdentity;
         [System.Runtime.Serialization.OptionalField] public long retiredHistoryBytes;
         [System.Runtime.Serialization.OptionalField] public RoomReplacementReceipt[] replacements;
+        [System.Runtime.Serialization.OptionalField] public bool allowEditorProjectReplacement;
     }
     [Serializable] internal class StoredMember {
         public Participant participant;

@@ -33,6 +33,8 @@ namespace Protobot {
         private InputField uiName, uiRoom, uiPassword, uiEndpoint, uiPort;
         private Toggle uiLan, uiViewer;
         private Dropdown uiTransport;
+        private bool allowEditorProjectReplacement;
+        private Dropdown uiHostEditorReplacement, uiCreateEditorReplacement;
         private Button uiJoinRoom, uiReconnect, uiSave, uiSaveAs, uiLeave, uiCancelConnection;
         private Transform uiRecoveryRows;
         private ScrollRect uiScroll;
@@ -115,6 +117,8 @@ namespace Protobot {
             UIText(settings, "LAN Help", "Leave off for HTTPS or same-computer testing. LAN hosting requires a reachable address and firewall permission.", 12);
 
             uiPort = UIField(uiHost.transform, "Host port (0 chooses a free port)", port, 5, value => { port = value; portEdited = true; });
+            uiHostEditorReplacement = UIDropdown(uiHost.transform, "Allow other editors to replace this room’s project?", new[] { "No", "Yes" }, 0,
+                value => { allowEditorProjectReplacement = value == 1; uiCreateEditorReplacement?.SetValueWithoutNotify(value); });
             UIButton(uiHost.transform, "Start Hosting", "Host current build", () => _ = HostAsync(), true);
             UIText(uiJoin.transform, "Help", "Joining opens the room after the normal Save / Discard prompt. Your first local save uses Save As.");
             uiEndpoint = UIField(uiJoin.transform, "Server address", endpoint, 256, value => endpoint = value);
@@ -123,6 +127,9 @@ namespace Protobot {
             UIText(uiJoin.transform, "Viewer Help", "A saved membership keeps its existing role and personal history. Forget it below to join as a new member.", 12);
             uiTransport = UIDropdown(uiJoin.transform, "Connection transport", new[] { "Auto (WebSocket, then requests)", "WebSocket only", "HTTPS / HTTP requests only", "Short polling (proxy compatibility)" }, (int)transport, value => transport = (CollaborationTransport)value);
             uiJoinRoom = UIButton(uiJoin.transform, "Join Room", "Join room", RequestJoin, true);
+            UIButton(uiJoin.transform, "Replace As Participant", "Replace online room with this project...", () => _ = InspectParticipantReplacementAsync());
+            UIText(uiJoin.transform, "Participant Replacement Help", "Uses your saved membership or the room password without opening the online project. Only owners, or editors allowed by the room's policy, may replace. Confirmation is required.", 12);
+            uiParticipantReplacementRecords = UIColumn(uiJoin.transform, "Participant Replacement Attempts");
             UIButton(uiJoin.transform, "Test Connection", "Test server connection (read-only)", () => _ = TestServerAsync());
             uiTestReport = UIText(uiJoin.transform, "Connection Test Results", "", 12);
             UIButton(uiJoin.transform, "Forget Membership", "Forget saved membership for this address / room", () => {
@@ -302,6 +309,7 @@ namespace Protobot {
             uiFormGroup.interactable = !busy; uiFormGroup.blocksRaycasts = !busy;
             RefreshNetworkUI();
             RefreshResynchronizationUI();
+            RefreshParticipantReplacementUI();
             uiUtilityGroup.interactable = !busy;
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
@@ -422,7 +430,7 @@ namespace Protobot {
             "room-replacement-client-required" => "This replaced room requires an updated collaboration client and its matching catalog before admission.",
             "room-replacement-busy" => "Another creation or replacement is being processed. Check any prepared attempt before a new confirmation.",
             "room-storage-failed-restart-required" => "Room storage stopped accepting changes. Ask the server operator to restart it, then check pending outcomes. Your accepted build and local files are kept.",
-            "room-replaced" => "The owner replaced this room. Your last accepted build stays open. Choose Resynchronize to check old pending outcomes and open the new generation; local files are unchanged.",
+            "room-replaced" => "This room's project was replaced. Your last accepted build stays open. Choose Resynchronize to check old pending outcomes and open the new generation; local files are unchanged.",
             "server-stopping" => "The host stopped the server. Your last received accepted build stays open. Reconnect after it restarts to check pending edits; local files are unchanged.",
             "proxy-authentication-required" => "The proxy requires supported credentials. Check its Basic username/password with your network operator and reconnect. Integrated authentication is available only through tested system defaults.",
             "proxy-config-version" or "proxy-route-unsupported" or "proxy-auth-unsupported" or "proxy-auth-route-mismatch" => "Choose System, Direct, or an HTTP proxy with None or Basic authentication. Other explicit proxy mechanisms are unsupported.",
@@ -435,7 +443,7 @@ namespace Protobot {
             "server-version-mismatch" => "The server uses a different collaboration version. Use matching builds and helpers.",
             "https-required-use-explicit-lan-http" => "Use an HTTPS address, or enable LAN HTTP for a trusted local-network test.",
             "room-full" => "This room has reached its participant limit.",
-            "saved-room-does-not-match" => "Room identity or generation differs. Check the address and matching build. If the owner replaced this room, choose Resynchronize to keep your membership and check pending outcomes.",
+            "saved-room-does-not-match" => "Room identity or generation differs. Check the address and matching build. If this room was replaced, choose Resynchronize to keep your membership and check pending outcomes.",
             "invalid-session" => "The server did not accept this session. Reconnect using the saved membership first; pending outcomes are retained. If recovery still fails, check with the room owner before forgetting an identity or recreating edits.",
             "membership-revoked" => "Your membership was removed or ended. Shared editing and reconnect are disabled. Continue offline to keep the last received accepted build.",
             "owner-required" => "Only this room's owner can perform this action.",

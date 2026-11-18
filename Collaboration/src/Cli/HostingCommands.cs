@@ -71,7 +71,12 @@ internal static partial class Program {
             }
             content.Validate(); string room = options.Required("--room"); DocumentModel.Require(DocumentModel.ValidId(room), "invalid-room");
             var owner = new OwnerFile { room = room, credential = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
-            seed = content.CreateRoom(room, Password(options), owner.credential);
+            bool allowEditorReplacement = EditorReplacementPolicy(options);
+            if (allowEditorReplacement) {
+                var caps = await ConnectionRetry.GetAsync<Capabilities>(http, origin + "/capabilities", stop.Token);
+                DocumentModel.Require(caps.editorRoomReplacementVersion == RoomReplacement.EditorPolicyVersion, "editor-room-replacement-unavailable");
+            }
+            seed = content.CreateRoom(room, Password(options), owner.credential, allowEditorReplacement);
             // Retain this private capability even if a reply is lost. List the room
             // before retrying; duplicates never overwrite or create a second copy.
             string output = Path.GetFullPath(options.Required("--owner-output"));

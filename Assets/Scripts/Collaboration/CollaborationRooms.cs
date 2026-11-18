@@ -26,6 +26,8 @@ namespace Protobot {
             uiCreateRoom = UIColumn(form, "Create Room Page").gameObject;
             UIText(uiCreateRoom.transform, "Help", "Create a new room on a shared server from your current accepted build. Creation keeps your project and local file open. Join as owner afterward to start sharing.");
             uiCreateAddress = UIField(uiCreateRoom.transform, "Creation server address", endpoint, 256, value => endpoint = value);
+            uiCreateEditorReplacement = UIDropdown(uiCreateRoom.transform, "Allow other editors to replace this room’s project?", new[] { "No", "Yes" }, 0,
+                value => { allowEditorProjectReplacement = value == 1; uiHostEditorReplacement.SetValueWithoutNotify(value); });
             uiCreationAuthority = UIDropdown(uiCreateRoom.transform, "Creation authority", new[] { "Room creation key", "Explicitly open server", "Server administrator" }, 0, value => { creationAuthority = value; ClearRoomKeys(); });
             uiCreationKey = UIField(uiCreateRoom.transform, "Creation / administrator key (private)", "", 64, value => creationKey = value, true);
             UIText(uiCreateRoom.transform, "Authority Help", "A creation key only creates rooms. Each new room has a private owner credential retained in this local profile. The room password controls joining; it is separate from creation and administration.", 12);
@@ -45,7 +47,7 @@ namespace Protobot {
             UIText(uiOwnedRooms.transform, "Recovery Help", "After a failed or canceled creation or replacement, use Check to learn its outcome. No mutation is resent automatically. Keep this private profile to retain ownership.", 12);
             UIButton(uiOwnedRooms.transform, "Refresh Created Rooms", "Refresh private room records", () => { createdRoomSignature = null; RefreshCreatedRoomsUI(); });
             uiCreatedRooms = UIColumn(uiOwnedRooms.transform, "Private Created Rooms");
-            InitializeReplacementUI(uiOwnedRooms.transform);
+            InitializeReplacementUI(form);
 
             uiServerAdmin = UIColumn(form, "Server Admin Page").gameObject;
             UIText(uiServerAdmin.transform, "Help", "Server administrator: inspect registered rooms, availability and process / room usage. This credential does not grant room membership or owner participant controls.");
@@ -96,7 +98,7 @@ namespace Protobot {
                 var caps = await remote.InspectAsync(token);
                 DocumentModel.Require(creationAuthority != 1 || caps.roomCreationPolicy == "open", "room-creation-key-required");
                 DocumentModel.Require(creationAuthority != 0 || caps.roomCreationPolicy == "key", "creation-authority-mismatch");
-                var record = await remote.CreateAsync(content, room, password, creationAuthority == 1 ? null : creationKey, creationAuthority == 2, CreatedRoomsRoot, token);
+                var record = await remote.CreateAsync(content, room, password, creationAuthority == 1 ? null : creationKey, creationAuthority == 2, CreatedRoomsRoot, token, allowEditorProjectReplacement);
                 status = "Room " + record.room + " created. You own this room; your local project is still open. Choose Join as owner to start sharing.";
                 SelectUITab(5);
             });
@@ -157,7 +159,9 @@ namespace Protobot {
             RequestJoinCore();
         }
         private static string CreationFeedback(string code) => code switch {
-            "room-replacement-unavailable" => "This helper does not support durable owner-authorized replacement. Use a compatible updated helper and the room's matching catalog.",
+            "editor-room-replacement-unavailable" => "This helper does not support the editor replacement policy. Update the helper with its matching build.",
+            "owner-required" => "Replacement requires a room owner, or an editor membership with the room's editor replacement setting enabled. Viewers cannot replace projects.",
+            "room-replacement-unavailable" => "This helper does not support durable room replacement. Use a compatible updated helper and the room's matching catalog.",
             "replacement-target-changed" => "The online room changed after it was inspected. Inspect it again before deciding whether to replace.",
             "room-replacement-limit" => "This room has reached its retained replacement-outcome limit. Existing outcomes and content remain intact.",
             "replacement-record-limit" => "This profile retains 64 replacement attempts. Preserve its private attempt files before moving completed records elsewhere.",

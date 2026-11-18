@@ -24,6 +24,8 @@ namespace Protobot {
         }
         [Serializable] private sealed class ModelProbeResult {
             public string id, error, status, notification, role, participant, hash, clientHash, catalog, helper;
+            public string localHash, localFile;
+            public bool localSaved, shared, replacementConfirmation, requiresResynchronization;
             public bool connected, pending, capturing;
             public long revision;
             public int assets, geometryAssetBytes;
@@ -65,6 +67,7 @@ namespace Protobot {
                     last = command.id;
                     try {
                         switch (command.action) {
+                            case "host-editors": uiHostEditorReplacement.value = 1; goto case "host";
                             case "host":
                                 OpenPanel(0); uiPort.text = "0";
                                 uiRoot.GetComponentsInChildren<Button>(true).Single(b => b.name == "Start Hosting").onClick.Invoke();
@@ -112,6 +115,19 @@ namespace Protobot {
                                 if (!await FindFirstObjectByType<BuildsManager>().OpenPathAsync(command.path)) throw new InvalidOperationException("Reload failed.");
                                 break;
                             case "reconnect": await ReconnectAsync(); break;
+                            case "replacement-inspect":
+                                OpenPanel(1); await InspectParticipantReplacementAsync(); break;
+                            case "replacement-confirm":
+                                uiRoot.GetComponentsInChildren<Button>(true).Single(b => b.name == "Confirm Replace Online Room").onClick.Invoke();
+                                await ModelProbeWait(() => !busy); break;
+                            case "replacement-cancel":
+                                uiRoot.GetComponentsInChildren<Button>(true).Single(b => b.name == "Cancel Replace Online Room").onClick.Invoke(); break;
+                            case "replacement-check": await CheckParticipantReplacementAsync(command.path); break;
+                            case "resynchronize":
+                                OpenPanel();
+                                uiRoot.GetComponentsInChildren<Button>(true).Single(b => b.name == "Resynchronize Replaced Room").onClick.Invoke();
+                                uiRoot.GetComponentsInChildren<Button>(true).Single(b => b.name == "Confirm Resynchronize Room").onClick.Invoke();
+                                await ModelProbeWait(() => !busy); break;
                             case "capture":
                                 var models = PartsManager.FindLoadedObjects().Where(b => b.GetComponent<CustomModel>() != null).ToArray();
                                 if (models.Length > 0) PivotCamera.Main.SetTransform(models[0].transform.position, new Vector3(20, 30, 0), -8);
@@ -134,9 +150,16 @@ namespace Protobot {
         }
         private void WriteModelProbe(string output, string id, string error) {
             var snapshot = client?.Snapshot;
+            Document local = null;
+            if (CollaborationArguments.Get("--collab-probe") == "editor-replacement") {
+                local = CaptureRoomExport().document; local.generation = "local-probe"; local.revision = 0;
+            }
+            var builds = FindFirstObjectByType<BuildsManager>();
             var selection = GameObject.Find("Primary Selection Manager")?.GetComponent<SelectionManager>();
             var selected = selection?.current == null ? Array.Empty<GameObject>() : BuildTransfer.SelectedBodies(selection.current).ToArray();
             var result = new ModelProbeResult { id = id, error = error, status = status,
+                localHash = local == null ? null : DocumentModel.Hash(local), localFile = builds.buildPath, localSaved = builds.CurrentBuildIsSaved,
+                shared = IsShared, replacementConfirmation = uiReplacementConfirmation.activeSelf, requiresResynchronization = NeedsSceneResynchronization,
                 notification = (string)typeof(InteractionFeedback).GetField("notification", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null),
                 connected = client?.IsConnected == true, pending = HasPending, capturing = CustomModelTool.IsCapturingInput,
                 role = client?.Participant?.role, participant = client?.Participant?.id, hash = committed == null ? null : DocumentModel.Hash(committed),

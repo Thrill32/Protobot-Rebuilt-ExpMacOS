@@ -36,6 +36,9 @@ internal static partial class Program {
                     "protobot-collab serve --multi-room --config <server-directory/server.json> [--listen <origin>] [--public-url <https-origin>]\n" +
                     "protobot-collab room create --url <origin> --admin-file <private-admin.json> --room <id> (--catalog <file> | --snapshot <file>) --owner-output <new-private-file> [--password-file <file> | --password-prompt]\n" +
                     "  Creation authority: exactly one of --admin-file <file>, --creation-key-file <private-creator.json>, --open-creation. Creator authority never lists rooms.\n" +
+                    "  Room creation/init/setup: [--allow-editor-project-replacement yes|no] (default no). Bootstrap config: allowEditorProjectReplacement boolean.\n" +
+                    "protobot-collab room-policy --data-dir <stopped-room> --allow-editor-project-replacement yes|no # requires its private owner.json\n" +
+                    "  Replacement participant authority: replace --owner-file with --participant-session <private-cache> --room <id> --catalog <matching-catalog> [--name <name>] [--password-file <file> | --password-prompt].\n" +
                     "protobot-collab room list --url <origin> --admin-file <private-admin.json>\n" +
                     "protobot-collab room replacement-target --url <origin> --owner-file <private-owner.json> --output <new-target.json>\n" +
                     "protobot-collab room replace --url <origin> --owner-file <private-owner.json> --target <target.json> --snapshot <room-export.json> --attempt-output <new-private-attempt.json> --confirm-room <exact-room-id>\n" +
@@ -57,8 +60,9 @@ internal static partial class Program {
             if (args[0] == "install" || args[0] == "update") return await InstallArtifact(new Options(args, new[] { "--artifact", "--manifest-sha256", "--install-dir" }, Array.Empty<string>()), args[0] == "update");
             if (args[0] == "select") return await SelectInstallation(new Options(args, new[] { "--install-dir", "--version" }, Array.Empty<string>()));
             if (args[0] == "installation-info") return InstallationInfo(new Options(args, new[] { "--install-dir" }, Array.Empty<string>()));
-            if (args[0] == "setup") return SetupProfile(new Options(args, new[] { "--install-dir", "--profile", "--state-dir", "--kind", "--creation-policy", "--room", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
+            if (args[0] == "setup") return SetupProfile(new Options(args, new[] { "--install-dir", "--profile", "--state-dir", "--kind", "--creation-policy", "--room", "--snapshot", "--password-file", "--allow-editor-project-replacement" }, new[] { "--password-prompt" }));
             if (args[0] == "start") return await StartProfile(new Options(args, new[] { "--install-dir", "--profile", "--listen", "--public-url", "--tls-file" }, new[] { "--allow-lan-http" }));
+            if (args[0] == "room-policy") return ConfigureRoomPolicy(new Options(args, new[] { "--data-dir", "--allow-editor-project-replacement" }, Array.Empty<string>()));
             if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir", "--creation-policy" }, Array.Empty<string>()));
             if (args[0] == "server-policy") return ConfigureServerCreation(new Options(args, new[] { "--config", "--admin-file", "--creation-policy", "--creator-output" }, Array.Empty<string>()));
             if (args[0] == "room") {
@@ -67,15 +71,15 @@ internal static partial class Program {
                 DocumentModel.Require(operation == "create" || operation == "list" || operation == "restore" || replacement, "unknown-room-operation");
                 var roomArgs = new string[args.Length - 1]; roomArgs[0] = "room"; Array.Copy(args, 2, roomArgs, 1, args.Length - 2);
                 if (replacement) return await ReplaceRoom(operation, new Options(roomArgs,
-                    new[] { "--url", "--owner-file", "--network-route", "--network-file" }.Concat(operation == "replacement-target" ? new[] { "--output" } :
+                    new[] { "--url", "--owner-file", "--participant-session", "--room", "--catalog", "--name", "--password-file", "--network-route", "--network-file" }.Concat(operation == "replacement-target" ? new[] { "--output" } :
                         operation == "replacement-check" ? new[] { "--attempt" } : new[] { "--target", "--snapshot", "--attempt-output", "--confirm-room" }).ToArray(),
-                    new[] { "--allow-lan-http" }));
+                    new[] { "--allow-lan-http", "--password-prompt" }));
                 return await Hosting(operation, new Options(roomArgs,
                     operation == "list" ? new[] { "--url", "--admin-file", "--network-route", "--network-file" } : operation == "restore" ? new[] { "--config", "--admin-file", "--input" } :
-                        new[] { "--url", "--admin-file", "--creation-key-file", "--room", "--catalog", "--snapshot", "--password-file", "--owner-output", "--network-route", "--network-file" },
+                        new[] { "--url", "--admin-file", "--creation-key-file", "--room", "--catalog", "--snapshot", "--password-file", "--owner-output", "--network-route", "--network-file", "--allow-editor-project-replacement" },
                     operation == "restore" ? Array.Empty<string>() : operation == "list" ? new[] { "--allow-lan-http" } : new[] { "--password-prompt", "--allow-lan-http", "--open-creation" }));
             }
-            if (args[0] == "init") return Initialize(new Options(args, new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
+            if (args[0] == "init") return Initialize(new Options(args, new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file", "--allow-editor-project-replacement" }, new[] { "--password-prompt" }));
             if (args[0] == "diagnostics") return await Diagnostics(new Options(args, new[] { "--url", "--owner-file", "--admin-file", "--output", "--network-route", "--network-file" }, new[] { "--allow-lan-http" }));
             if (args[0] == "doctor") return await Doctor(new Options(args, new[] { "--url", "--catalog", "--room", "--password-file", "--transport", "--output", "--network-route", "--network-file" }, new[] { "--password-prompt", "--quick", "--allow-lan-http" }));
             if (args[0] == "participants" || args[0] == "remove-participant") return await Administer(args[0],
@@ -111,10 +115,10 @@ internal static partial class Program {
             try { await server.StartAsync(stop.Token); }
             catch (OperationCanceledException) { throw; }
             catch when (tls != null) { throw new CollaborationException("tls-listener-start-failed"); }
-            var ready = new Ready { url = server.Url, room = server.Room?.Name, durable = multiRoom || server.Room.IsDurable, multiRoom = multiRoom, registryVersion = multiRoom ? RoomRegistry.Version : 0,
+            var ready = new Ready { editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion, url = server.Url, room = server.Room?.Name, durable = multiRoom || server.Room.IsDurable, multiRoom = multiRoom, registryVersion = multiRoom ? RoomRegistry.Version : 0,
                 recovered = multiRoom || server.Room.Recovered, revision = server.Room?.Snapshot.revision ?? 0 };
             Console.WriteLine(publicUrl == null ? WireJson.Text(ready) : System.Text.Json.JsonSerializer.Serialize(new {
-                ready.type, ready.url, ready.room, ready.version, ready.durable, ready.recovered, ready.revision, ready.multiRoom, ready.registryVersion, publicUrl }));
+                ready.type, ready.url, ready.room, ready.version, ready.durable, ready.recovered, ready.revision, ready.multiRoom, ready.registryVersion, ready.editorRoomReplacementVersion, publicUrl }));
             await Console.Out.FlushAsync();
             if (parentOwned) {
                 // EOF (including a crashed parent) or an explicit line closes only this owned server.

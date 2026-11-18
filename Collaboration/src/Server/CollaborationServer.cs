@@ -123,6 +123,7 @@ namespace Protobot.Collaboration.Server {
             var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version,
                 geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
                 roomCreationVersion = ServerRooms.CreationVersion, roomCreationPolicy = registry.CreationPolicy, serverId = registry.ServerId,
+                editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion,
                 diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" } };
             app.MapGet("/capabilities", context => Write(context, registry == null ? Room.Capabilities : rootCapabilities));
             app.MapGet("/health", context => { context.Response.StatusCode = registry != null || Room.IsHealthy ? 200 : 503; return Write(context, registry == null ? Room.Capabilities : rootCapabilities); });

@@ -89,14 +89,15 @@ namespace Protobot.Collaboration {
             ServerRooms.RequireCreation(value); return value;
         }
         public async Task<CreatedRoom> CreateAsync(RoomExport content, string room, string password, string credential, bool administrator,
-            string recoveryRoot, CancellationToken cancellation) {
+            string recoveryRoot, CancellationToken cancellation, bool allowEditorProjectReplacement = false) {
             var caps = await InspectAsync(cancellation).ConfigureAwait(false);
+            DocumentModel.Require(!allowEditorProjectReplacement || caps.editorRoomReplacementVersion == RoomReplacement.EditorPolicyVersion, "editor-room-replacement-unavailable");
             DocumentModel.Require(administrator || caps.roomCreationPolicy != "admin-only", "server-admin-required");
             DocumentModel.Require(administrator || caps.roomCreationPolicy != "key" || DocumentModel.ValidAssetHash(credential), "room-creation-key-required");
             DocumentModel.Require(string.IsNullOrEmpty(credential) || DocumentModel.ValidAssetHash(credential), "invalid-creation-credential");
             DocumentModel.Require(!administrator || DocumentModel.ValidAssetHash(credential), "server-admin-required");
             string owner; using (var random = RandomNumberGenerator.Create()) { var bytes = new byte[32]; random.GetBytes(bytes); owner = DocumentModel.Hex(bytes); }
-            var seed = content.CreateRoom(room, password, owner);
+            var seed = content.CreateRoom(room, password, owner, allowEditorProjectReplacement);
             var body = await Task.Run(() => LocalJson.Encode(seed), cancellation).ConfigureAwait(false);
             var record = new CreatedRoom { origin = Origin, serverId = caps.serverId, room = room, generation = seed.document.generation,
                 catalogHash = seed.catalog.hash, ownerCredential = owner };

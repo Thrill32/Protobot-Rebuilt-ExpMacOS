@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Protobot.Collaboration;
 using UnityEngine;
@@ -15,6 +16,10 @@ namespace Protobot {
         private CreatedRoom replacementOwner;
         private RoomReplacementTarget replacementTarget;
         private RoomExport replacementContent;
+        private string replacementOrigin;
+        private bool replacementAsParticipant;
+        private Transform uiParticipantReplacementRecords;
+        private string participantAttemptSignature;
         private string resyncJoinOrigin, resyncJoinRoom;
         private bool acceptReplacementJoin;
         private static string ReplacementRecordsRoot => Path.Combine(CollaborationRecovery.Root, "room-replacements");
@@ -30,7 +35,7 @@ namespace Protobot {
             uiReplacementConfirmation.SetActive(false);
         }
         private void ClearReplacementConfirmation() {
-            replacementOwner = null; replacementTarget = null; replacementContent = null;
+            replacementOwner = null; replacementTarget = null; replacementContent = null; replacementOrigin = null; replacementAsParticipant = false;
             if (uiReplacementConfirmation != null) uiReplacementConfirmation.SetActive(false);
         }
         private Task InspectReplacementAsync(CreatedRoom record) => RunRoomOperationAsync("Checking owned room before replacement…", async token => {
@@ -43,23 +48,55 @@ namespace Protobot {
             DocumentModel.Require(target.roomIdentity == record.generation && target.catalogHash == record.catalogHash && content.catalog.hash == target.catalogHash,
                 "catalog-or-room-mismatch");
             token.ThrowIfCancellationRequested();
-            replacementOwner = record; replacementTarget = target; replacementContent = content;
-            uiReplacementWarning.text = "Replace online room \"" + record.room + "\" at\n" + record.origin + "?\n\n" +
+            ShowReplacementConfirmation(record, record.origin, target, content);
+        }, replacing: true);
+        private async Task<CollaborationClient> ReplacementParticipantAsync(string origin, string roomId, CancellationToken cancellation) {
+            var manifest = CollaborationScene.Catalog;
+            var participant = new CollaborationClient(origin, roomId, manifest, transport, lan,
+                CollaborationRecovery.SessionFile(origin, roomId, manifest.hash), await SelectedNetworkAsync(cancellation));
+            try {
+                await participant.AuthenticateForReplacementAsync(displayName, password, joinAsViewer, cancellation);
+                return participant;
+            }
+            catch { participant.Dispose(); throw; }
+        }
+        private Task InspectParticipantReplacementAsync() => RunRoomOperationAsync("Authenticating your membership and checking the replacement target…", async token => {
+            ValidateSettings(true); CancelTools();
+            var content = CaptureRoomExport();
+            string origin = endpoint;
+            using var participant = await ReplacementParticipantAsync(origin, room, token);
+            var target = await participant.InspectRoomReplacementAsync(token);
+            DocumentModel.Require(target.catalogHash == content.catalog.hash, "catalog-mismatch");
+            token.ThrowIfCancellationRequested();
+            ShowReplacementConfirmation(null, origin, target, content);
+        }, replacing: true);
+        private void ShowReplacementConfirmation(CreatedRoom owner, string origin, RoomReplacementTarget target, RoomExport content) {
+            replacementOwner = owner; replacementOrigin = origin; replacementAsParticipant = owner == null;
+            replacementTarget = target; replacementContent = content;
+            uiReplacementWarning.text = "Replace online room \"" + target.room + "\" at\n" + origin + "?\n\n" +
                 "Current online revision: " + target.revision + ". Publish this accepted local project: " + content.document.parts.Length + " parts, " +
                 content.document.chains.Length + " chains, " + content.document.assets.Length + " custom models.\n\n" +
                 "This starts a new generation and clears everyone's personal Undo history. Participants pause until they choose Resynchronize. " +
                 "Any intervening online edit rejects this confirmation. Your local project, file and saved state stay unchanged.";
             uiReplacementConfirmation.SetActive(true); Canvas.ForceUpdateCanvases(); uiScroll.verticalNormalizedPosition = 0;
-            status = "Owned target checked. Review the exact room and local project before confirming replacement.";
-        }, replacing: true);
+            status = "Authenticated target checked. Review the exact room and local project before confirming replacement.";
+        }
         private Task ConfirmReplacementAsync() {
             var record = replacementOwner; var target = replacementTarget; var content = replacementContent;
-            if (record == null || target == null || content == null || busy || IsShared) return Task.CompletedTask;
+            string origin = replacementOrigin; bool asParticipant = replacementAsParticipant;
+            if (target == null || content == null || busy || IsShared) return Task.CompletedTask;
             ClearReplacementConfirmation();
             return RunRoomOperationAsync("Publishing the confirmed room replacement…", async token => {
-                using var remote = new RemoteRoomReplacement(record.origin, lan, await SelectedNetworkAsync(token));
-                var result = await remote.ReplaceInProfileAsync(content, target, record.ownerCredential, ReplacementRecordsRoot, token);
-                status = "Replaced room " + result.room + " at revision " + result.revision + ". Your local project and file remain open. Join as owner when ready; existing participants must resynchronize.";
+                RoomReplacementReceipt result;
+                if (asParticipant) {
+                    using var participant = await ReplacementParticipantAsync(origin, target.room, token);
+                    result = await participant.ReplaceRoomProjectAsync(content, target, ReplacementRecordsRoot, token);
+                }
+                else {
+                    using var remote = new RemoteRoomReplacement(origin, lan, await SelectedNetworkAsync(token));
+                    result = await remote.ReplaceInProfileAsync(content, target, record.ownerCredential, ReplacementRecordsRoot, token);
+                }
+                status = "Replaced room " + result.room + " at revision " + result.revision + ". Your local project and file remain open. Join when ready; existing participants must resynchronize.";
             }, replacing: true);
         }
         private static (string file, RoomReplacementAttempt record)[] ReplacementRecords(out bool unreadable) {
@@ -71,6 +108,31 @@ namespace Protobot {
             foreach (string file in files) { try { records.Add((file, RemoteRoomReplacement.ReadAttempt(file))); } catch { unreadable = true; } }
             return records.ToArray();
         }
+        private void RefreshParticipantReplacementUI() {
+            if (uiParticipantReplacementRecords == null || IsShared || uiTab != 1 || busy) return;
+            var attempts = ReplacementRecords(out bool unreadable).Where(a => a.record.origin == endpoint && a.record.target.room == room).ToArray();
+            string signature = endpoint + "|" + room + "|" + unreadable + "|" + string.Join("|", attempts.Select(a => a.record.operationId + a.record.confirmed + a.record.notAccepted));
+            if (signature == participantAttemptSignature) return;
+            participantAttemptSignature = signature;
+            foreach (Transform child in uiParticipantReplacementRecords) { child.gameObject.SetActive(false); Destroy(child.gameObject); }
+            if (unreadable) UIText(uiParticipantReplacementRecords, "Unreadable Attempts", "Some private replacement attempts cannot be read. Files are retained; no replacement is resent.");
+            foreach (var attempt in attempts) {
+                string file = attempt.file;
+                UIText(uiParticipantReplacementRecords, "Participant Replacement Outcome", attempt.record.confirmed ? "Replacement accepted at revision " + attempt.record.receipt.revision :
+                    attempt.record.notAccepted ? "Replacement not accepted. Inspect again before another confirmation." : "Replacement outcome unconfirmed; private attempt retained.", 12);
+                UIButton(uiParticipantReplacementRecords, "Check Participant Replacement " + attempt.record.operationId, "Check replacement outcome", () => _ = CheckParticipantReplacementAsync(file));
+            }
+        }
+        private Task CheckParticipantReplacementAsync(string file) => RunRoomOperationAsync("Checking replacement with your retained membership…", async token => {
+            ValidateSettings(true);
+            var attempt = RemoteRoomReplacement.ReadAttempt(file);
+            DocumentModel.Require(attempt.origin == endpoint && attempt.target.room == room, "saved-room-does-not-match");
+            using var participant = await ReplacementParticipantAsync(attempt.origin, attempt.target.room, token);
+            var outcome = await participant.CheckRoomReplacementAsync(file, token);
+            status = outcome.found ? "Replacement was accepted at revision " + outcome.receipt.revision + ". Join when ready to open the online project." :
+                RemoteRoomReplacement.ReadAttempt(file).notAccepted ? "Replacement was not accepted; its old target can no longer publish. Inspect before another confirmation." :
+                "Outcome remains unconfirmed. Keep this private attempt and check again; no replacement was resent.";
+        }, replacing: true);
         private void AddReplacementActions(Transform row, CreatedRoom owner, (string file, RoomReplacementAttempt record)[] attempts) {
             UIButton(row, "Replace Owned " + owner.room, "Replace online room with this project...", () => _ = InspectReplacementAsync(owner));
             foreach (var attempt in attempts.Where(a => a.record.origin == owner.origin && a.record.target.room == owner.room && a.record.target.roomIdentity == owner.generation)) {
@@ -91,7 +153,7 @@ namespace Protobot {
         private void InitializeResynchronizationUI() {
             uiResynchronize = UIButton(uiConnected.transform, "Resynchronize Replaced Room", "Resynchronize replaced room...", () => uiResyncConfirmation.SetActive(true), true);
             uiResyncConfirmation = UIColumn(uiConnected.transform, "Confirm Room Resynchronization").gameObject;
-            UIText(uiResyncConfirmation.transform, "Resync Warning", "The owner replaced this room's content. Check your old pending edit outcomes and open the new accepted generation? Your local file path, saved bytes, camera and save marker stay independent. Personal Undo starts in the new generation.");
+            UIText(uiResyncConfirmation.transform, "Resync Warning", "This room's project was replaced. Check your old pending edit outcomes and open the new accepted generation? Your local file path, saved bytes, camera and save marker stay independent. Personal Undo starts in the new generation.");
             var actions = UIRow(uiResyncConfirmation.transform, "Resync Actions");
             UIButton(actions, "Confirm Resynchronize Room", "Resynchronize", () => { uiResyncConfirmation.SetActive(false); _ = ResynchronizeAsync(); }, true);
             UIButton(actions, "Cancel Resynchronize Room", "Keep last received build", () => uiResyncConfirmation.SetActive(false));

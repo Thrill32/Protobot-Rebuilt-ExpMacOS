@@ -23,6 +23,10 @@ internal static partial class Program {
         var timer = Stopwatch.StartNew();
         try {
             if (args.Length > 0 && args[0] == "--replacement-crash-worker") return ReplacementCrashWorker(args);
+            if (args.Contains("--editor-replacement-only")) {
+                await EditorReplacementChecks(directory);
+                Console.WriteLine("Editor replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--large-model-only")) {
                 await LargeModelChecks(directory);
                 Console.WriteLine("Large models passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -32,7 +36,7 @@ internal static partial class Program {
                 Console.WriteLine("Large replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             if (args.Contains("--replacement-only")) {
-                await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory);
+                await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory); await EditorReplacementChecks(directory);
                 Console.WriteLine("Replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             if (args.Contains("--replacement-storage-only")) {
@@ -92,7 +96,7 @@ internal static partial class Program {
                 Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             ModelChecks(); RoomChecks(); HistoryChecks();
-            await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory); await ReplacementLargeChecks(directory);
+            await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory); await ReplacementLargeChecks(directory); await EditorReplacementChecks(directory);
             if (Environment.GetEnvironmentVariable("PROTOBOT_TEST_INSTALL_ARTIFACT") != null) await InstallationChecks(directory);
             await RoomCreationChecks(directory);
             await ShutdownChecks(directory);

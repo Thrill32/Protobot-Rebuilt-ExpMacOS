@@ -24,7 +24,7 @@ internal static partial class Program {
         string kind = options.Get("--kind") ?? SetupChoice("What will this profile host?", "server", new[] { "server", "room" });
         DocumentModel.Require(kind == "server" || kind == "room", "setup-invalid-kind");
         string policy = kind == "server" ? options.Get("--creation-policy") ?? SetupChoice("Who may create rooms?", "admin-only", new[] { "admin-only", "key", "open" }) : null;
-        DocumentModel.Require(kind == "server" ? !options.Has("--snapshot") && !options.Has("--room") && !options.Has("--password-file") && !options.Has("--password-prompt") : !options.Has("--creation-policy"), "setup-options-for-other-kind");
+        DocumentModel.Require(kind == "server" ? !options.Has("--snapshot") && !options.Has("--room") && !options.Has("--password-file") && !options.Has("--password-prompt") && !options.Has("--allow-editor-project-replacement") : !options.Has("--creation-policy"), "setup-options-for-other-kind");
         string state = Path.GetFullPath(options.Get("--state-dir", Path.Combine(root, "state", name)));
         // Never initialize within a program version or over an existing data/profile directory.
         DocumentModel.Require(!new[] { "versions", "profiles" }.Any(folder => {
@@ -36,6 +36,7 @@ internal static partial class Program {
             var init = new List<string> { kind == "server" ? "server-init" : "init", "--data-dir", Path.Combine(stage, "data") };
             if (kind == "server") { init.Add("--creation-policy"); init.Add(policy); }
             else {
+                init.Add("--allow-editor-project-replacement"); init.Add(options.Get("--allow-editor-project-replacement") ?? (Console.IsInputRedirected ? "no" : SetupChoice("Allow other editors to replace this room’s project?", "no", new[] { "no", "yes" })));
                 init.Add("--room"); init.Add(options.Get("--room", name));
                 init.Add(options.Has("--snapshot") ? "--snapshot" : "--catalog");
                 init.Add(options.Get("--snapshot", Path.Combine(root, "versions", Active(root)[0], "catalog.json")));
@@ -49,7 +50,7 @@ internal static partial class Program {
             try {
                 Console.SetOut(TextWriter.Null);
                 if (kind == "server") InitializeServer(new Options(init.ToArray(), new[] { "--data-dir", "--creation-policy" }, Array.Empty<string>()));
-                else Initialize(new Options(init.ToArray(), new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file" }, new[] { "--password-prompt" }));
+                else Initialize(new Options(init.ToArray(), new[] { "--data-dir", "--room", "--catalog", "--snapshot", "--password-file", "--allow-editor-project-replacement" }, new[] { "--password-prompt" }));
             }
             finally { Console.SetOut(output); }
             PrivateDirectory(Path.Combine(stage, "participant")); PrivateDirectory(Path.Combine(stage, "private"));

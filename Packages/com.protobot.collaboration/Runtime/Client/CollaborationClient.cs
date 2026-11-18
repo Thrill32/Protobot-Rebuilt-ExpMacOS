@@ -73,8 +73,39 @@ namespace Protobot.Collaboration {
         }
 
         public const int ConnectionDeadlineMilliseconds = 180000;
-        public async Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false,
-            CancellationToken cancellation = default, IProgress<ConnectionProgress> progress = null, bool acceptReplacement = false) {
+        public Task<JoinResponse> JoinAsync(string name, string password = "", string ownerCredential = null, bool viewer = false,
+            CancellationToken cancellation = default, IProgress<ConnectionProgress> progress = null, bool acceptReplacement = false) =>
+            JoinCoreAsync(name, password, ownerCredential, viewer, cancellation, progress, acceptReplacement, false);
+
+        // Authenticate a retained participant for an explicit replacement operation.
+        // Never hydrate/publish the online document, resolve pending edits or start
+        // an event pump. The caller's local project remains the replacement source.
+        public Task<JoinResponse> AuthenticateForReplacementAsync(string name, string password = "", bool viewer = false,
+            CancellationToken cancellation = default) => JoinCoreAsync(name, password, null, viewer, cancellation, null, true, true);
+
+        public async Task<RoomReplacementTarget> InspectRoomReplacementAsync(CancellationToken cancellation = default) {
+            using var remote = new RemoteRoomReplacement(endpoint.GetLeftPart(UriPartial.Authority), true, network);
+            return await remote.InspectAsync(room, token, cancellation).ConfigureAwait(false);
+        }
+        public async Task<RoomReplacementReceipt> ReplaceRoomProjectAsync(RoomExport content, RoomReplacementTarget target, string attemptsRoot,
+            CancellationToken cancellation = default) {
+            DocumentModel.Require(target.room == room, "saved-room-does-not-match");
+            using var remote = new RemoteRoomReplacement(endpoint.GetLeftPart(UriPartial.Authority), true, network);
+            return await remote.ReplaceInProfileAsync(content, target, token, attemptsRoot, cancellation).ConfigureAwait(false);
+        }
+        public async Task<RoomReplacementOutcome> CheckRoomReplacementAsync(string attemptFile, CancellationToken cancellation = default) {
+            DocumentModel.Require(RemoteRoomReplacement.ReadAttempt(attemptFile).target.room == room, "saved-room-does-not-match");
+            using var remote = new RemoteRoomReplacement(endpoint.GetLeftPart(UriPartial.Authority), true, network);
+            return await remote.CheckAsync(attemptFile, token, cancellation).ConfigureAwait(false);
+        }
+        public async Task<RoomReplacementReceipt> ReplaceRoomProjectToFileAsync(RoomExport content, RoomReplacementTarget target, string attemptFile,
+            CancellationToken cancellation = default) {
+            DocumentModel.Require(target.room == room, "saved-room-does-not-match");
+            using var remote = new RemoteRoomReplacement(endpoint.GetLeftPart(UriPartial.Authority), true, network);
+            return await remote.ReplaceAsync(content, target, token, attemptFile, cancellation).ConfigureAwait(false);
+        }
+        private async Task<JoinResponse> JoinCoreAsync(string name, string password, string ownerCredential, bool viewer,
+            CancellationToken cancellation, IProgress<ConnectionProgress> progress, bool acceptReplacement, bool replacementOnly) {
             DocumentModel.Require(Interlocked.CompareExchange(ref joining, 1, 0) == 0, "already-connecting");
             var userCancellation = cancellation;
             using var connectionDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -99,6 +130,7 @@ namespace Protobot.Collaboration {
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
                 SupportsRoomReplacement = capabilities.roomReplacementVersion == RoomReplacement.Version;
+                DocumentModel.Require(!replacementOnly || capabilities.editorRoomReplacementVersion == RoomReplacement.EditorPolicyVersion, "editor-room-replacement-unavailable");
                 LoadRecovery(capabilities, ownerCredential != null && endpoint.IsLoopback);
                 bool replaced; string previousGeneration;
                 lock (gate) {
@@ -128,6 +160,7 @@ namespace Protobot.Collaboration {
                     sequence = Math.Max(sequence, joined.sequence); SaveRecovery(joined.document.generation);
                 }
                 Check();
+                if (replacementOnly) return joined;
                 // Stage geometry separately: two different, individually valid room
                 // generations must not collide with one cumulative client cache quota.
                 var candidateGeometry = CandidateGeometry(joined.document);

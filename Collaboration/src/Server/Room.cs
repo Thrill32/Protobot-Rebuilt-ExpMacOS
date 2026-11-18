@@ -67,6 +67,7 @@ namespace Protobot.Collaboration.Server {
         public Capabilities Capabilities { get { lock (gate) return new Capabilities { durable = IsDurable, participantAdministration = true,
             geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
             roomReplacementVersion = IsDurable ? RoomReplacement.Version : 0, roomIdentity = RoomStore.Identity(roomInfo),
+            editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion, allowEditorProjectReplacement = roomInfo.allowEditorProjectReplacement,
             diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
             transports = new[] { "websocket", "long-polling", "short-polling" }, room = Name, generation = document.generation, catalogHash = catalog.hash }; } }
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
@@ -101,7 +102,8 @@ namespace Protobot.Collaboration.Server {
                 Name = seed.room; document = WireJson.Clone(GeometryTransfer.References(seed.document)); document.schema = 2; minimumCursor = document.revision; catalog = WireJson.Clone(seed.catalog);
                 passwordHash = Password(seed.password ?? ""); ownerHash = string.IsNullOrEmpty(seed.ownerCredential) ? null : TokenHash(seed.ownerCredential);
                 roomInfo = new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision, migrationRevision = minimumCursor,
-                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash };
+                    catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash,
+                    allowEditorProjectReplacement = seed.allowEditorProjectReplacement };
                 store?.Initialize(roomInfo, document, assetBytes);
             }
             diagnosticHash = DocumentModel.Hash(document);

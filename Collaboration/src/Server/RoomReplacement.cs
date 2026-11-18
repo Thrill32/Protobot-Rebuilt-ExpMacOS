@@ -4,7 +4,27 @@ using System.Linq;
 
 namespace Protobot.Collaboration.Server {
     public sealed partial class Room {
-        public void AuthorizeReplacement(string credential) { lock (gate) { Owner(credential); DocumentModel.Require(IsDurable, "room-replacement-requires-durable-room"); } }
+        // Offline CLI only; the RoomStore exclusive lock refuses a running room.
+        public void ConfigureEditorReplacement(string ownerCredential, bool allow) {
+            lock (gate) {
+                Owner(ownerCredential); DocumentModel.Require(IsDurable, "room-replacement-requires-durable-room");
+                var info = WireJson.Clone(roomInfo); info.allowEditorProjectReplacement = allow;
+                Persist(() => store.ConfigurePolicy(info)); roomInfo = info;
+            }
+        }
+        public void AuthorizeReplacement(string credential) {
+            lock (gate) {
+                Healthy();
+                bool ownerCapability = ownerHash != null && credential != null && credential.Length < 256 && TokenHash(credential) == ownerHash;
+                if (!ownerCapability) {
+                    // Authenticate under the publication gate, including revocation and
+                    // generation fencing. Creation/admin keys confer no membership.
+                    string role = Authenticate(credential).participant.role;
+                    DocumentModel.Require(role == "owner" || roomInfo.allowEditorProjectReplacement && role == "editor", "owner-required");
+                }
+                DocumentModel.Require(IsDurable, "room-replacement-requires-durable-room");
+            }
+        }
         private RoomReplacementTarget ReplacementTarget() => new RoomReplacementTarget { room = Name, roomIdentity = RoomStore.Identity(roomInfo),
             catalogHash = catalog.hash, generation = document.generation, revision = document.revision, documentHash = diagnosticHash };
         public RoomReplacementTarget InspectReplacement(string credential) {
@@ -53,7 +73,8 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(lifetimeCost <= 64L * 1024 * 1024, "alpha-history-limit");
                 var info = new StoredRoomInfo { schema = 2, room = Name, roomIdentity = RoomStore.Identity(roomInfo), generation = next.generation,
                     initialRevision = next.revision, migrationRevision = next.revision, ownerHash = ownerHash, salt = salt, passwordHash = passwordHash,
-                    catalog = catalog, replacements = previous.Append(result).ToArray(), retiredHistoryBytes = lifetimeCost };
+                    catalog = catalog, replacements = previous.Append(result).ToArray(), retiredHistoryBytes = lifetimeCost,
+                    allowEditorProjectReplacement = roomInfo.allowEditorProjectReplacement };
                 var records = members.Values.Select(m => { var record = m.Record(); record.historyCursor = 0; return record; }).ToArray();
                 var old = GeometryUsage;
                 long byteDelta = bytes.Values.Sum(b => (long)b.Length) - old.bytes;

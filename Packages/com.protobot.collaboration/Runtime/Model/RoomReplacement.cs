@@ -26,6 +26,7 @@ namespace Protobot.Collaboration {
     }
     public static class RoomReplacement {
         public const int Version = 1, MaxReplacements = 64;
+        public const int EditorPolicyVersion = 1;
         public static void ValidateTarget(RoomReplacementTarget target) => DocumentModel.Require(target != null && target.version == Version &&
             DocumentModel.ValidId(target.room) && DocumentModel.ValidId(target.roomIdentity) && DocumentModel.ValidId(target.generation) &&
             target.revision >= 0 && DocumentModel.ValidAssetHash(target.documentHash) && target.catalogHash != null &&

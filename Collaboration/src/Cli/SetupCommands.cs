@@ -33,6 +33,22 @@ internal static partial class Program {
     }
     [Serializable] private sealed class OwnerFile { public int schema = 1; public string room, credential; }
     [Serializable] private sealed class Initialized { public string room, dataDirectory, ownerFile; public bool durable = true; public int parts; }
+    private static bool EditorReplacementPolicy(Options options) {
+        string value = options.Get("--allow-editor-project-replacement", "no");
+        DocumentModel.Require(value == "yes" || value == "no", "editor-replacement-policy-use-yes-or-no");
+        return value == "yes";
+    }
+    private static int ConfigureRoomPolicy(Options options) {
+        bool allow = EditorReplacementPolicy(options);
+        DocumentModel.Require(options.Has("--allow-editor-project-replacement"), "missing-required-option");
+        string directory = Path.GetFullPath(options.Required("--data-dir"));
+        var owner = ReadOwnerFile(Path.Combine(directory, "owner.json"));
+        using var store = new RoomStore(directory, readOnly: false);
+        var room = new Room(null, storage: store);
+        DocumentModel.Require(room.Name == owner.room, "owner-file-room-mismatch");
+        room.ConfigureEditorReplacement(owner.credential, allow);
+        Console.WriteLine(WireJson.Text(room.Capabilities)); return 0;
+    }
 
     private static int Initialize(Options options) {
         string target = Path.GetFullPath(options.Required("--data-dir")); string room = options.Required("--room");
@@ -48,7 +64,7 @@ internal static partial class Program {
         content.Validate();
         string password = Password(options);
         var owner = new OwnerFile { room = room, credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
-        var seed = content.CreateRoom(room, password, owner.credential);
+        var seed = content.CreateRoom(room, password, owner.credential, EditorReplacementPolicy(options));
         // Initialize in a private sibling, then publish the complete room in one
         // rename. A failed init never overwrites a room or leaves half its secrets.
         string parent = Path.GetDirectoryName(target); Directory.CreateDirectory(parent);

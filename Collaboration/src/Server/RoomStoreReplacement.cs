@@ -23,6 +23,11 @@ namespace Protobot.Collaboration.Server {
             }
             DocumentModel.Require(generation == info.generation && minimum == info.initialRevision && info.migrationRevision == minimum, "room-storage-corrupt");
         }
+        internal void ConfigurePolicy(StoredRoomInfo info) {
+            using var transaction = db.BeginTransaction();
+            Execute("UPDATE info SET data=$data WHERE id=1", transaction, ("$data", WireJson.Encode(info)));
+            Finish(transaction, "room-policy");
+        }
         internal void Replace(StoredRoomInfo info, Document next, Dictionary<string, byte[]> assets, IEnumerable<StoredMember> members) {
             ValidateReplacements(info, 3);
             using var transaction = db.BeginTransaction();

@@ -107,6 +107,10 @@ namespace ProtobotEditorTools {
                         localBytes.SequenceEqual(File.ReadAllBytes(localPath)) && SceneHash(session, local.document) == localHash, "Replacement operation changed local scene/path/bytes/save marker.");
                     Require(Vector3.Distance(camera.position, cameraPosition) < .0001f && Quaternion.Angle(camera.rotation, cameraRotation) < .01f, "Replacement operation changed local camera.");
                 }
+                Require(Get<Dropdown>(session, "uiHostEditorReplacement").value == 0 && Get<Dropdown>(session, "uiCreateEditorReplacement").value == 0,
+                    "Host and remote creation must default editor replacement to No.");
+                await EditorReplacementPath(session, relay, root, LocalUnchanged);
+                Invoke(session, "OpenPanel", 5);
                 await Click(session, "Replace Owned " + owner.room); await Idle(session);
                 Require(Get<GameObject>(session, "uiReplacementConfirmation").activeSelf && Get<Text>(session, "uiReplacementWarning").text.Contains(owner.room) &&
                     Get<Text>(session, "uiReplacementWarning").text.Contains(relay.Url), "Replacement confirmation omitted the exact owned target.");
@@ -177,8 +181,77 @@ namespace ProtobotEditorTools {
                 manager.CreateNewBuild(); await Unsaved(manager);
                 Require(!CollaborationSession.IsShared && manager.buildPath == "" && relay.ReplacementRequests == replacements &&
                     (await remote.InspectAsync(owner.room, owner.ownerCredential, CancellationToken.None)).generation == generation, "Ordinary Open/New silently replaced online content.");
+                Invoke(session, "OpenPanel", 0); Get<InputField>(session, "uiRoom").text = "local-editor-policy";
+                Get<InputField>(session, "uiPort").text = "0"; Get<Dropdown>(session, "uiHostEditorReplacement").value = 1;
+                await Click(session, "Start Hosting"); await Idle(session);
+                var localHost = Get<CollaborationHost>(session, "host");
+                Require(localHost != null && localHost.IsRunning, "Local Host with Yes did not start.");
+                async Task CheckLocalPolicy() {
+                    using var editor = new CollaborationClient(localHost.Url, "local-editor-policy", CollaborationScene.Catalog);
+                    await editor.AuthenticateForReplacementAsync("Local policy editor");
+                    Require(editor.Participant.role == "editor" && (await editor.InspectRoomReplacementAsync()).room == "local-editor-policy" && editor.Snapshot == null,
+                        "Actual local hosting must persist Yes and admit editor replacement without loading a scene.");
+                }
+                await CheckLocalPolicy();
+                Get<Process>(localHost, "process").Kill(); await Until(() => !localHost.IsRunning);
+                await Until(() => !Get<CollaborationClient>(session, "client").IsConnected);
+                await (Task)Invoke(session, "ReconnectAsync"); await Idle(session); await CheckLocalPolicy();
+                Invoke(session, "Detach"); await Get<Task>(session, "hostShutdown");
             }
             finally { if (!server.HasExited) { server.Kill(); await Task.Run(() => server.WaitForExit()); } await errors; if (output != null) await output; }
+        }
+        private static async Task EditorReplacementPath(CollaborationSession session, CollaborationConnectionValidation.SlowRelay relay, string root, Action localUnchanged) {
+            Invoke(session, "OpenPanel", 1);
+            await Click(session, "Replace As Participant"); await Idle(session);
+            Require(!Get<GameObject>(session, "uiReplacementConfirmation").activeSelf && Get<string>(session, "status").Contains("requires a room owner"),
+                "Default No must reject a non-owner editor without replacing their local scene."); localUnchanged();
+            Invoke(session, "SelectUITab", 3);
+            Get<InputField>(session, "uiRoom").text = "editor-replacement-ui";
+            Get<Dropdown>(session, "uiCreationAuthority").value = 1;
+            Get<Dropdown>(session, "uiCreateEditorReplacement").value = 1;
+            Require(Get<Dropdown>(session, "uiHostEditorReplacement").value == 1, "One room-creation policy must be shared by Host and Create.");
+            await Click(session, "Prepare Room Creation"); await Click(session, "Confirm Create Room"); await Idle(session); localUnchanged();
+            string ownerRoot = Path.Combine(LocalPreferences.ProfileDirectory ?? Application.persistentDataPath, "Collaboration/created-rooms");
+            var owner = CreatedRoomRecovery.List(ownerRoot).Single(r => r.room == "editor-replacement-ui");
+            byte[] ownerBytes = File.ReadAllBytes(CreatedRoomRecovery.FileName(ownerRoot, relay.Url, owner.room));
+            using var observer = new CollaborationClient(relay.Url, owner.room, CollaborationScene.Catalog, CollaborationTransport.LongPolling);
+            await observer.JoinAsync("Independent owner observer", ownerCredential: owner.ownerCredential);
+            string observerId = observer.Participant.id;
+            Invoke(session, "SelectUITab", 1); Get<Toggle>(session, "uiViewer").isOn = true;
+            await Click(session, "Replace As Participant"); await Idle(session);
+            Require(!Get<GameObject>(session, "uiReplacementConfirmation").activeSelf && Get<string>(session, "status").Contains("Viewers cannot replace"),
+                "Even enabled rooms must refuse viewers."); localUnchanged();
+            Get<Toggle>(session, "uiViewer").isOn = false;
+            await Click(session, "Replace As Participant"); await Idle(session);
+            Require(!Get<GameObject>(session, "uiReplacementConfirmation").activeSelf, "Unchecking Viewer must not promote a retained viewer membership.");
+            await Click(session, "Forget Membership");
+            await Click(session, "Replace As Participant"); await Idle(session);
+            Require(Get<GameObject>(session, "uiReplacementConfirmation").activeSelf && Get<bool>(session, "replacementAsParticipant") &&
+                Get<CreatedRoom>(session, "replacementOwner") == null, "Editor replacement must authenticate without borrowing an owned-room capability.");
+            ScreenCapture.CaptureScreenshot(Path.Combine(root, "editor-replacement-confirmation.png")); await Task.Delay(200);
+            await Click(session, "Cancel Replace Online Room"); localUnchanged();
+            await Click(session, "Replace As Participant"); await Idle(session);
+            var changed = WireJson.Clone(observer.Snapshot.parts.First(p => p.catalogId != "CUSTOM")); changed.id = Guid.NewGuid().ToString("N"); changed.position[0] = 71;
+            Require((await observer.SubmitAsync(observer.CreateTransaction("AddParts", new[] { changed }))).accepted, "Concurrent owner edit fixture failed.");
+            await Click(session, "Confirm Replace Online Room"); await Idle(session);
+            Require(Get<string>(session, "status").Contains("online room changed"), "Editor confirmation must reject a concurrent accepted edit."); localUnchanged();
+            relay.HoldReplacement = true; relay.Hold();
+            await Click(session, "Replace As Participant"); await Idle(session); await Click(session, "Confirm Replace Online Room");
+            Require(await Task.WhenAny(relay.Partial.Task, Task.Delay(30000)) == relay.Partial.Task, "Editor replacement reply was not held.");
+            await Click(session, "Close"); await Idle(session); relay.Release(); relay.HoldReplacement = false; localUnchanged();
+            string attemptsRoot = Path.Combine(LocalPreferences.ProfileDirectory ?? Application.persistentDataPath, "Collaboration/room-replacements");
+            string file = Directory.GetFiles(attemptsRoot, "*.json").Single(p => RemoteRoomReplacement.ReadAttempt(p).target.room == owner.room);
+            var attempt = RemoteRoomReplacement.ReadAttempt(file); Require(!attempt.confirmed, "Lost editor reply must remain ambiguous until Check.");
+            Invoke(session, "OpenPanel", 1);
+            await Click(session, "Check Participant Replacement " + attempt.operationId); await Idle(session);
+            Require(RemoteRoomReplacement.ReadAttempt(file).confirmed && ownerBytes.SequenceEqual(File.ReadAllBytes(CreatedRoomRecovery.FileName(ownerRoot, relay.Url, owner.room))),
+                "Participant Check must recover the accepted outcome without changing owner credentials."); localUnchanged();
+            await Until(() => !observer.IsConnected);
+            Require(observer.RequiresResynchronization && observer.Snapshot.parts.Length == 4, "Independent owner must pause with the prior accepted project.");
+            await observer.PrepareReconnectAsync(); await observer.JoinAsync("Explicit independent owner resync", acceptReplacement: true);
+            Require(observer.Participant.id == observerId && observer.Snapshot.parts.Length == 3 && GeometryTransfer.HasGeometry(observer.Snapshot.assets.Single()),
+                "Actual second client must explicitly resynchronize custom content after an editor replacement.");
+            Get<InputField>(session, "uiRoom").text = "replacement-ui";
         }
         private static async Task Unsaved(BuildsManager manager) {
             var unsaved = Get<Protobot.UI.UnsavedChangesUI>(manager, "unsavedChangesMenu");

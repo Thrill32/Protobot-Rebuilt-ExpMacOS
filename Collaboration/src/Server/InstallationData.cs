@@ -14,6 +14,7 @@ namespace Protobot.Collaboration.Server {
         public readonly HashSet<string> Catalogs = new HashSet<string>(StringComparer.Ordinal);
         public readonly HashSet<string> ConfigFields = new HashSet<string>(StringComparer.Ordinal);
         public int RegistryVersion { get; private set; }
+        public bool RequiresEditorReplacement { get; private set; }
         public static InstallationData Open(string directory, bool multiRoom) {
             var result = new InstallationData();
             try { result.Inspect(Path.GetFullPath(directory), multiRoom); return result; }
@@ -68,6 +69,7 @@ namespace Protobot.Collaboration.Server {
             DocumentModel.Require(state != null && (expected == null || expected.room == state.info.room && expected.generation == RoomStore.Identity(state.info) &&
                 expected.ownerHash == state.info.ownerHash && expected.catalogHash == state.info.catalog.hash), "installation-registration-incompatible");
             RoomBackup.ReadOwner(directory, state);
+            RequiresEditorReplacement |= state.info.allowEditorProjectReplacement;
             StorageVersions.Add(store.StorageVersion); DocumentVersions.Add(state.document.schema); Catalogs.Add(state.info.catalog.hash);
         }
         public void Dispose() { for (int i = ownership.Count - 1; i >= 0; i--) ownership[i].Dispose(); ownership.Clear(); }

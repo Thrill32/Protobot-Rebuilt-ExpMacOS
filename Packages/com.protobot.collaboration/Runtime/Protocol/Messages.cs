@@ -164,12 +164,15 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public int shortPollingVersion;
         [System.Runtime.Serialization.OptionalField] public int roomCreationVersion;
         [System.Runtime.Serialization.OptionalField] public int roomReplacementVersion;
+        [System.Runtime.Serialization.OptionalField] public int editorRoomReplacementVersion;
+        [System.Runtime.Serialization.OptionalField] public bool allowEditorProjectReplacement;
         [System.Runtime.Serialization.OptionalField] public string roomIdentity;
         [System.Runtime.Serialization.OptionalField] public string roomCreationPolicy;
         [System.Runtime.Serialization.OptionalField] public string serverId;
         public string room, generation, catalogHash;
     }
     [Serializable] public sealed class Bootstrap {
+        [System.Runtime.Serialization.OptionalField] public bool allowEditorProjectReplacement;
         public string room = "team";
         public string password;
         public string ownerCredential;
@@ -177,6 +180,7 @@ namespace Protobot.Collaboration {
         public Document document;
     }
     [Serializable] public sealed class Ready {
+        [System.Runtime.Serialization.OptionalField] public int editorRoomReplacementVersion;
         public string type = "ready";
         public string url, room, version = CollaborationProtocol.Version;
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
