@@ -99,7 +99,7 @@
       "dependencies": {}
     },
     "com.unity.multiplayer.center": {
-      "version": "2.1.0",
+      "version": "2.0.1",
       "depth": 0,
       "source": "builtin",
       "dependencies": {
@@ -202,7 +202,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.services.authentication": {
-      "version": "3.8.1",
+      "version": "3.8.0",
       "depth": 1,
       "source": "registry",
       "dependencies": {
@@ -272,7 +272,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.services.wire": {
-      "version": "1.6.2",
+      "version": "1.6.0",
       "depth": 1,
       "source": "registry",
       "dependencies": {
