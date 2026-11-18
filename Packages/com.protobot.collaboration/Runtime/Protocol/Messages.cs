@@ -106,6 +106,7 @@ namespace Protobot.Collaboration {
         public string hash;
     }
     [Serializable] public sealed class JoinRequest {
+        [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion = GeometryTransfer.LimitsVersion;
         [System.Runtime.Serialization.OptionalField] public string expectedGeneration, roomIdentity, resynchronizeFromGeneration;
         public int protocol = 1;
         public string version = CollaborationProtocol.Version;
@@ -156,6 +157,7 @@ namespace Protobot.Collaboration {
         // Optional additive capability; absent on earlier 0.7 helpers.
         [System.Runtime.Serialization.OptionalField] public bool participantAdministration;
         [System.Runtime.Serialization.OptionalField] public bool geometryTransfer = true;
+        [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion, geometryAssetBytes;
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;

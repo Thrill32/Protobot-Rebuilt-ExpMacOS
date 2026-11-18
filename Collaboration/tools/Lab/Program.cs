@@ -23,6 +23,10 @@ internal static partial class Program {
         var timer = Stopwatch.StartNew();
         try {
             if (args.Length > 0 && args[0] == "--replacement-crash-worker") return ReplacementCrashWorker(args);
+            if (args.Contains("--large-model-only")) {
+                await LargeModelChecks(directory);
+                Console.WriteLine("Large models passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--replacement-large-only")) {
                 await ReplacementLargeChecks(directory);
                 Console.WriteLine("Large replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -93,6 +97,7 @@ internal static partial class Program {
             await RoomCreationChecks(directory);
             await ShutdownChecks(directory);
             await AssetChecks(directory);
+            await LargeModelChecks(directory);
             await ConnectionChecks(directory);
             await AdmissionChecks(directory);
             await DiagnosticChecks(directory);

@@ -1,5 +1,7 @@
 # Shared custom-model import investigation — November 18, 2026
 
+This records the original 8 MiB failure and fix in `980c065`. The subsequent [larger-model update](LARGE_MODELS.md) raises updated helpers to 64 MiB while retaining honest feedback and old-helper limit negotiation. Original results and artifacts below are historical.
+
 The reproduced failure occurs **before upload or an accepted document transaction**. A valid 16,300,084-byte binary STL parses locally but exceeds the existing **8 MiB encoded geometry** limit. The original player nevertheless displays `Submitted large-claw-size to the shared room.` Small OBJ/STL models work on both clients.
 
 The reported workflow was a Mac artifact player joined to a CLI server on an 8 GB Pi 4, importing a 16.3 MB VEX claw STL. The original VEX file and Pi were unavailable for this investigation. A generated binary STL of the same size reproduces the reported message and missing model on an independent local CLI server. This establishes the failure mechanism; it does not establish execution on that Pi or prove every property of the original file.

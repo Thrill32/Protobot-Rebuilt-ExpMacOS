@@ -26,7 +26,7 @@ namespace Protobot {
             public string id, error, status, notification, role, participant, hash, clientHash, catalog, helper;
             public bool connected, pending, capturing;
             public long revision;
-            public int assets;
+            public int assets, geometryAssetBytes;
             public Document accepted;
             public ModelProbeBody[] bodies;
         }
@@ -133,13 +133,15 @@ namespace Protobot {
             while (!condition()) { if (DateTime.UtcNow > until) throw new TimeoutException("Model UI probe timed out."); await Task.Delay(25); }
         }
         private void WriteModelProbe(string output, string id, string error) {
+            var snapshot = client?.Snapshot;
             var selection = GameObject.Find("Primary Selection Manager")?.GetComponent<SelectionManager>();
             var selected = selection?.current == null ? Array.Empty<GameObject>() : BuildTransfer.SelectedBodies(selection.current).ToArray();
             var result = new ModelProbeResult { id = id, error = error, status = status,
                 notification = (string)typeof(InteractionFeedback).GetField("notification", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null),
                 connected = client?.IsConnected == true, pending = HasPending, capturing = CustomModelTool.IsCapturingInput,
                 role = client?.Participant?.role, participant = client?.Participant?.id, hash = committed == null ? null : DocumentModel.Hash(committed),
-                clientHash = client?.Snapshot == null ? null : DocumentModel.Hash(client.Snapshot), catalog = catalog?.hash,
+                clientHash = snapshot == null ? null : DocumentModel.Hash(snapshot), catalog = catalog?.hash,
+                geometryAssetBytes = CustomGeometryByteLimit,
                 helper = CollaborationHost.HelperPath, revision = committed?.revision ?? 0, assets = committed?.assets?.Length ?? 0,
                 accepted = committed == null ? null : GeometryTransfer.References(committed),
                 bodies = PartsManager.FindLoadedObjects().Select(b => new ModelProbeBody { id = b.GetComponent<SavedObject>().ConnectionId,
@@ -148,7 +150,7 @@ namespace Protobot {
                     collider = b.GetComponentsInChildren<Collider>().Any(c => c.enabled), selected = selected.Contains(b),
                     surfaceHit = ModelProbeSurfaceHit(b),
                     vertices = b.GetComponent<MeshFilter>()?.sharedMesh?.vertexCount ?? 0,
-                    triangles = (b.GetComponent<MeshFilter>()?.sharedMesh?.triangles?.Length ?? 0) / 3,
+                    triangles = (int)(b.GetComponent<MeshFilter>()?.sharedMesh?.GetIndexCount(0) ?? 0) / 3,
                     position = new double[] { b.transform.position.x, b.transform.position.y, b.transform.position.z } }).ToArray() };
             File.WriteAllBytes(output + ".tmp", WireJson.Encode(result));
             if (File.Exists(output)) File.Replace(output + ".tmp", output, null); else File.Move(output + ".tmp", output);

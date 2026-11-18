@@ -53,13 +53,15 @@ internal static partial class Program {
         // Encoded-byte quotas, independent of the asset-count cap.
         var byteQuota = new Room(seed); var byteOwner = byteQuota.Join(new JoinRequest { catalogHash = seed.catalog.hash, name = "Byte quota" });
         long total = 0; int retainedCount = 0;
-        for (int i = 0; i < 3; i++) {
+        int unusedCount = (GeometryTransfer.MaxUnusedBytes - 1) / bytes.Length;
+        for (int i = 0; i < unusedCount; i++) {
             var unused = new GeometryAsset { name = "Large unused " + i, vertices = asset.vertices, triangles = asset.triangles }; unused.hash = DocumentModel.GeometryHash(unused);
             var encoded = GeometryTransfer.Encode(unused); byteQuota.PutAsset(byteOwner.token, unused.hash, encoded); total += encoded.Length;
         }
         var noSpace = new GeometryAsset { name = "Large overflow", vertices = asset.vertices, triangles = asset.triangles }; noSpace.hash = DocumentModel.GeometryHash(noSpace);
-        Reject(() => byteQuota.PutAsset(byteOwner.token, noSpace.hash, GeometryTransfer.Encode(noSpace)), "asset-unused-quota");
-        foreach (var unused in Enumerable.Range(0, 3).Select(i => { var a = new GeometryAsset { name = "Large unused " + i, vertices = asset.vertices, triangles = asset.triangles }; a.hash = DocumentModel.GeometryHash(a); return a; })) {
+        Reject(() => byteQuota.PutAsset(byteOwner.token, noSpace.hash, GeometryTransfer.Encode(noSpace)),
+            GeometryTransfer.MaxUnusedBytes >= GeometryTransfer.MaxRoomBytes ? "asset-room-quota" : "asset-unused-quota");
+        foreach (var unused in Enumerable.Range(0, unusedCount).Select(i => { var a = new GeometryAsset { name = "Large unused " + i, vertices = asset.vertices, triangles = asset.triangles }; a.hash = DocumentModel.GeometryHash(a); return a; })) {
             Check(byteQuota.Commit(byteOwner.token, Tx(byteQuota.Snapshot, "AddParts", new[] { Custom("quota-" + retainedCount++, unused) }, sequence: retainedCount,
                 assets: new[] { GeometryTransfer.Reference(unused) })).accepted, "referencing a durable upload releases unused-upload capacity");
         }

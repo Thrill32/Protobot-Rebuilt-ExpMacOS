@@ -247,7 +247,8 @@ namespace Protobot.Collaboration {
             }
         }
 
-        public static void ValidateAsset(GeometryAsset asset) {
+        public static void ValidateAsset(GeometryAsset asset, int maximum = GeometryTransfer.MaxAssetBytes) {
+            Require(maximum > 0 && maximum <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
             Require(asset != null && ValidAssetHash(asset.hash) && asset.name != null && asset.name.Length >= 1 && asset.name.Length <= 200 &&
                 asset.vertices != null && asset.vertices.Length >= 9 && asset.vertices.Length % 3 == 0 && asset.vertices.Length / 3 <= 1500000 &&
                 asset.triangles != null && asset.triangles.Length >= 3 && asset.triangles.Length % 3 == 0 && asset.triangles.Length / 3 <= 500000,
@@ -255,7 +256,7 @@ namespace Protobot.Collaboration {
             Require(asset.vertices.All(v => Finite(v) && Math.Abs(v) <= 1000000) &&
                 asset.triangles.All(i => i >= 0 && i < asset.vertices.Length / 3), "invalid-asset");
             Require(GeometryHash(asset) == asset.hash, "asset-hash-mismatch");
-            Require(LocalJson.Encode(asset, GeometryTransfer.MaxAssetBytes).Length <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
+            Require(LocalJson.Encode(asset, maximum).Length <= maximum, "asset-byte-limit");
         }
 
         public static void ValidateMount(CustomMount mount) {

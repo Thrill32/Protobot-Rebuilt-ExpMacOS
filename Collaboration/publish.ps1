@@ -10,6 +10,8 @@ try {
     Copy-Item NETWORK.md "artifacts/$Runtime/"
     Copy-Item TLS.md "artifacts/$Runtime/"
     Copy-Item ROOM_MANAGEMENT.md "artifacts/$Runtime/"
+    Copy-Item LARGE_MODELS.md "artifacts/$Runtime/"
+    Copy-Item CUSTOM_MODEL_IMPORT.md "artifacts/$Runtime/"
     Copy-Item ROOM_REPLACEMENT.md "artifacts/$Runtime/"
     Copy-Item INSTALLATION.md "artifacts/$Runtime/"
     Copy-Item licenses/*.txt "artifacts/$Runtime/"

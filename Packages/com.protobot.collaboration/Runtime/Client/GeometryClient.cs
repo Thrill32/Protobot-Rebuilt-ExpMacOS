@@ -80,7 +80,9 @@ namespace Protobot.Collaboration {
             long epoch = ConnectionEpoch;
             await transferGate.WaitAsync(cancellation).ConfigureAwait(false);
             try {
-                byte[] bytes = GeometryTransfer.Encode(asset);
+                int maximum = GeometryAssetByteLimit;
+                // Large JSON encoding is pure geometry work; never block Unity's UI thread.
+                byte[] bytes = await Task.Run(() => GeometryTransfer.Encode(asset, maximum), cancellation).ConfigureAwait(false);
                 bool present;
                 try { await TransferAsync(HttpMethod.Head, asset.hash, null, cancellation).ConfigureAwait(false); present = true; }
                 catch (CollaborationException error) when (error.Code == "missing-asset") { present = false; }
@@ -118,11 +120,11 @@ namespace Protobot.Collaboration {
                     if (content != null) { request.Content = new ByteArrayContent(content); request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
                     using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestCancellation).ConfigureAwait(false);
                     NetworkPolicy.CheckProxyResponse(response);
-                    DocumentModel.Require(!response.Content.Headers.ContentLength.HasValue || response.Content.Headers.ContentLength <= GeometryTransfer.MaxAssetBytes, "asset-byte-limit");
+                    DocumentModel.Require(!response.Content.Headers.ContentLength.HasValue || response.Content.Headers.ContentLength <= GeometryAssetByteLimit, "asset-byte-limit");
                     if (response.IsSuccessStatusCode) progress?.Invoke(0, response.Content.Headers.ContentLength, attempt);
                     using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
                     using var output = new MemoryStream(); var buffer = new byte[GeometryTransfer.BufferBytes]; int read;
-                    int maximum = response.IsSuccessStatusCode && method == HttpMethod.Get ? GeometryTransfer.MaxAssetBytes : 16384;
+                    int maximum = response.IsSuccessStatusCode && method == HttpMethod.Get ? GeometryAssetByteLimit : 16384;
                     while ((read = await input.ReadAsync(buffer, 0, buffer.Length, requestCancellation).ConfigureAwait(false)) > 0) {
                         DocumentModel.Require(output.Length + read <= maximum, "asset-byte-limit"); output.Write(buffer, 0, read);
                         if (response.IsSuccessStatusCode) progress?.Invoke(output.Length, response.Content.Headers.ContentLength, attempt);

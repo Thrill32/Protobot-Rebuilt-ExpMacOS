@@ -50,6 +50,7 @@ namespace Protobot {
         private Participant[] participants = Array.Empty<Participant>();
         private string[] mutations = { "Placement / Move", "G / R / handles", "Connect", "Paint / properties", "Copies / paste", "Custom models / mounts", "Chains", "Simulation set pose", "Delete", "Personal undo / redo" };
         public static bool IsShared => instance != null && instance.client != null;
+        public static int CustomGeometryByteLimit => IsShared ? instance.client.GeometryAssetByteLimit : GeometryTransfer.MaxAssetBytes;
         public static bool IsApplying => instance != null && instance.applying;
         public static bool CanPreview => !IsShared || instance.client.IsConnected && !instance.busy && !instance.submitting && !instance.reserving && instance.committed.revision >= instance.lastSubmittedRevision;
         public static bool CanEdit => CanPreview && (!IsShared || instance.client.Participant.role != "viewer");
@@ -788,7 +789,10 @@ namespace Protobot {
             "short-polling-unavailable" => "This helper does not support short polling. Use an existing transport or update the helper with the matching release and catalog.",
             "asset-unused-quota" => "The room's unused upload budget is full. Reuse an uploaded model or start a new room.",
             "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",
-            "asset-byte-limit" or "local-serialization-limit" => $"This model exceeds the shared room's {GeometryTransfer.MaxAssetBytes / (1024 * 1024)} MiB encoded geometry limit. Reduce mesh detail and import again; OBJ/STL file size can differ.",
+            "asset-byte-limit" or "local-serialization-limit" => $"This model exceeds the shared room's {CustomGeometryByteLimit / (1024 * 1024)} MiB encoded geometry limit. " +
+                (CustomGeometryByteLimit < GeometryTransfer.MaxAssetBytes ? "Update the collaboration server to share larger models." : "Reduce mesh detail and import again; OBJ/STL file size can differ."),
+            "geometry-limits-client-required" => "Update this player to join a server that supports larger custom models.",
+            "geometry-limits-unsupported" => "This server advertises unsupported model limits. Update the player and collaboration server together.",
             "asset-scene-quota" => "This build has too much instanced custom geometry. Reduce mesh detail or the number of custom-model copies.",
             "room-not-found" => "That room ID is not registered on this server. Check the invitation's room ID.",
             "room-unavailable" or "room-storage-failed-restart-required" => "This room is unavailable. Ask the server operator to inspect its status and recovery data.",

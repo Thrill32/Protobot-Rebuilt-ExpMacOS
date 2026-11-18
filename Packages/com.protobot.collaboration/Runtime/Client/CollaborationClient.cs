@@ -49,6 +49,7 @@ namespace Protobot.Collaboration {
         public bool IsMembershipRevoked { get; private set; }
         public bool RequiresResynchronization { get; private set; }
         public bool SupportsRoomReplacement { get; private set; }
+        public int GeometryAssetByteLimit { get; private set; } = GeometryTransfer.LegacyMaxAssetBytes;
         public string ActiveTransport { get; private set; }
         public CollaborationTransport Transport { get; }
         public long ConnectionEpoch => Interlocked.Read(ref connectionEpoch);
@@ -93,6 +94,7 @@ namespace Protobot.Collaboration {
                 DocumentModel.Require(capabilities.protocol == 1 && capabilities.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
                 DocumentModel.Require(Transport != CollaborationTransport.ShortPolling || capabilities.shortPollingVersion == CollaborationProtocol.ShortPollingVersion, "short-polling-unavailable");
+                GeometryAssetByteLimit = GeometryTransfer.ServerAssetLimit(capabilities);
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;

@@ -7,13 +7,22 @@ using System.Runtime.Serialization.Json;
 namespace Protobot.Collaboration {
     // Asset JSON and hydrated local files have independent bounds. Ordinary messages stay at 4 MiB.
     public static class GeometryTransfer {
-        public const int MaxAssetBytes = 8 * 1024 * 1024;
+        public const int LimitsVersion = 1;
+        public const int LegacyMaxAssetBytes = 8 * 1024 * 1024;
+        public const int MaxAssetBytes = 64 * 1024 * 1024;
         public const int MaxRoomBytes = 64 * 1024 * 1024;
         public const int MaxSceneGeometryBytes = 128 * 1024 * 1024;
         public const int MaxMaterializedBytes = 128 * 1024 * 1024;
-        public const int MaxUnusedBytes = 16 * 1024 * 1024;
+        // A first upload must fit before its referencing transaction is accepted.
+        public const int MaxUnusedBytes = MaxAssetBytes;
         public const int MaxUnusedAssets = 16;
         public const int BufferBytes = 64 * 1024;
+        public static int ServerAssetLimit(Capabilities capabilities) {
+            if (capabilities.geometryLimitsVersion == 0) return LegacyMaxAssetBytes;
+            DocumentModel.Require(capabilities.geometryLimitsVersion == LimitsVersion &&
+                capabilities.geometryAssetBytes > 0 && capabilities.geometryAssetBytes <= MaxAssetBytes, "geometry-limits-unsupported");
+            return capabilities.geometryAssetBytes;
+        }
         public static bool HasGeometry(GeometryAsset asset) => asset?.vertices != null && asset.vertices.Length > 0;
         public static GeometryAsset Reference(GeometryAsset asset) => new GeometryAsset { hash = asset.hash, name = asset.name };
         public static void ValidateReference(GeometryAsset asset) {
@@ -36,11 +45,12 @@ namespace Protobot.Collaboration {
                 assets = (assets ?? Array.Empty<GeometryAsset>()).Select(Reference).ToArray() };
             return copy;
         }
-        public static byte[] Encode(GeometryAsset asset) {
-            DocumentModel.ValidateAsset(asset);
+        public static byte[] Encode(GeometryAsset asset) => Encode(asset, MaxAssetBytes);
+        public static byte[] Encode(GeometryAsset asset, int maximum) {
+            DocumentModel.ValidateAsset(asset, maximum);
             // The established geometry hash uses IEEE float coordinates. Store exactly those values.
             var canonical = new GeometryAsset { hash = asset.hash, name = asset.name, vertices = asset.vertices.Select(v => v == 0 ? 0.0 : (double)(float)v).ToArray(), triangles = asset.triangles };
-            return LocalJson.Encode(canonical, MaxAssetBytes);
+            return LocalJson.Encode(canonical, maximum);
         }
         public static GeometryAsset Decode(byte[] bytes) {
             var asset = LocalJson.Decode<GeometryAsset>(bytes, MaxAssetBytes);

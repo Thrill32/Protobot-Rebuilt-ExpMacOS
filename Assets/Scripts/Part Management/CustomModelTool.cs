@@ -83,7 +83,8 @@ namespace Protobot {
             });
             void UpdateUnitLabel() => unitButton.GetComponentInChildren<Text>().text = "Source units: " + UnitNames[units];
             AddLabel(panel, "Models use one editable color. OBJ material and texture files are not imported.", 185, 55);
-            if (shared) AddLabel(panel, $"Shared rooms allow up to {GeometryTransfer.MaxAssetBytes / (1024 * 1024)} MiB of encoded geometry per model. File size can differ; reduce mesh detail for large models.", 235, 55);
+            if (shared) AddLabel(panel, $"This room allows {CollaborationSession.CustomGeometryByteLimit / (1024 * 1024)} MiB encoded geometry per model (file size can differ). " +
+                (CollaborationSession.CustomGeometryByteLimit < GeometryTransfer.MaxAssetBytes ? "Update the server for 64 MiB." : "64 MiB total per room."), 235, 55);
             AddButton(panel, "Choose OBJ / STL file…", shared ? 300 : 250, ChooseFile);
             AddButton(panel, "Cancel", shared ? 342 : 292, CancelMode);
         }
@@ -122,9 +123,10 @@ namespace Protobot {
             AddLabel(panel, "Reading " + Path.GetFileName(path), 55, 50);
             AddButton(panel, "Cancel", 120, CancelMode);
             bool shared = CollaborationSession.IsShared;
+            int maximum = CollaborationSession.CustomGeometryByteLimit;
             var data = await Task.Run(() => {
                 var parsed = CustomModelImporter.Read(path, inchesPerUnit);
-                if (shared) CollaborationScene.ValidateCustomImport(parsed);
+                if (shared) CollaborationScene.ValidateCustomImport(parsed, maximum);
                 return parsed;
             });
             if (this == null || request != generation || !isActiveAndEnabled) return null;

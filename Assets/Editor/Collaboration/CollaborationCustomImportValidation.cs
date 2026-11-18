@@ -41,7 +41,7 @@ namespace ProtobotEditorTools {
             type.GetField("vertices").SetValue(asset, Enumerable.Repeat(1.0, 2934000).ToArray());
             type.GetField("triangles").SetValue(asset, Enumerable.Range(0, 978000).ToArray());
             var encode = original.GetType("Protobot.Collaboration.LocalJson").GetMethod("Encode").MakeGenericMethod(type);
-            try { encode.Invoke(null, new object[] { asset, GeometryTransfer.MaxAssetBytes, CancellationToken.None }); }
+            try { encode.Invoke(null, new object[] { asset, GeometryTransfer.LegacyMaxAssetBytes, CancellationToken.None }); }
             catch (TargetInvocationException error) {
                 Debug.Log("Original bounded serializer failure: " + error.InnerException);
                 return;

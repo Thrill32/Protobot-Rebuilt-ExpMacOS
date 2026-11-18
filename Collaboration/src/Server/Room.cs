@@ -65,6 +65,7 @@ namespace Protobot.Collaboration.Server {
         public long Revision { get { lock (gate) return document.revision; } }
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
         public Capabilities Capabilities { get { lock (gate) return new Capabilities { durable = IsDurable, participantAdministration = true,
+            geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
             roomReplacementVersion = IsDurable ? RoomReplacement.Version : 0, roomIdentity = RoomStore.Identity(roomInfo),
             diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
             transports = new[] { "websocket", "long-polling", "short-polling" }, room = Name, generation = document.generation, catalogHash = catalog.hash }; } }
@@ -112,6 +113,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(request != null && request.protocol == 1, "protocol-mismatch");
                 DocumentModel.Require(request.room == null || request.room == Name, "catalog-or-room-mismatch");
                 DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
+                DocumentModel.Require(request.geometryLimitsVersion == GeometryTransfer.LimitsVersion, "geometry-limits-client-required");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 DocumentModel.Require(!requireGenerationProof || roomInfo.schema < 2 || request.expectedGeneration != null && request.roomIdentity != null,
                     "room-replacement-client-required");

@@ -65,7 +65,7 @@ namespace Protobot {
         }
         // Pure geometry work; the importer calls this on its parsing worker before
         // allocating Unity meshes/colliders or publishing any shared reference.
-        internal static void ValidateCustomImport(CustomModelData data) => DocumentModel.ValidateAsset(CaptureAsset(data));
+        internal static void ValidateCustomImport(CustomModelData data, int maximum) => DocumentModel.ValidateAsset(CaptureAsset(data), maximum);
         private static CustomMount CaptureMount(CustomMountData mount) => new CustomMount {
             position = new double[] { mount.x, mount.y, mount.z }, rotation = new double[] { mount.qx, mount.qy, mount.qz, mount.qw },
             diameter = mount.diameter, depth = mount.depth, threaded = mount.threaded

@@ -28,8 +28,21 @@ def fixtures(root):
             stream.write(b"Known-valid cube triangles".ljust(80, b" "))
             stream.write(struct.pack("<I", count))
             for i in range(count):
-                stream.write(records[i % len(records)])
+                if count == 12:
+                    stream.write(records[i % len(records)])
+                else:
+                    # Binary-exact fractional coordinates expand beyond 32 MiB in JSON.
+                    shift = (i % 997) / 1024
+                    points = [value + shift for index in faces[i % len(faces)] for value in vertices[index]]
+                    stream.write(struct.pack("<12fH", 0, 0, 0, *points, 0))
     assert (root / "large-claw-size.stl").stat().st_size == 16300084
+    with (root / "over-limit.stl").open("wb") as stream:
+        stream.write(b"Valid source; encoded geometry exceeds 64 MiB".ljust(80, b" "))
+        stream.write(struct.pack("<I", 500000))
+        for i in range(500000):
+            shift = (i % 997) * .0001234567
+            points = [value + shift for index in faces[i % len(faces)] for value in vertices[index]]
+            stream.write(struct.pack("<12fH", 0, 0, 0, *points, 0))
 
 
 def main():
@@ -158,13 +171,24 @@ def main():
         for output in [host, guest]:
             before = command(output, "inspect")
             report = command(output, "import", fixture_root / "large-claw-size.stl")
-            assert report["hash"] == before["hash"] == report["clientHash"]
-            assert len(report["bodies"]) == count and report["assets"] == before["assets"]
-            if args.baseline:
+            maximum = before.get("geometryAssetBytes", 8 * 1024 * 1024)
+            if maximum > 8 * 1024 * 1024 and not args.baseline:
+                count += 1
+                assert len(report["bodies"]) == count and report["notification"].startswith("Imported large-claw-size into the shared room.")
+                assert any(b["vertices"] == 978000 and b["triangles"] == 326000 and b["selected"] for b in report["bodies"])
+            elif args.baseline:
+                assert report["hash"] == before["hash"] == report["clientHash"] and len(report["bodies"]) == count
                 assert report["status"] == "invalid-server-response"
                 assert report["notification"] == "Submitted large-claw-size to the shared room."
             else:
+                assert report["hash"] == before["hash"] == report["clientHash"] and report["assets"] == before["assets"]
                 assert "8 MiB encoded geometry limit" in report["status"] == report["notification"]
+                assert "Update the collaboration server" in report["notification"]
+            if not args.baseline:
+                before = command(output, "inspect")
+                report = command(output, "import", fixture_root / "over-limit.stl")
+                assert report["hash"] == before["hash"] == report["clientHash"] and report["assets"] == before["assets"]
+                assert f"{maximum // (1024 * 1024)} MiB encoded geometry limit" in report["status"] == report["notification"]
                 if not args.headless:
                     command(output, "capture", root / (output.stem + "-limit.png"))
             converge(host, guest, count)
