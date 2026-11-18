@@ -44,7 +44,7 @@ namespace Protobot {
         private string recoverySignature;
         private readonly Color uiAccent = new Color(.14f, .5f, .75f);
 
-        private bool ContainsUIPointer => uiRoot != null && (uiModal.activeSelf || RectTransformUtility.RectangleContainsScreenPoint(uiBadge, MouseInput.Position));
+        private bool ContainsUIPointer => uiRoot != null && (panel || busy || RectTransformUtility.RectangleContainsScreenPoint(uiBadge, MouseInput.Position));
         internal static bool OwnsUIFocus(GameObject selected) => instance != null && instance.uiRoot != null && selected != null && selected.transform.IsChildOf(instance.uiRoot.transform);
 
         private void InitializeUI() {
@@ -53,7 +53,7 @@ namespace Protobot {
             var scaler = uiRoot.GetComponent<CanvasScaler>(); scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1600, 900); scaler.matchWidthOrHeight = .5f;
 
-            var badge = UIButton(uiRoot.transform, "Collaboration", "Collaboration", () => { if (panel) ClosePanel(); else OpenPanel(); });
+            var badge = UIButton(uiRoot.transform, "Collaboration", "Collaboration", () => { if (panel) ClosePanel(); else OpenNavigation(); });
             uiBadge = (RectTransform)badge.transform;
             uiBadge.anchorMin = uiBadge.anchorMax = new Vector2(.5f, 1);
             uiBadge.pivot = new Vector2(0, .5f);
@@ -198,22 +198,23 @@ namespace Protobot {
             cancelRect.anchorMin = cancelRect.anchorMax = cancelRect.pivot = new Vector2(1, .5f);
             cancelRect.anchoredPosition = Vector2.zero; cancelRect.sizeDelta = new Vector2(100, 36);
             uiCancelConnection.gameObject.SetActive(false);
-            SelectUITab(0); uiModal.SetActive(false);
+            SelectUITab(0); uiModal.SetActive(false); InitializeNavigation();
         }
 
         private void OpenPanel(int tab = -1) {
             if (!panel) { CancelTools(); ClearUIFocus(); uiLeaveConfirmation.SetActive(false); pendingRemovalId = null; uiRemoveConfirmation.SetActive(false); ClearReplacementConfirmation(); uiResyncConfirmation.SetActive(false); uiJoinResyncConfirmation.SetActive(false); }
-            if (tab >= 0) SelectUITab(tab);
+            if (tab >= 0) { advancedNavigation = true; SelectUITab(tab); }
             panel = true; nextUIRefresh = 0; RefreshUI();
         }
         private void ClosePanel() => ClosePanelCore(true);
         private void ClosePanelCore(bool clearPassword) {
             ClearReplacementConfirmation(); uiResyncConfirmation.SetActive(false); uiJoinResyncConfirmation.SetActive(false);
-            connectionTest?.Cancel(); CancelDiagnosticExport(); CancelRoomOperation(); ClearRoomKeys();
+            connectionTest?.Cancel(); CancelDirectory(); CancelDiagnosticExport(); CancelRoomOperation(); ClearRoomKeys();
             if (connectionAttempt != null) { connectionAttempt.ClosePanelRequested = true; CancelConnection(); }
             if (clearPassword) ClearPassword();
             panel = false; ClearUIFocus();
-            if (uiModal != null) uiModal.SetActive(busy);
+            if (uiModal != null) uiModal.SetActive(busy && advancedNavigation);
+            if (uiNavigation != null) uiNavigation.SetActive(busy && !advancedNavigation);
         }
         private void SelectUITab(int tab) {
             ClearReplacementConfirmation(); uiResyncConfirmation?.SetActive(false); uiJoinResyncConfirmation?.SetActive(false);
@@ -222,7 +223,8 @@ namespace Protobot {
             uiCreateRoom.SetActive(tab == 3); uiServerAdmin.SetActive(tab == 4); uiOwnedRooms.SetActive(tab == 5);
             uiCreateConfirmation.SetActive(false); ClearRoomKeys();
             if (tab == 5) { createdRoomSignature = null; RefreshCreatedRoomsUI(); }
-            uiScroll.verticalNormalizedPosition = 1;
+            if (uiScroll.content) uiScroll.verticalNormalizedPosition = 1;
+            if (uiNavigationScroll?.content) uiNavigationScroll.verticalNormalizedPosition = 1;
             for (int i = 0; i < uiPageButtons.Length; i++) uiPageButtons[i].GetComponent<Image>().color = i == tab ? uiAccent : new Color(.15f, .19f, .24f);
             nextUIRefresh = 0; if (panel || busy) RefreshUI();
         }
@@ -231,7 +233,7 @@ namespace Protobot {
             if (selected != null && selected.TryGetComponent<InputField>(out var field)) field.DeactivateInputField();
             EventSystem.current?.SetSelectedGameObject(null);
         }
-        private void ClearPassword() { password = ""; if (uiPassword != null) uiPassword.SetTextWithoutNotify(""); }
+        private void ClearPassword() { password = ""; if (uiPassword != null) uiPassword.SetTextWithoutNotify(""); uiNavigationPassword?.SetTextWithoutNotify(""); }
         private void ValidateSettings(bool joining) {
             displayName = displayName.Trim(); room = room.Trim();
             if (string.IsNullOrWhiteSpace(displayName) || displayName.Length > 48 || displayName.Any(char.IsControl)) throw new ArgumentException("Enter a name of 1 to 48 characters.");
@@ -297,14 +299,14 @@ namespace Protobot {
             uiBadge.anchoredPosition = new Vector2(titleLeft + titleWidth + 8, bar.center.y);
         }
 
-        private void LateUpdate() { PositionCollaborationButton(); if (Time.unscaledTime >= nextUIRefresh) { nextUIRefresh = Time.unscaledTime + .25f; RefreshUI(); } }
+        private void LateUpdate() { PositionCollaborationButton(); NavigateCollaborationKeyboard(); if (Time.unscaledTime >= nextUIRefresh) { nextUIRefresh = Time.unscaledTime + .25f; RefreshUI(); } }
         private void RefreshUI() {
             if (uiRoot == null) return;
             var canvasRect = (RectTransform)uiRoot.transform;
             uiCard.sizeDelta = new Vector2(Mathf.Min(710, canvasRect.rect.width - 24), Mathf.Min(760, canvasRect.rect.height - 28));
-            uiModal.SetActive(panel || busy);
+            uiModal.SetActive((panel || busy) && advancedNavigation);
             uiBadgeText.text = IsShared ? $"Collaboration ({Math.Max(1, participants.Length)})" : "Collaboration";
-            if (!uiModal.activeSelf) return;
+            if (!panel && !busy) { RefreshNavigation(); return; }
             uiTabs.SetActive(!IsShared); uiFormGroup.gameObject.SetActive(!IsShared); uiConnected.SetActive(IsShared);
             uiFormGroup.interactable = !busy; uiFormGroup.blocksRaycasts = !busy;
             RefreshNetworkUI();
@@ -314,6 +316,7 @@ namespace Protobot {
             foreach (var button in uiTabs.GetComponentsInChildren<Button>()) button.interactable = !busy;
             // Connection details use the existing session; changing setup cannot retarget a live client.
             uiName.SetTextWithoutNotify(displayName); uiRoom.SetTextWithoutNotify(room); uiEndpoint.SetTextWithoutNotify(endpoint);
+            uiPassword.SetTextWithoutNotify(password); uiLan.SetIsOnWithoutNotify(lan); uiViewer.SetIsOnWithoutNotify(joinAsViewer);
             uiCreateAddress.SetTextWithoutNotify(endpoint); uiAdminAddress.SetTextWithoutNotify(endpoint);
             uiCreationKey.interactable = creationAuthority != 1;
             uiName.transform.parent.parent.gameObject.SetActive(uiTab != 4);
@@ -360,8 +363,9 @@ namespace Protobot {
             if (uiDiagnosticsVisible) uiDiagnostics.text = "Protocol: " + CollaborationProtocol.Version + "\nCatalog: " + CollaborationScene.Catalog.hash + "\nTransport: " + (client?.ActiveTransport ?? transport.ToString()) + "\n" + (LocalPreferences.ProfileDirectory == null ? "Default local profile" : "Isolated local test profile") + "\nLast connection code: " + (lastDiagnostic?.code ?? "none");
             // Tab/arrow navigation stays within the modal, including the first and
             // last fields. A dropdown owns its own option navigation while expanded.
-            if (uiTransport.transform.Find("Dropdown List") == null) {
-                var controls = uiModal.GetComponentsInChildren<Selectable>().Where(s => s.IsInteractable() && !(s is Scrollbar)).ToArray();
+            RefreshNavigation();
+            if (!uiRoot.GetComponentsInChildren<Dropdown>().Any(d => d.transform.Find("Dropdown List") != null)) {
+                var controls = (advancedNavigation ? uiModal : uiNavigation).GetComponentsInChildren<Selectable>().Where(s => s.IsInteractable() && !(s is Scrollbar) && s.gameObject != uiNavigation).ToArray();
                 for (int i = 0; i < controls.Length; i++) {
                     var previous = controls[(i + controls.Length - 1) % controls.Length]; var next = controls[(i + 1) % controls.Length];
                     controls[i].navigation = new Navigation { mode = Navigation.Mode.Explicit, selectOnUp = previous, selectOnLeft = previous, selectOnDown = next, selectOnRight = next };
@@ -427,6 +431,7 @@ namespace Protobot {
         }
 
         private static string FriendlyStatus(string value) => value switch {
+            "saved-access-has-pending-edits" => "Saved access still has unresolved edits. Rejoin and check their outcomes before using Forget.",
             "room-replacement-client-required" => "This replaced room requires an updated collaboration client and its matching catalog before admission.",
             "room-replacement-busy" => "Another creation or replacement is being processed. Check any prepared attempt before a new confirmation.",
             "room-storage-failed-restart-required" => "Room storage stopped accepting changes. Ask the server operator to restart it, then check pending outcomes. Your accepted build and local files are kept.",

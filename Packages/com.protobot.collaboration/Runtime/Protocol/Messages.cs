@@ -163,6 +163,8 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;
         [System.Runtime.Serialization.OptionalField] public int shortPollingVersion;
         [System.Runtime.Serialization.OptionalField] public int roomCreationVersion;
+        [System.Runtime.Serialization.OptionalField] public int roomDirectoryVersion;
+        [System.Runtime.Serialization.OptionalField] public string roomDirectoryPolicy;
         [System.Runtime.Serialization.OptionalField] public int roomReplacementVersion;
         [System.Runtime.Serialization.OptionalField] public int editorRoomReplacementVersion;
         [System.Runtime.Serialization.OptionalField] public bool allowEditorProjectReplacement;

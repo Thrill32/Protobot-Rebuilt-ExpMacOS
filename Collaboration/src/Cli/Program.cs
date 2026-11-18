@@ -31,7 +31,8 @@ internal static partial class Program {
                     "protobot-collab artifact-manifest --artifact <published-directory> --runtime <rid> # local packaging; prints manifest SHA-256\n" +
                     "protobot-collab init --data-dir <new-directory> --room <id> (--catalog <catalog.json> | --snapshot <room-export.json>) [--password-prompt | --password-file <file>]\n" +
                     "protobot-collab serve --data-dir <local-directory> [--config <initial-bootstrap.json>] [--listen http://127.0.0.1:8787] [--public-url <https-origin>] [--allow-lan-http]\n" +
-                    "protobot-collab server-init --data-dir <new-server-directory> [--creation-policy admin-only|key|open]\n" +
+                    "protobot-collab server-init --data-dir <new-server-directory> [--creation-policy admin-only|key|open] [--directory-policy hidden|public]\n" +
+                    "protobot-collab server-directory --config <server.json> --admin-file <private-admin.json> --directory-policy hidden|public # stopped server\n" +
                     "protobot-collab server-policy --config <server.json> --admin-file <private-admin.json> --creation-policy admin-only|key|open [--creator-output <new-private-file>] # stopped server; key mode generates a new key\n" +
                     "protobot-collab serve --multi-room --config <server-directory/server.json> [--listen <origin>] [--public-url <https-origin>]\n" +
                     "protobot-collab room create --url <origin> --admin-file <private-admin.json> --room <id> (--catalog <file> | --snapshot <file>) --owner-output <new-private-file> [--password-file <file> | --password-prompt]\n" +
@@ -63,7 +64,8 @@ internal static partial class Program {
             if (args[0] == "setup") return SetupProfile(new Options(args, new[] { "--install-dir", "--profile", "--state-dir", "--kind", "--creation-policy", "--room", "--snapshot", "--password-file", "--allow-editor-project-replacement" }, new[] { "--password-prompt" }));
             if (args[0] == "start") return await StartProfile(new Options(args, new[] { "--install-dir", "--profile", "--listen", "--public-url", "--tls-file" }, new[] { "--allow-lan-http" }));
             if (args[0] == "room-policy") return ConfigureRoomPolicy(new Options(args, new[] { "--data-dir", "--allow-editor-project-replacement" }, Array.Empty<string>()));
-            if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir", "--creation-policy" }, Array.Empty<string>()));
+            if (args[0] == "server-init") return InitializeServer(new Options(args, new[] { "--data-dir", "--creation-policy", "--directory-policy" }, Array.Empty<string>()));
+            if (args[0] == "server-directory") return ConfigureServerDirectory(new Options(args, new[] { "--config", "--admin-file", "--directory-policy" }, Array.Empty<string>()));
             if (args[0] == "server-policy") return ConfigureServerCreation(new Options(args, new[] { "--config", "--admin-file", "--creation-policy", "--creator-output" }, Array.Empty<string>()));
             if (args[0] == "room") {
                 DocumentModel.Require(args.Length >= 2, "missing-room-operation"); string operation = args[1];

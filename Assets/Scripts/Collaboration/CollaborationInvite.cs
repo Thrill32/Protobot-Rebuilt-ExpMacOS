@@ -5,6 +5,7 @@ namespace Protobot {
     public static class CollaborationInvite {
         private const string Header = "Protobot collaboration";
         public static string ValidateOrigin(string value) {
+            if (value != null && !value.Contains("://")) value = "https://" + value.Trim();
             if (value == null || value.Length > 256 || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) ||
                 (uri.Scheme != "http" && uri.Scheme != "https") || string.IsNullOrEmpty(uri.Host) ||
                 !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) || uri.AbsolutePath != "/")

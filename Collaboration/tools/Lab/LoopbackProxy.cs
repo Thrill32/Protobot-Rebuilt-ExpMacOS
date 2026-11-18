@@ -29,6 +29,7 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
     public readonly TaskCompletionSource<bool> CreationReplyStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool DropNextJoinResponse;
     public string FaultPathSuffix, FaultCode, FaultHint, FaultBody;
+    public string DirectoryBody;
     public int FaultRemaining, FaultDelayMilliseconds, FaultRequests, CommitRequests, ReplacementRequests;
     public readonly ConcurrentDictionary<string, int> Requests = new ConcurrentDictionary<string, int>();
     public bool DropNextCommitResponse;
@@ -62,6 +63,9 @@ internal sealed class LoopbackProxy : IAsyncDisposable {
             if (OriginBasicChallenge) { context.Response.StatusCode = 401; context.Response.Headers.WWWAuthenticate = "Basic realm=\"origin\""; return; }
             string requestPath = context.Request.Path.Value;
             Requests.AddOrUpdate(requestPath, 1, (_, count) => count + 1);
+            if (requestPath == "/rooms" && context.Request.Method == "GET" && DirectoryBody != null) {
+                context.Response.ContentType = "application/json"; await context.Response.WriteAsync(DirectoryBody); return;
+            }
             if (requestPath.EndsWith("/commit", StringComparison.Ordinal)) Interlocked.Increment(ref CommitRequests);
             if (requestPath.EndsWith("/replacement", StringComparison.Ordinal) && context.Request.Method == "POST") Interlocked.Increment(ref ReplacementRequests);
             if (FaultPathSuffix != null && requestPath.EndsWith(FaultPathSuffix, StringComparison.Ordinal) && Interlocked.Decrement(ref FaultRemaining) >= 0) {

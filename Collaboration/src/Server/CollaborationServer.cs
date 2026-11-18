@@ -106,7 +106,7 @@ namespace Protobot.Collaboration.Server {
                 catch (CollaborationException error) {
                     if (context.Response.HasStarted) context.Abort();
                     if (!context.Response.HasStarted) {
-                        context.Response.StatusCode = error.Code == "owner-required" || error.Code == "server-admin-required" || error.Code == "room-creation-key-required" ? 403 :
+                        context.Response.StatusCode = error.Code == "owner-required" || error.Code == "server-admin-required" || error.Code == "room-creation-key-required" || error.Code == "room-directory-disabled" ? 403 :
                             error.Code == "room-not-found" ? 404 : error.Code == "server-stopping" || error.Code == "room-unavailable" || error.Code == "room-storage-failed-restart-required" ? 503 :
                             error.Code == "invalid-session" || error.Code == "membership-revoked" ? 401 : 409;
                         await Reject(context, error.Code, context.Response.StatusCode, error.RetryAfterMilliseconds);
@@ -123,6 +123,7 @@ namespace Protobot.Collaboration.Server {
             var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version,
                 geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
                 roomCreationVersion = ServerRooms.CreationVersion, roomCreationPolicy = registry.CreationPolicy, serverId = registry.ServerId,
+                roomDirectoryVersion = ServerRooms.DirectoryVersion, roomDirectoryPolicy = registry.DirectoryPolicy,
                 editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion,
                 diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion, transports = new[] { "websocket", "long-polling", "short-polling" } };
             app.MapGet("/capabilities", context => Write(context, registry == null ? Room.Capabilities : rootCapabilities));
@@ -131,6 +132,7 @@ namespace Protobot.Collaboration.Server {
             app.MapGet(path + "/capabilities", context => Write(context, Resolve(context).Capabilities));
             app.MapGet(path + "/health", context => { var room = Resolve(context); context.Response.StatusCode = room.IsHealthy ? 200 : 503; return Write(context, room.Capabilities); });
             if (registry != null) {
+                app.MapGet("/rooms", context => Write(context, registry.PublicDirectory()));
                 app.MapGet("/admin/rooms", context => { registry.Authenticate(Token(context)); return Write(context, RoomList()); });
                 async Task CreateRoom(HttpContext context, bool admin) {
                     if (admin) registry.Authenticate(Token(context));

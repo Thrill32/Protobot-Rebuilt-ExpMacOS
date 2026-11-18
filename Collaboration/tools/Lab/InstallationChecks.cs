@@ -197,6 +197,16 @@ internal static partial class Program {
                     "installed setup persists the selected room policy independently of its portable snapshot");
             }
         }
+        if (currentDescription["build"]["configFields"].AsArray().Any(n => n.GetValue<string>() == "directoryPolicy") &&
+            !previousDescription["build"]["configFields"].AsArray().Any(n => n.GetValue<string>() == "directoryPolicy")) {
+            Check((await InstalledCommand(launcher, "select", "--version", currentHash)).code == 0, "select directory-aware helper before enabling discovery");
+            Check((await RunCli("server-directory", "--config", config, "--admin-file", Path.Combine(data, "admin.json"), "--directory-policy", "public")).code == 0,
+                "operator explicitly enables directory without changing credentials or room data");
+            byte[] enabled = File.ReadAllBytes(config); pointer = File.ReadAllText(Path.Combine(install, "active"));
+            var refused = await InstalledCommand(launcher, "select", "--version", previousHash);
+            Check(refused.code == 1 && refused.error.Contains("installation-data-or-config-incompatible") && File.ReadAllText(Path.Combine(install, "active")) == pointer &&
+                File.ReadAllBytes(config).SequenceEqual(enabled), "strict pre-directory helper refuses new visibility configuration without switching or rewriting it");
+        }
         File.WriteAllText(Path.Combine(directory, "installation-summary.json"), new JsonObject { ["passed"] = true, ["current"] = currentHash, ["previous"] = previousHash, ["assertions"] = assertions }.ToJsonString());
     }
 }

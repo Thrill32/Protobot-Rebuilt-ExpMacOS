@@ -6,6 +6,7 @@ namespace Protobot.Collaboration {
     // exceptions, receipt feedback, progress, UI text or logs.
     public static class WireFailure {
         private static readonly HashSet<string> Codes = new HashSet<string>(StringComparer.Ordinal) {
+            "room-directory-disabled", "room-directory-unavailable",
             "geometry-limits-client-required", "geometry-limits-unsupported",
             "alpha-history-limit", "asset-already-exists", "asset-byte-limit", "asset-hash-mismatch", "asset-materialization-quota",
             "asset-room-quota", "asset-scene-quota", "asset-transfer-busy", "asset-unused-quota", "authority-only-mutation",

@@ -14,6 +14,7 @@ namespace Protobot.Collaboration.Server {
         public string serverId, adminHash;
         [System.Runtime.Serialization.OptionalField] public string creationPolicy;
         [System.Runtime.Serialization.OptionalField] public string creationKeyHash;
+        [System.Runtime.Serialization.OptionalField] public string directoryPolicy;
     }
     [Serializable] public sealed class ServerAdministration {
         public int schema = 1;
@@ -50,14 +51,16 @@ namespace Protobot.Collaboration.Server {
 
         public string ServerId => configuration.serverId;
         public string CreationPolicy => configuration.creationPolicy ?? "admin-only";
-        public static void Initialize(string directory, string creationPolicy = "admin-only") {
+        public string DirectoryPolicy => configuration.directoryPolicy ?? "hidden";
+        public static void Initialize(string directory, string creationPolicy = "admin-only", string directoryPolicy = "hidden") {
             DocumentModel.Require(ServerRooms.ValidPolicy(creationPolicy), "invalid-creation-policy");
+            DocumentModel.Require(ServerRooms.ValidDirectoryPolicy(directoryPolicy), "invalid-directory-policy");
             string target = Path.GetFullPath(directory);
             New(target);
             string staging = RoomBackup.Stage(target);
             try {
                 var admin = new ServerAdministration { serverId = Guid.NewGuid().ToString("N"), credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
-                var config = new ServerConfiguration { serverId = admin.serverId, adminHash = Hash(admin.credential), creationPolicy = creationPolicy };
+                var config = new ServerConfiguration { serverId = admin.serverId, adminHash = Hash(admin.credential), creationPolicy = creationPolicy, directoryPolicy = directoryPolicy };
                 if (creationPolicy == "key") {
                     var creator = new RoomCreationKey { format = "protobot-room-creator", schema = 1, serverId = admin.serverId, credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
                     config.creationKeyHash = Hash(creator.credential);
@@ -81,6 +84,7 @@ namespace Protobot.Collaboration.Server {
             root = Path.GetDirectoryName(configFile); Regular(root); Regular(configFile);
             configuration = Read<ServerConfiguration>(configFile);
             DocumentModel.Require(configuration.schema == 1 && DocumentModel.ValidId(configuration.serverId) && DocumentModel.ValidAssetHash(configuration.adminHash), "server-config-version-or-identity-mismatch");
+            DocumentModel.Require(ServerRooms.ValidDirectoryPolicy(DirectoryPolicy), "invalid-directory-policy");
             DocumentModel.Require(ServerRooms.ValidPolicy(CreationPolicy) && (CreationPolicy == "key" ?
                 DocumentModel.ValidAssetHash(configuration.creationKeyHash) && configuration.creationKeyHash != configuration.adminHash : configuration.creationKeyHash == null), "invalid-creation-policy");
             var header = Read<RegistryHeader>(Path.Combine(root, "registry.json"));
@@ -150,7 +154,7 @@ namespace Protobot.Collaboration.Server {
         public void ConfigureCreation(ServerAdministration admin, string policy, string creatorOutput = null) {
             Authenticate(admin);
             DocumentModel.Require(ServerRooms.ValidPolicy(policy) && (policy == "key") == (creatorOutput != null), "invalid-creation-policy");
-            var updated = new ServerConfiguration { serverId = configuration.serverId, adminHash = configuration.adminHash, creationPolicy = policy };
+            var updated = new ServerConfiguration { serverId = configuration.serverId, adminHash = configuration.adminHash, creationPolicy = policy, directoryPolicy = configuration.directoryPolicy };
             if (policy == "key") {
                 var key = new RoomCreationKey { format = "protobot-room-creator", schema = 1, serverId = updated.serverId, credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant() };
                 updated.creationKeyHash = Hash(key.credential);
@@ -159,6 +163,20 @@ namespace Protobot.Collaboration.Server {
             }
             RecoveryFiles.Write(Path.Combine(root, "server.json"), updated, 16384);
             configuration.creationPolicy = updated.creationPolicy; configuration.creationKeyHash = updated.creationKeyHash;
+        }
+        public void ConfigureDirectory(ServerAdministration admin, string policy) {
+            Authenticate(admin);
+            DocumentModel.Require(ServerRooms.ValidDirectoryPolicy(policy), "invalid-directory-policy");
+            var updated = new ServerConfiguration { serverId = configuration.serverId, adminHash = configuration.adminHash,
+                creationPolicy = configuration.creationPolicy, creationKeyHash = configuration.creationKeyHash, directoryPolicy = policy };
+            RecoveryFiles.Write(Path.Combine(root, "server.json"), updated, 16384);
+            configuration.directoryPolicy = policy;
+        }
+        public RoomDirectory PublicDirectory() {
+            DocumentModel.Require(DirectoryPolicy == "public", "room-directory-disabled");
+            Entry[] snapshot; lock (gate) snapshot = entries.Values.Take(ServerRooms.DirectoryLimit).ToArray();
+            return new RoomDirectory { serverId = ServerId, rooms = snapshot.Where(e => e.room?.IsHealthy == true)
+                .OrderBy(e => e.name, StringComparer.Ordinal).Select(e => new RoomDirectoryEntry { room = e.name, passwordRequired = e.room.PasswordRequired }).ToArray() };
         }
         public Room Resolve(string name) {
             lock (gate) {

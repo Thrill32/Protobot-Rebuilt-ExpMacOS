@@ -1,6 +1,31 @@
 # Shared-server room creation
 
-Protobot's collaboration window has **Host**, **Join**, **Local rooms**, **Create room**, **Owned rooms** and **Server admin** pages. Open it from the **Collaboration** button beside the filename in the top bar; a live session adds its participant count. Development players expose the window normally; ordinary release builds still need the collaboration switch. Local Host/Join/recovery remains available. Use a matching player/catalog/helper build. Creation does not replace an online room or open it locally: it copies the current accepted catalog/custom content into a new room, generation and personal history. Your local project, file association and saved file remain independent. Choose **Join as owner** afterward; normal unsaved-project handling applies and the joined document starts with Save As.
+Open **Collaboration** beside the filename in the top bar, enter a server hostname and choose **Connect / refresh**. Bare names use HTTPS; explicit schemes and ports are preserved. Select a discovered room, enter its password if required and choose **Join room**. If discovery is private or unsupported, use **Join by room ID** or **Paste invite**. Joining retains normal Save / Discard handling and starts with Save As. Normal certificate validation, explicit LAN HTTP and the Advanced network route still apply.
+
+The last server and up to eight endpoints are remembered. **Add server** opens an endpoint field; **Create room** copies the current accepted project into a new room on the selected server; **Host locally** starts the existing local helper. Password/creation/admin forms open beside the room browser on wide windows; compact windows show one panel with **Back to rooms**. **Owner / recovery** holds secondary private ownership and local-host recovery. **Advanced / debugging** retains the detailed Host/Join/Local rooms/Create/Owned rooms/Server admin interface and transport/proxy/replacement controls. Development players expose the entry normally; ordinary release builds still require the collaboration switch. Main.unity is unchanged.
+
+After joining a durable room, the profile's protected `Collaboration/sessions` recovery file retains a reusable membership credential, rather than the password. It is scoped to canonical server origin, exact room ID, catalog and stable room identity. Rejoining preserves the existing role/history, including viewer roles. **Forget saved access** removes only that participant record; it refuses while unresolved edit IDs still need recovery. It does not revoke the server membership or delete private local/created owner records. Explicit Leave retains its existing revocation behavior. Secrets are separate from ordinary endpoint preferences, invites, project files and admin/creation keys. Recovery files use atomic private writes (Unix 0700 directories/0600 files; Windows inherits the user profile ACL). No OS keychain or encryption-at-rest claim is made.
+
+Creation retains private owner recovery before sending and does not replace an online room or open it locally: it creates a new generation/history from current accepted catalog/custom content. Your project/file stay open. **Allow other editors to replace this room’s project?** is an explicit **No / Yes** setting, default No. Join as owner afterward through Owner / recovery. Existing replacement confirmation, outcome Check and explicit resynchronization rules are unchanged.
+
+## Public room directory
+
+Discovery is independent of creation and administration. Existing and new servers default to **hidden**. To opt in when initializing:
+
+```sh
+protobot-collab server-init --data-dir ./server --directory-policy public
+```
+
+To change an existing server, stop it and authenticate with its separate admin file:
+
+```sh
+protobot-collab server-directory --config ./server/server.json --admin-file ./server/admin.json --directory-policy public
+# Use --directory-policy hidden to disable discovery again.
+```
+
+Public `GET /rooms` returns directory version/server identity and at most eight healthy available rooms, each containing only `room` and `passwordRequired`. No generations, catalog hashes, revisions, users/counts, diagnostics or credentials appear. There is no room-name search, pagination, background indexing or unbounded enumeration. The client accepts at most 4 KiB. Hidden lookup refuses; unavailable registrations stay visible only to administrators for repair. Server request limits and no-store policy apply. A public listing never joins a room, tests a password, supplies ownership or authorizes creation/admin access. Public policy exposes every healthy registered room ID; operators needing an unlisted server must keep it hidden. There is no per-room visibility setting in this version.
+
+Root capabilities add optional `roomDirectoryVersion: 1` and `roomDirectoryPolicy`. Old helpers and dedicated single-room hosts need no directory update for direct ID joining. New helpers read absent visibility as hidden. Config schema 1 adds optional `directoryPolicy`; strict older helpers refuse a config containing that field. Preserve the original config/binary for deliberate rollback. Offline creation-policy changes preserve visibility, and directory changes preserve creator/admin credentials. Installation selection checks the supported config-field list.
 
 ## Operator policy
 
@@ -63,7 +88,7 @@ protobot-collab room create --url https://cad.example.org --open-creation --room
 
 Use exactly one of `--admin-file`, `--creation-key-file` and `--open-creation`. Keys/passwords are private file or masked interactive inputs, never argument/environment values. The CLI retains its owner output before sending and never retries creation. Owner output uses the existing owner-file format and can be used by the existing participant/diagnostics commands. Keep it after a lost reply; query that exact room with its owner file. No room-list access is needed for recovery.
 
-Root capabilities add optional `roomCreationVersion: 1`, `roomCreationPolicy` and `serverId`. `POST /rooms` authorizes the selected creation policy before parsing a bootstrap; it shares the existing registry creation path. `/admin/rooms` (GET/POST) and `/admin/diagnostics` remain master-admin-only. There is no `GET /rooms` directory. Room-specific capabilities do not advertise global creation authority. New UI/delegated CLI operations refuse old helpers before preparing owner credentials or sending a mutation; existing Host/Join/admin CLI work remains compatible with older supported helpers. An original pre-creation helper fixture is exercised in the focused lab.
+Root capabilities add optional `roomCreationVersion: 1`, `roomCreationPolicy` and `serverId`. `POST /rooms` authorizes the selected creation policy before parsing a bootstrap; it shares the existing registry creation path. `/admin/rooms` (GET/POST) and `/admin/diagnostics` remain master-admin-only. The separate operator-enabled `GET /rooms` directory described above grants no administrator authority. Room-specific capabilities do not advertise global creation authority. New UI/delegated CLI operations refuse old helpers before preparing owner credentials or sending a mutation; existing Host/Join/admin CLI work remains compatible with older supported helpers. An original pre-creation helper fixture is exercised in the focused lab.
 
 Wire remains **0.9**, documents **v2**, registry/admin **v1**. SQLite/archives remain **v2** until an explicit replacement atomically writes **v3**; older helpers refuse replaced data. Config schema 1 adds optional `creationPolicy`/`creationKeyHash`; absent policy means admin-only. Old helpers' strict config readers refuse files with these new fields: retain original config and compatible binaries for a deliberate rollback, and never run an old helper against a policy it does not understand. Existing room catalogs retain their original matching scope; no automatic catalog rewrite occurs.
 

@@ -77,6 +77,18 @@ namespace ProtobotEditorTools {
                     }
                     Require(Get<Text>(session, "uiBadgeText").text == "Collaboration", "Offline entry label changed.");
                     await Click(session, "Collaboration"); Require(CollaborationSession.BlocksUIInput, "Top-bar pointer failed to open modal.");
+                    Require(Get<GameObject>(session, "uiNavigation").activeInHierarchy && !Get<GameObject>(session, "uiModal").activeInHierarchy, "Everyday entry did not open the server popover.");
+                    var popover = Bounds(Get<RectTransform>(session, "uiNavigationCard"));
+                    Require(popover.xMin >= 0 && popover.xMax <= Screen.width && popover.yMin >= 0 && popover.yMax < Screen.height, "Popover exceeds window at " + size);
+                    foreach (var control in Get<RectTransform>(session, "uiNavigationCard").GetComponentsInChildren<Selectable>()) {
+                        var bounds = Bounds((RectTransform)control.transform);
+                        Require(bounds.xMin >= popover.xMin && bounds.xMax <= popover.xMax && bounds.yMin >= popover.yMin && bounds.yMax <= popover.yMax, "Browser control escaped popover: " + control.name + " at " + size);
+                    }
+                    if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null) {
+                        string image = Path.Combine(root, "browser-" + size.x + ".png"); ScreenCapture.CaptureScreenshot(image);
+                        await Until(() => File.Exists(image) && new FileInfo(image).Length > 0);
+                    }
+                    await Click(session, "Advanced Collaboration");
                     await Click(session, "Owned Rooms Tab");
                     Require(Get<GameObject>(session, "uiOwnedRooms").activeInHierarchy && !Get<GameObject>(session, "uiCreateRoom").activeInHierarchy &&
                         !Get<InputField>(session, "uiPassword").gameObject.activeInHierarchy, "Owned rooms leaked creation/password controls.");
@@ -99,7 +111,7 @@ namespace ProtobotEditorTools {
                     await Click(session, "Close");
                     Require(Get<string>(session, "password") == "" && Get<string>(session, "creationKey") == "" && !CollaborationSession.BlocksUIInput,
                         "Close retained room credentials or modal capture.");
-                    await Click(session, "Collaboration"); await Click(session, "Join Tab"); Get<InputField>(session, "uiPassword").text = "private-room-input";
+                    await Click(session, "Collaboration"); await Click(session, "Advanced Collaboration"); await Click(session, "Join Tab"); Get<InputField>(session, "uiPassword").text = "private-room-input";
                     InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(UnityEngine.InputSystem.Key.Escape)); await Task.Delay(100);
                     InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState()); await Task.Delay(100);
                     Require(Get<string>(session, "password") == "" && !CollaborationSession.BlocksUIInput, "Escape retained private room input or modal capture.");
@@ -107,9 +119,17 @@ namespace ProtobotEditorTools {
                         string image = Path.Combine(root, "topbar-" + size.x + ".png"); ScreenCapture.CaptureScreenshot(image);
                         await Until(() => File.Exists(image) && new FileInfo(image).Length > 0);
                     }
+                    if (size.x == 1280) await CollaborationBrowserValidation.Check(session, root);
+                    await Click(session, "Collaboration"); await Click(session, "Navigation Host Locally"); Invoke(session, "RefreshUI");
+                    Require(Get<RectTransform>(session, "uiNavigationCard").gameObject.activeInHierarchy == (size.x >= 1100), "Compact-window fallback did not switch to a single panel.");
+                    if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null) {
+                        string image = Path.Combine(root, "host-panel-" + size.x + ".png"); ScreenCapture.CaptureScreenshot(image);
+                        await Until(() => File.Exists(image) && new FileInfo(image).Length > 0);
+                    }
+                    await Click(session, "Detail Close");
                 }
                 SceneBuild.GenerateBuild(SceneBuild.DefaultBuild); PartsManager.GeneratePart("CCHL-1x2-5", Vector3.zero, Quaternion.identity);
-                await Click(session, "Collaboration"); await Click(session, "Host Tab"); Get<InputField>(session, "uiPort").text = "0";
+                await Click(session, "Collaboration"); await Click(session, "Navigation Host Locally"); Get<InputField>(session, "uiPort").text = "0";
                 await Click(session, "Start Hosting"); await Until(() => CollaborationSession.IsShared && !Get<bool>(session, "busy"));
                 var client = Get<CollaborationClient>(session, "client"); var host = Get<CollaborationHost>(session, "host");
                 await Until(() => Get<Participant[]>(session, "participants").Length == 1); Invoke(session, "RefreshUI");

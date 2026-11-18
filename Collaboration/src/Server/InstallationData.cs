@@ -38,6 +38,7 @@ namespace Protobot.Collaboration.Server {
             string configPath = Path.Combine(directory, "server.json"); Regular(configPath);
             var config = RoomRegistry.Read<ServerConfiguration>(configPath);
             DocumentModel.Require(config.schema == 1 && DocumentModel.ValidId(config.serverId) && DocumentModel.ValidAssetHash(config.adminHash) &&
+                ServerRooms.ValidDirectoryPolicy(config.directoryPolicy ?? "hidden") &&
                 ServerRooms.ValidPolicy(config.creationPolicy ?? "admin-only") && ((config.creationPolicy ?? "admin-only") == "key" ?
                     DocumentModel.ValidAssetHash(config.creationKeyHash) && config.creationKeyHash != config.adminHash : config.creationKeyHash == null), "installation-config-incompatible");
             using (var json = JsonDocument.Parse(File.ReadAllBytes(configPath)))

@@ -13,7 +13,7 @@ internal static partial class Program {
     private static int InitializeServer(Options options) {
         string target = Path.GetFullPath(options.Required("--data-dir"));
         string policy = options.Get("--creation-policy", "admin-only");
-        RoomRegistry.Initialize(target, policy);
+        RoomRegistry.Initialize(target, policy, options.Get("--directory-policy", "hidden"));
         Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { config = Path.Combine(target, "server.json"), adminFile = Path.Combine(target, "admin.json"),
             creationPolicy = policy, creatorFile = policy == "key" ? Path.Combine(target, "creator.json") : null, registryVersion = RoomRegistry.Version }));
         return 0;
@@ -31,6 +31,12 @@ internal static partial class Program {
         registry.ConfigureCreation(admin, policy, options.Get("--creator-output"));
         Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { creationPolicy = policy, creatorFile = options.Get("--creator-output") }));
         return 0;
+    }
+    private static int ConfigureServerDirectory(Options options) {
+        var admin = ReadServerAdmin(options.Required("--admin-file"));
+        using var registry = new RoomRegistry(options.Required("--config"), recover: false);
+        string policy = options.Required("--directory-policy"); registry.ConfigureDirectory(admin, policy);
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { directoryPolicy = policy })); return 0;
     }
     private static async Task<int> Hosting(string operation, Options options) {
         bool delegated = options.Has("--creation-key-file") || options.Has("--open-creation");

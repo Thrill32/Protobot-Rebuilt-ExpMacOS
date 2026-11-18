@@ -245,7 +245,38 @@ namespace Protobot.Collaboration {
         }
         public static void ForgetRecovery(string path) {
             if (!File.Exists(path)) return;
-            using (var ownership = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) File.Delete(path);
+            DocumentModel.Require((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0 &&
+                (!File.Exists(path + ".lock") || (File.GetAttributes(path + ".lock") & FileAttributes.ReparsePoint) == 0), "invalid-session-recovery-file");
+            using (var ownership = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+                RecoveryFiles.PrivateFile(path + ".lock");
+                var saved = ReadSavedAccess(path);
+                DocumentModel.Require(saved.pendingIds != null && saved.pendingIds.Length == 0, "saved-access-has-pending-edits");
+                File.Delete(path);
+            }
+        }
+        // Metadata only: credentials never leave protected recovery storage for preferences/UI.
+        public static string[] SavedRooms(string directory, string origin, string catalogHash) {
+            if (!Directory.Exists(directory)) return Array.Empty<string>();
+            var result = new List<string>();
+            foreach (var path in Directory.EnumerateFiles(directory, "*.json").Take(256)) {
+                try {
+                    var value = ReadSavedAccess(path);
+                    if (value.origin == origin && value.catalogHash == catalogHash && !string.IsNullOrEmpty(value.resumeToken)) result.Add(value.room);
+                } catch { /* Retain unreadable private records; joining reports their precise error. */ }
+            }
+            return result.Distinct().OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        }
+        public static bool HasSavedAccess(string path, string origin, string room, string catalogHash) {
+            if (!File.Exists(path)) return false;
+            var value = ReadSavedAccess(path);
+            DocumentModel.Require(value.origin == origin && value.room == room && value.catalogHash == catalogHash, "saved-room-does-not-match");
+            return !string.IsNullOrEmpty(value.resumeToken);
+        }
+        private static RecoveryState ReadSavedAccess(string path) {
+            DocumentModel.Require((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0 && new FileInfo(path).Length <= 65536, "invalid-session-recovery-file");
+            var value = RecoveryFiles.Read<RecoveryState>(path);
+            DocumentModel.Require(value != null && (value.schema == 1 || value.schema == 2) && DocumentModel.ValidId(value.room), "invalid-session-recovery-file");
+            return value;
         }
 
         public Transaction CreateTransaction(string kind, Part[] writes, string[] deletes = null, VersionRef[] dependencies = null, string lease = null,

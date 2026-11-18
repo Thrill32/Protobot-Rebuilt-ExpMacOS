@@ -46,6 +46,7 @@ namespace Protobot {
             UIText(uiOwnedRooms.transform, "Ownership Help", "Rooms you own in this local profile. Check uses each record's original server address. Join opens its accepted content after normal unsaved-project handling; replacement publishes your current project after a separate confirmation. Neither action uses server-administrator authority.");
             UIText(uiOwnedRooms.transform, "Recovery Help", "After a failed or canceled creation or replacement, use Check to learn its outcome. No mutation is resent automatically. Keep this private profile to retain ownership.", 12);
             UIButton(uiOwnedRooms.transform, "Refresh Created Rooms", "Refresh private room records", () => { createdRoomSignature = null; RefreshCreatedRoomsUI(); });
+            UIButton(uiOwnedRooms.transform, "Owner Local Recovery", "Resume a locally hosted room", () => { RefreshRecoveredRooms(); SelectUITab(2); });
             uiCreatedRooms = UIColumn(uiOwnedRooms.transform, "Private Created Rooms");
             InitializeReplacementUI(form);
 
@@ -85,7 +86,7 @@ namespace Protobot {
         private Task InspectCreationAsync() => RunRoomOperationAsync("Checking server creation policy…", async token => {
             using var remote = new RemoteRoomCreation(endpoint, lan, await SelectedNetworkAsync(token));
             var caps = await remote.InspectAsync(token);
-            uiCreationPolicy.text = "Server creation policy: " + caps.roomCreationPolicy + ". Maximum eight registered rooms; no public room directory. Separate room ownership is retained privately.";
+            uiCreationPolicy.text = "Server creation policy: " + caps.roomCreationPolicy + ". Maximum eight registered rooms. Separate room ownership is retained privately.";
             status = "Creation policy checked. Choose its matching authority before creating.";
         });
         private Task CreateRemoteRoomAsync() {

@@ -1,0 +1,199 @@
+{
+  "catalog": "3a325280c9d559b836f24f4cb5c1c6f6e0558686173683b92ee4b50c8730144d",
+  "engine": "6000.6.9f1",
+  "helpers": {
+    "osx-arm64": {
+      "manifestSha256": "131fe5cec0ca070f549d325fd018dfec8433c34679770bfd1499f344b8827d4d",
+      "build": "f91633435e18a5460418244dada67af38ec8293dcfc16bb1fa766353b658c578",
+      "files": 365,
+      "assemblies": {
+        "protobot-collab.dll": "a3b34cfd4f1a7cbda9b0d1cbd6c786e294ac5adf5d1dc6940850b6985f20c2d7",
+        "Shared.dll": "dd9904234bb45ce0250cc635f0b9df657151568a64399bf7c7ed4d686d3105b9",
+        "Server.dll": "36be2d6b7eca674833ac724a8a60268780835e41d40f48b50e582817fbbc00b6"
+      }
+    },
+    "win-x64": {
+      "manifestSha256": "3747aa304f2b98248a2e1a73e5ec7f1b4c5fe377ba2f354396953c1b7537a7e4",
+      "build": "8860a5d17ce469f3bd9f66658e1522f8c075e4c22e766a130e2ecb16cf788f30",
+      "files": 368,
+      "assemblies": {
+        "protobot-collab.dll": "ed2348009ea8fb9335aae489a1c03e5f43662cdf5ecd7af6c646c267f195e7d9",
+        "Shared.dll": "dd9904234bb45ce0250cc635f0b9df657151568a64399bf7c7ed4d686d3105b9",
+        "Server.dll": "36be2d6b7eca674833ac724a8a60268780835e41d40f48b50e582817fbbc00b6"
+      }
+    },
+    "linux-x64": {
+      "manifestSha256": "4496badfc3f23532d063697db6995f811c5db05f0bf16062da359006c23ca843",
+      "build": "dd627dc223284ebf802eae619c5d505079ece451170dd5158ea63d8faefc196f",
+      "files": 366,
+      "assemblies": {
+        "protobot-collab.dll": "573af63464c7461460cf9a489776a55ca1a15513a199d53b69d067422aa7395e",
+        "Shared.dll": "dd9904234bb45ce0250cc635f0b9df657151568a64399bf7c7ed4d686d3105b9",
+        "Server.dll": "36be2d6b7eca674833ac724a8a60268780835e41d40f48b50e582817fbbc00b6"
+      }
+    },
+    "linux-arm64": {
+      "manifestSha256": "928d8090bc16e1140f8eabd7c4d9e69ffe979c935b9603c1291369940c6e6bcc",
+      "build": "e068d552c445ccef43c6efd6d8812f835a846f476a0ce32dc2327d15406f5a28",
+      "files": 366,
+      "assemblies": {
+        "protobot-collab.dll": "d1ae87c97354da0ec334dedb9ed295e8f2ddaba493e2580d179067fad61514b4",
+        "Shared.dll": "dd9904234bb45ce0250cc635f0b9df657151568a64399bf7c7ed4d686d3105b9",
+        "Server.dll": "36be2d6b7eca674833ac724a8a60268780835e41d40f48b50e582817fbbc00b6"
+      }
+    }
+  },
+  "players": {
+    "Mac": {
+      "path": "/Users/wills/Protobot-Rebuilt/Protobot-Rebuilt/Collaboration/artifacts/navigation-20261118/players/Protobot.app",
+      "catalogEmbedded": true,
+      "helperAssembliesAndGuidesMatch": true,
+      "assemblySha256": "e4ef2d0ec64a301aa39e44023722109a9380061918d4c70b1dfe20fa4a6f492a",
+      "engineVerified": true
+    },
+    "Windows": {
+      "path": "/Users/wills/Protobot-Rebuilt/Protobot-Rebuilt/Collaboration/artifacts/navigation-20261118/players/Windows",
+      "catalogEmbedded": true,
+      "helperAssembliesAndGuidesMatch": true,
+      "assemblySha256": "3e878971cf42a9bdc2b121d876d0f64b6b75e87e8be5e85e1a2fc847f31de699",
+      "engineVerified": true
+    }
+  },
+  "localOnly": true,
+  "archivesRebuilt": false,
+  "macAdHocSignaturesVerified": true,
+  "unityChecks": [
+    {
+      "check": "core",
+      "passed": true,
+      "exitCode": 0,
+      "seconds": 35.47,
+      "log": "/private/tmp/protobot-navigation-regression-core.log"
+    },
+    {
+      "check": "ui",
+      "passed": true,
+      "exitCode": 0,
+      "log": "/private/tmp/protobot-navigation-regression-ui-fixed.log"
+    },
+    {
+      "check": "connection",
+      "passed": true,
+      "exitCode": 0,
+      "seconds": 57.16,
+      "log": "/private/tmp/protobot-navigation-regression-connection.log"
+    },
+    {
+      "check": "recovery",
+      "passed": true,
+      "exitCode": 0,
+      "seconds": 35.64,
+      "log": "/private/tmp/protobot-navigation-regression-recovery.log"
+    },
+    {
+      "check": "creation",
+      "passed": true,
+      "exitCode": 0,
+      "seconds": 38.33,
+      "log": "/private/tmp/protobot-navigation-regression-creation.log"
+    },
+    {
+      "check": "replacement",
+      "passed": true,
+      "exitCode": 0,
+      "seconds": 41.21,
+      "log": "/private/tmp/protobot-navigation-regression-replacement.log"
+    },
+    {
+      "check": "multiroom",
+      "passed": true,
+      "exitCode": 0,
+      "seconds": 30.16,
+      "log": "/private/tmp/protobot-navigation-regression-multiroom.log"
+    }
+  ],
+  "playerBuilds": [
+    {
+      "platform": "mac",
+      "exitCode": 0,
+      "output": "/Users/wills/Protobot-Rebuilt/Protobot-Rebuilt/Collaboration/artifacts/navigation-20261118/players/Protobot.app",
+      "log": "/private/tmp/protobot-navigation-build-mac-final.log"
+    },
+    {
+      "platform": "windows",
+      "exitCode": 0,
+      "output": "/Users/wills/Protobot-Rebuilt/Protobot-Rebuilt/Collaboration/artifacts/navigation-20261118/players/Windows/Protobot.exe",
+      "log": "/private/tmp/protobot-navigation-build-windows-final.log"
+    }
+  ],
+  "navigationPlayers": {
+    "passed": true,
+    "owner": {
+      "participants": 2,
+      "passed": true,
+      "role": "owner",
+      "transport": "websocket"
+    },
+    "viewer": {
+      "participants": 0,
+      "passed": true,
+      "role": "viewer",
+      "transport": "websocket"
+    },
+    "localOnly": true
+  },
+  "lab": {
+    "passed": true,
+    "assertions": 1751,
+    "log": "/private/tmp/protobot-navigation-full-lab-01.log"
+  },
+  "directory": {
+    "passed": true,
+    "assertions": 35,
+    "log": "/private/tmp/protobot-navigation-directory-final.log"
+  },
+  "installation": {
+    "passed": true,
+    "assertions": 39,
+    "log": "/private/tmp/protobot-navigation-installation-final.log"
+  },
+  "renderedNavigation": {
+    "passed": true,
+    "assertions": 130,
+    "log": "/private/tmp/protobot-navigation-release-render.log",
+    "screenshots": "/private/tmp/protobot-navigation-release-render/navigation-render"
+  },
+  "date": "2026-11-18",
+  "baseline": "e4ddc1d",
+  "sdk": "10.0.403",
+  "initialWorkingTreeClean": true,
+  "mainSceneUnchanged": true,
+  "protectedViewerAccess": {
+    "unixDirectoryMode": "0700",
+    "unixFileMode": "0600",
+    "tokenAbsentFromPreferencesAndLogs": true
+  },
+  "builtPlayerSceneLab": {
+    "passed": true,
+    "assertions": 8,
+    "transports": [
+      "websocket",
+      "short-polling"
+    ],
+    "log": "/private/tmp/protobot-navigation-player-lab-final.log"
+  },
+  "retainedFixtureArchives": [
+    "/private/tmp/protobot-navigation-validation-fixtures/full-lab.tar.gz",
+    "/private/tmp/protobot-navigation-validation-fixtures/installation.tar.gz"
+  ],
+  "fieldLimitations": [
+    "Windows/Linux/Pi execution and cross-OS editing were not run.",
+    "Public trusted HTTPS/proxy deployment and native file pickers require field acceptance.",
+    "Mac signatures are ad-hoc, not notarized.",
+    "Credential files use private filesystem permissions / inherited Windows profile ACLs, not an OS keychain.",
+    "Existing room catalogs are not automatically migrated.",
+    "Public discovery is server-wide, not per-room.",
+    "Online NuGet audit was unavailable; cached builds disabled it.",
+    "Historical release archives were not repackaged."
+  ]
+}

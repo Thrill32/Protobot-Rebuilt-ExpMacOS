@@ -71,6 +71,7 @@ namespace Protobot.Collaboration.Server {
             diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
             transports = new[] { "websocket", "long-polling", "short-polling" }, room = Name, generation = document.generation, catalogHash = catalog.hash }; } }
         public string Incarnation { get; } = Guid.NewGuid().ToString("N");
+        internal bool PasswordRequired { get; }
         public const int LeaseMilliseconds = 10000;
 
         internal static Room Recover(RoomStore storage, RoomArchive archive) => new Room(null, null, storage, archive);
@@ -106,6 +107,7 @@ namespace Protobot.Collaboration.Server {
                     allowEditorProjectReplacement = seed.allowEditorProjectReplacement };
                 store?.Initialize(roomInfo, document, assetBytes);
             }
+            PasswordRequired = !CryptographicOperations.FixedTimeEquals(Password(""), passwordHash);
             diagnosticHash = DocumentModel.Hash(document);
         }
 

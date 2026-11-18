@@ -43,8 +43,8 @@ namespace Protobot {
         private long previewSequence;
         private long lastSubmittedRevision;
         private float nextRenew, nextPreview;
-        private string status = "Development alpha · Host or join a catalog build.";
-        private string endpoint = "http://127.0.0.1:8787", room = "team", displayName = "Editor", password = "", port = "0";
+        private string status = "Choose a server to find and join a room.";
+        private string endpoint = "", room = "team", displayName = "Editor", password = "", port = "0";
         private bool lan, panel;
         private CollaborationTransport transport;
         private Participant[] participants = Array.Empty<Participant>();
@@ -85,6 +85,7 @@ namespace Protobot {
         private void Awake() {
             instance = this;
             displayName = CollaborationArguments.Get("--collab-name", Environment.UserName);
+            endpoint = LocalPreferences.GetString(LastServerPreference, endpoint);
             endpoint = CollaborationArguments.Get("--collab-join", endpoint);
             endpoint = CollaborationArguments.Get("--collab-server", endpoint);
             room = CollaborationArguments.Get("--collab-room", room);
@@ -248,6 +249,7 @@ namespace Protobot {
                     await remote.CheckAsync(ownerJoin, attempt.Token);
                 }
                 await ConnectAsync(ownerJoin?.ownerCredential, false, attempt, ownerJoin, ownerJoin != null || acceptReplacementJoin); status = "Connected to " + room;
+                RememberServer(endpoint); savedAccessSignature = directorySignature = null;
             }
             catch (OperationCanceledException) when (attempt.Token.IsCancellationRequested) {
                 status = "Connection canceled. The current build and local file are unchanged. Saved membership is kept for retry.";
@@ -804,7 +806,7 @@ namespace Protobot {
             "missing-asset" or "asset-hash-mismatch" => "Custom geometry is missing or damaged. Reconnect to synchronize; ask the host to check recovery if it persists.",
             _ => FriendlyStatus(WireFailure.Code(error))
         } : FriendlyStatus(WireFailure.Code(error)); InteractionFeedback.Notify(status); Debug.LogWarning("Collaboration: " + status); }
-        private void OnQuitting() { closing = true; CancelRoomOperation(); ClearRoomKeys(); CancelDiagnosticExport(); CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
+        private void OnQuitting() { closing = true; CancelDirectory(); CancelRoomOperation(); ClearRoomKeys(); CancelDiagnosticExport(); CancelConnection(); connectionTest?.Cancel(); connectionAttempt?.Candidate?.Dispose(); host?.Dispose(); client?.Dispose(); }
         private void OnDestroy() { OnQuitting(); Application.quitting -= OnQuitting; ClearGhosts(); DisposeUI(); if (instance == this) instance = null; }
     }
 }
