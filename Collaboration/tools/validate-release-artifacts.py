@@ -29,6 +29,12 @@ def safe_name(name):
             "unsafe archive path: " + name)
 
 
+def verify_signature(target):
+    result = subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(target)],
+                            capture_output=True, text=True)
+    require(result.returncode == 0, "Mac signature verification failed: " + str(target) + "\n" + result.stderr.strip())
+
+
 def verify(artifacts, record, extracted):
     repo = Path(__file__).resolve().parents[2]
     catalog = (repo / "Assets/Resources/Collaboration/catalog.json").read_bytes()
@@ -127,10 +133,10 @@ def verify(artifacts, record, extracted):
         if extracted is not None:
             targets.append(extracted / "osx-arm64/protobot-collab")
         for target in targets:
-            subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(target)], check=True, capture_output=True)
+            verify_signature(target)
         with tempfile.TemporaryDirectory(prefix="protobot-rc-signature-") as temporary:
             subprocess.run(["/usr/bin/ditto", "-x", "-k", str(artifacts / "Protobot-Mac-collaboration.zip"), temporary], check=True, capture_output=True)
-            subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(Path(temporary) / "Protobot.app")], check=True, capture_output=True)
+            verify_signature(Path(temporary) / "Protobot.app")
         report["macSignaturesIncludingExtractedArchives"] = True
         report["signatureScope"] = "Local code integrity only; notarization, Gatekeeper download/quarantine acceptance and publisher trust were not tested."
     return report

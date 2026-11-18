@@ -1,7 +1,8 @@
 # Collaboration release candidate: two-person acceptance
 
-Candidate source: `18b87b05c998fda01264e02498760018c347f370` on `network-collab-support`.
-Use the exact six retained packages identified in [the acceptance record](ACCEPTANCE.md).
+Unity **6000.6.9f1** package set: use the six archives identified in [the upgrade evidence](UNITY_6000_6_9.json), under `Collaboration/artifacts/unity-6000.6.9f1/`. The source base is `c98e9feb14801af26c0bb700bf0fea175568c86e` on `network-collab-support`, with the editor/build, documentation and CI changes described in [the acceptance record](ACCEPTANCE.md).
+
+The earlier `18b87b0` candidate and its Unity 6000.6.6f1 package hashes remain in [the historical RC record](RC_18b87b0.json). Record the exact package set used for each acceptance run.
 These are development/alpha players. Running this checklist does not authorize publication,
 deployment, service installation, or changes to an existing production installation.
 

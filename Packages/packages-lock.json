@@ -20,7 +20,7 @@
       "dependencies": {}
     },
     "com.unity.ai.navigation": {
-      "version": "2.0.15",
+      "version": "2.0.16",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -68,12 +68,10 @@
       "dependencies": {}
     },
     "com.unity.ide.rider": {
-      "version": "3.0.38",
+      "version": "3.1.0",
       "depth": 0,
       "source": "registry",
-      "dependencies": {
-        "com.unity.ext.nunit": "1.0.6"
-      },
+      "dependencies": {},
       "url": "https://packages.unity.com"
     },
     "com.unity.ide.visualstudio": {
@@ -86,7 +84,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.inputsystem": {
-      "version": "1.20.0",
+      "version": "1.20.1",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -101,7 +99,7 @@
       "dependencies": {}
     },
     "com.unity.multiplayer.center": {
-      "version": "2.0.1",
+      "version": "2.1.0",
       "depth": 0,
       "source": "builtin",
       "dependencies": {
@@ -149,7 +147,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.probuilder": {
-      "version": "6.1.2",
+      "version": "6.1.4",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -204,7 +202,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.services.authentication": {
-      "version": "3.8.0",
+      "version": "3.8.1",
       "depth": 1,
       "source": "registry",
       "dependencies": {
@@ -274,7 +272,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.services.wire": {
-      "version": "1.6.0",
+      "version": "1.6.2",
       "depth": 1,
       "source": "registry",
       "dependencies": {

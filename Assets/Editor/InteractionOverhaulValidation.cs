@@ -53,13 +53,13 @@ namespace ProtobotEditorTools {
                     await Frames(3);
                 }
                 using var window = Render ? new ProbeWindow() : null;
-                if (window != null) { window.Size(1600,1000); await Frames(4); }
+                if (window != null) await window.Size(1600,1000);
                 await Scenario("color", CheckColor);
                 await Scenario("settings", CheckSettings);
                 if (window != null) {
-                    window.Size(1280,720); await Frames(4);
+                    await window.Size(1280,720);
                     await Scenario("settings small", CheckSettings);
-                    window.Size(1600,1000); await Frames(4);
+                    await window.Size(1600,1000);
                 }
                 if (Render) await Scenario("camera dispatch", CheckCameraDispatch);
                 await Scenario("box", CheckBox);
@@ -84,16 +84,22 @@ namespace ProtobotEditorTools {
                 var groupType = assembly.GetType("UnityEditor.GameViewSizeGroupType");
                 group = sizesType.GetMethod("GetGroup").Invoke(sizes,new[] {Enum.Parse(groupType,"Standalone")});
             }
-            public void Size(int width,int height) {
+            public async Task Size(int width,int height) {
                 var assembly = typeof(EditorWindow).Assembly;
                 var type = assembly.GetType("UnityEditor.GameViewSize");
                 var kind = assembly.GetType("UnityEditor.GameViewSizeType");
                 var size = Activator.CreateInstance(type, BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,
                     null,new[] {Enum.Parse(kind,"FixedResolution"),(object)width,height,"Overhaul validation"},null);
                 int count = (int)group.GetType().GetMethod("GetTotalCount").Invoke(group,null);
-                int builtins = (int)group.GetType().GetMethod("GetBuiltinCount").Invoke(group,null);
-                group.GetType().GetMethod("AddCustomSize").Invoke(group,new[] {size}); added.Add(count-builtins);
+                group.GetType().GetMethod("AddCustomSize").Invoke(group,new[] {size}); added.Add(count);
                 selected.SetValue(game,count); game.Focus(); game.Repaint();
+                double end = EditorApplication.timeSinceStartup + 20;
+                while (Screen.width != width || Screen.height != height) {
+                    Require(EditorApplication.timeSinceStartup < end, "Game View did not resize to " + width + "x" + height);
+                    await Frames(1);
+                }
+                await Frames(4);
+                Canvas.ForceUpdateCanvases();
             }
             public void Dispose() {
                 selected.SetValue(game,previous);
@@ -168,6 +174,7 @@ namespace ProtobotEditorTools {
             var toggle = tool.GetComponent<Toggle>();
             var panel = dropdown.transform.parent.gameObject;
             if (!toggle.isOn) await Click((RectTransform)toggle.transform);
+            Require(toggle.isOn && panel.activeInHierarchy, "Color toolbar click did not leave the palette open.");
             dropdown.value = dropdown.options.Count - 1;
             await Frames();
             await Capture("color");

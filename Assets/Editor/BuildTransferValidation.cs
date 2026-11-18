@@ -78,7 +78,7 @@ namespace ProtobotEditorTools {
             var dialogs = new DeferredDialogs(); wrapper.SetValue(null, dialogs);
             var directory = Path.Combine(Path.GetTempPath(), "Protobot transfer " + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
             var prefKeys = new[] { "selectionFileDirectory", "buildFileDirectory", "recentBuilds" };
-            var prefs = prefKeys.Select(key => (key, present: PlayerPrefs.HasKey(key), value: PlayerPrefs.GetString(key))).ToArray();
+            var prefs = prefKeys.Select(key => (key, present: LocalPreferences.HasKey(key), value: LocalPreferences.GetString(key))).ToArray();
             int saves = 0, loads = 0;
             manager.OnSaveBuild.AddListener(_ => saves++); manager.OnLoadBuild.AddListener(_ => loads++);
             try {
@@ -118,7 +118,7 @@ namespace ProtobotEditorTools {
                 manager.buildPath = projectPath; Set(manager, "savedBuildData", savedProject);
                 excluded.transform.position += Vector3.right;
                 Require((bool)Invoke(manager, "HasUnsavedChanges"), "Fixture must begin with an unsaved edit.");
-                string recent = PlayerPrefs.GetString("recentBuilds");
+                string recent = LocalPreferences.GetString("recentBuilds");
 
                 var exportTask = tool.SaveSelectedAsAsync();
                 Require(dialogs.SaveCalls == 1 && dialogs.SaveTitle == "Save Selected Parts As" && NativeFileDialogs.IsOpen, "Selection export did not use Save As.");
@@ -133,7 +133,7 @@ namespace ProtobotEditorTools {
                 Require(exported.parts.Length == 4 && exported.chains.Length == 1, "Export saved the whole project or the later selection.");
                 Require(manager.buildPath == projectPath && ReferenceEquals(Get<BuildData>(manager, "savedBuildData"), savedProject) && saves == 0 && loads == 0,
                     "Selection export replaced the current path or marked the project saved.");
-                Require((bool)Invoke(manager, "HasUnsavedChanges") && File.ReadAllBytes(projectPath).SequenceEqual(projectBytes) && PlayerPrefs.GetString("recentBuilds") == recent,
+                Require((bool)Invoke(manager, "HasUnsavedChanges") && File.ReadAllBytes(projectPath).SequenceEqual(projectBytes) && LocalPreferences.GetString("recentBuilds") == recent,
                     "Selection export wrote the current project or changed its dirty/recent state.");
                 selection.SetCurrent(new MultiSelection(null, selected.ToList()) { individual = true }, true);
                 var canceled = tool.SaveSelectedAsAsync(); Require(dialogs.SaveCalls == 2, "A second selection export reused its old path.");
@@ -279,7 +279,7 @@ namespace ProtobotEditorTools {
             finally {
                 if (placement.placing) placement.StopPlacing();
                 wrapper.SetValue(null, originalWrapper); GUIUtility.systemCopyBuffer = originalClipboard;
-                foreach (var pref in prefs) { if (pref.present) PlayerPrefs.SetString(pref.key, pref.value); else PlayerPrefs.DeleteKey(pref.key); }
+                foreach (var pref in prefs) { if (pref.present) LocalPreferences.SetString(pref.key, pref.value); else LocalPreferences.DeleteKey(pref.key); }
                 Keys(); Directory.Delete(directory, true);
             }
         }

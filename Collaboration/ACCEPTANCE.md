@@ -1,5 +1,25 @@
 # Collaboration 0.9 manual acceptance
 
+## Unity 6000.6.9f1 upgrade, November 17–18, 2026
+
+**Fresh local upgrade checks pass; human and external-platform acceptance remains pending.** The working tree began clean at `c98e9feb14801af26c0bb700bf0fea175568c86e` on `network-collab-support`. The installed editor and every editor/player run were checked against **6000.6.9f1 (8c45277fb9c5)**. The base commit also updated Input System, ProBuilder and other packages; exact package changes, archive hashes, helper identities and limitations are in [the upgrade evidence](UNITY_6000_6_9.json).
+
+| Fresh check | Result |
+| --- | --- |
+| Editor regression scenarios | **26 passed**: rendered interactions, file workflows/transfers, hole placement and transforms, grabbing/regeneration, cursor/Escape input, custom models/mounts, chains/simulation, platform compilation/configuration, and all twelve collaboration scenarios |
+| Platform scripts and builds | Windows/Linux player scripts compiled (65 assemblies each); fresh Mac arm64 and Windows x64 development players built successfully; final macOS-target import/compile passed |
+| Mac player runtime | **8 assertions across four processes**: Host/Join convergence, scene/collider/save/profile checks across WebSocket, long polling and short polling; every player used the new engine |
+| Rendered packaged UI | Pass: actual Host/Join, independent second player, owner/viewer roles and two participants; owner/viewer screenshots inspected |
+| Six new archives | Pass: complete helper manifests/inventories, every archived player payload, embedded/source catalog, helper assemblies, current operator guides, executable modes and checksum sidecars |
+| Mac signatures | Pass for loose and archive-extracted helper/app; preserved bad archive is rejected with its unsigned component reported |
+| CI configuration | YAML and project-version reader validated locally; CI selects the authoritative version and separates Library caches by editor/package versions; remote Actions was not run |
+
+New packages and raw evidence live under ignored `Collaboration/artifacts/unity-6000.6.9f1/`; use `players/Protobot.app` or `players/Windows/Protobot.exe` from that directory. The original six `18b87b0` archives still match their historical hashes. The current catalog is unchanged, and the existing helper binaries were reused with manifests refreshed for current guides. Production runtime source, Main.unity and shared project settings remain unchanged. Generated font/material serialization changes were retained as a patch and restored.
+
+Validation fixes make file probes use the app's isolated preference store, dismiss startup overlays before placement/simulation input, wait for actual Game View sizes and remove temporary sizes with the correct indices. Initial failed attempts and a reverted virtual-input experiment are retained. The first new Mac ZIP discarded extended-attribute signatures on managed DLLs; it and its initial record were preserved, and the corrected ZIP uses `ditto --sequesterRsrc`. The package verifier now reports signature stderr, including the failing component.
+
+This establishes local upgrade compatibility. Windows/Linux execution, remote CI, human two-machine/native-dialog/focus checks, trusted public TLS/proxy and service/deployment acceptance remain pending under [the release checklist](RELEASE_CHECKLIST.md). No publication or deployment was performed.
+
 ## Release candidate review: 18b87b0, November 17, 2026
 
 **Local RC automation passes; release acceptance remains pending.** Use the new

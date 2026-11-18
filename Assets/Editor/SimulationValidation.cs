@@ -56,6 +56,8 @@ namespace ProtobotEditorTools {
             if (!EditorApplication.isPlaying || EditorApplication.isCompiling || ++frames < 20) return;
             try {
                 if (!checkedRender) {
+                    GameObject.Find("Launch Canvas")?.SetActive(false);
+                    GameObject.Find("Splash Screen")?.SetActive(false);
                     Check();
                     if (SessionState.GetBool(Key + ".Mechanisms", false)) MechanismValidation.Check();
                 Debug.Log("Simulation smoke passed: generated motor/shafts/collars/gears, ratio propagation, stationary housings/bearings, reverse/large-time evaluation, reset/cancel, click commit, undo/redo, preview-safe saves, wrapped mouse scrubbing, timeline controls, unbound/rebound actions, Move gear snapping and body-only G/H denial.");

@@ -72,8 +72,15 @@ namespace ProtobotEditorTools {
             options = options?.ToArray() ?? Array.Empty<string>()
         };
 
-        public static void BuildMacPlayer() => BuildPlayer(BuildTarget.StandaloneOSX, "Collaboration/artifacts/players/Protobot.app");
-        public static void BuildWindowsPlayer() => BuildPlayer(BuildTarget.StandaloneWindows64, "Collaboration/artifacts/players/Windows/Protobot.exe");
+        public static void BuildMacPlayer() => BuildPlayer(BuildTarget.StandaloneOSX, BuildPath("--collab-build-output", "Collaboration/artifacts/players/Protobot.app"));
+        public static void BuildWindowsPlayer() => BuildPlayer(BuildTarget.StandaloneWindows64, BuildPath("--collab-build-output", "Collaboration/artifacts/players/Windows/Protobot.exe"));
+        internal static string BuildPath(string option, string fallback) {
+            var args = Environment.GetCommandLineArgs(); int index = Array.IndexOf(args, option);
+            if (index < 0) return Path.GetFullPath(fallback);
+            if (index + 1 >= args.Length || string.IsNullOrWhiteSpace(args[index + 1]) || args[index + 1].StartsWith("-", StringComparison.Ordinal))
+                throw new BuildFailedException(option + " requires a destination path.");
+            return Path.GetFullPath(args[index + 1]);
+        }
         private static void BuildPlayer(BuildTarget target, string output) {
             string previous = Environment.GetEnvironmentVariable("PROTOBOT_BUNDLE_COLLABORATION");
             var previousBackend = PlayerSettings.GetScriptingBackend(NamedBuildTarget.Standalone);
@@ -133,7 +140,8 @@ namespace ProtobotEditorTools {
         }
         private static string Source(BuildTarget target) {
             string rid = target == BuildTarget.StandaloneOSX ? "osx-arm64" : target == BuildTarget.StandaloneWindows64 ? "win-x64" : throw new BuildFailedException("Unsupported collaboration player target.");
-            return Path.GetFullPath(Path.Combine("Collaboration/artifacts", rid, target == BuildTarget.StandaloneWindows64 ? "protobot-collab.exe" : "protobot-collab"));
+            return Path.Combine(CollaborationSetup.BuildPath("--collab-helper-root", "Collaboration/artifacts"), rid,
+                target == BuildTarget.StandaloneWindows64 ? "protobot-collab.exe" : "protobot-collab");
         }
         private static void Run(string file, string args) {
             using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = file, Arguments = args, UseShellExecute = false });

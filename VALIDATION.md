@@ -4,6 +4,8 @@ This is the validation and build companion to the main [Protobot Rebuilt Context
 
 ## Selecting validation
 
+Current editor: **6000.6.9f1**, as pinned by `ProjectSettings/ProjectVersion.txt`. Historical acceptance records and `Collaboration/RC_18b87b0.json` retain the editor actually used for those builds; they are not evidence of a new-editor pass. The current [upgrade evidence](Collaboration/UNITY_6000_6_9.json) records fresh editor, player and package checks separately.
+
 Choose checks after inspecting the change and identifying the affected subsystem in the main context map. Search this file by subsystem, validation class, or changed script name; loading unrelated entries is unnecessary.
 
 - Start with the smallest validation suite that directly covers the changed behavior.
@@ -14,7 +16,9 @@ Choose checks after inspecting the change and identifying the affected subsystem
 
 ## Development collaboration
 
-Release candidate acceptance: use [the two-person checklist](Collaboration/RELEASE_CHECKLIST.md) and record new results separately from historical [acceptance records](Collaboration/ACCEPTANCE.md). `python3 Collaboration/tools/validate-release-artifacts.py --record Collaboration/RC_18b87b0.json --output <new-evidence.json>` (Python 3.12+) verifies the six retained archives against the prior checksum/build record, complete helper manifests, every player archive payload against its loose package, source/embedded catalogs, helper assemblies, operator guides, executable modes and Mac signatures including extracted archives. It never repacks, signs or updates checksum records. Optional `--extract-native-to <new-test-directory>` extracts the verified Mac helper for CLI/Lab checks; run only on a matching host. Existing evidence/extraction destinations refuse. This is local integrity evidence, not publisher authentication, notarization/Gatekeeper acceptance, target-OS execution or two-person field acceptance. Keep all test profiles/installations disposable; preserve Main.unity and retained package bytes.
+To validate a new editor without replacing retained release-candidate payloads, both `CollaborationSetup.BuildMacPlayer` and `BuildWindowsPlayer` accept `--collab-build-output <new-player-path>` and `--collab-helper-root <directory-containing-rid-folders>`. Omission preserves their normal paths. Use separate output and complete matching helper packages, then verify the new player's actual engine version, embedded catalog/assemblies and signatures. Do not rewrite an earlier release's hashes or editor-version record.
+
+Release candidate acceptance: use [the two-person checklist](Collaboration/RELEASE_CHECKLIST.md) and record new results separately from historical [acceptance records](Collaboration/ACCEPTANCE.md). `python3 Collaboration/tools/validate-release-artifacts.py --artifacts Collaboration/artifacts/unity-6000.6.9f1 --record Collaboration/UNITY_6000_6_9.json --output <new-evidence.json>` (Python 3.12+) verifies the six current-editor archives against their checksum/build record, complete helper manifests, every player archive payload against its loose package, source/embedded catalogs, helper assemblies, operator guides, executable modes and Mac signatures including extracted archives. It never repacks, signs or updates checksum records. Optional `--extract-native-to <new-test-directory>` extracts the verified Mac helper for CLI/Lab checks; run only on a matching host. Existing evidence/extraction destinations refuse. This is local integrity evidence, not publisher authentication, notarization/Gatekeeper acceptance, target-OS execution or two-person field acceptance. Keep all test profiles/installations disposable; preserve Main.unity and retained package bytes.
 
 Role navigation: run ProtobotEditorTools.CollaborationNavigationValidation.Smoke without -quit and with a fresh --collab-profile. It temporarily selects real Game View sizes1280×720,960×640,800×600, restores them afterward, checks filename/button/other-control bounds, actual pointer/modal role routing and private Close/Escape, and verifies live participant counts with an independent viewer. Omit -nographics to retain screenshots and inspect them; the same geometry/input checks work headless. Creation/replacement/UI/connection/core/recovery/multiroom/shutdown/proxy/TLS/simulation scenarios remain relevant regressions. Rebuild matching helpers/desktop players and verify final packages after catalog-affecting UI changes.
 
@@ -126,7 +130,7 @@ Run `-executeMethod ProtobotEditorTools.SimulationValidation.MechanismsSmoke` wi
 Run a headless compile/import check:
 
 ```sh
-/Applications/Unity/Hub/Editor/6000.6.6f1/Unity.app/Contents/MacOS/Unity \
+/Applications/Unity/Hub/Editor/6000.6.9f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -quit \
   -projectPath /absolute/path/to/Protobot-Rebuilt \
   -logFile /tmp/protobot-compile.log
@@ -135,7 +139,7 @@ Run a headless compile/import check:
 Build the Apple Silicon macOS player as `build.app` (the helper explicitly selects ARM64, refreshes/verifies the app's ad hoc signature after building, and restores the previous architecture setting):
 
 ```sh
-/Applications/Unity/Hub/Editor/6000.6.6f1/Unity.app/Contents/MacOS/Unity \
+/Applications/Unity/Hub/Editor/6000.6.9f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -quit \
   -projectPath /absolute/path/to/Protobot-Rebuilt \
   -buildTarget StandaloneOSX \
@@ -150,10 +154,12 @@ codesign --force --deep --sign - --preserve-metadata=identifier,entitlements,fla
 codesign --verify --deep --strict build.app
 ```
 
+Archive signed macOS collaboration apps with `ditto -c -k --sequesterRsrc --keepParent <app> <new.zip>`. This preserves extended attributes holding signatures on bundled managed DLLs. Extract a copy and repeat strict signature verification; the package verifier checks both loose and extracted apps and reports a failing component.
+
 Build the 64-bit Windows Mono player into `Builds/Windows-Mono/Protobot.exe` (requires Windows Build Support; the helper explicitly selects Mono and restores the previous scripting backend):
 
 ```sh
-/Applications/Unity/Hub/Editor/6000.6.6f1/Unity.app/Contents/MacOS/Unity \
+/Applications/Unity/Hub/Editor/6000.6.9f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -quit \
   -projectPath /absolute/path/to/Protobot-Rebuilt \
   -buildTarget Win64 \
@@ -165,7 +171,7 @@ Distribute the entire Windows output folder, including `Protobot_Data`, `UnityPl
 
 After scene/prefab edits, check for C# errors, missing serialized references, runtime exceptions, and a clean `git diff --check`. Existing convex-mesh import warnings are known and are not compilation failures.
 
-For build file workflows, run `-executeMethod ProtobotEditorTools.BuildFileValidation.Smoke` without `-quit`. It uses deferred fake native panels in Play Mode to check desktop startup, recent history with unavailable network/cloud paths, callback dispatch, overlapping requests, file round trips and recent-file parity, Unicode/uppercase filenames, shared read-only access, failed-read stream cleanup, save cancellation, edits during a save and save-before-load ordering. It preserves Recent Builds/directory preferences and deletes its temporary files. This does not replace a manual macOS native-panel/focus check in the next player build.
+For build file workflows, run `-executeMethod ProtobotEditorTools.BuildFileValidation.Smoke` without `-quit`. It uses deferred fake native panels in Play Mode to check desktop startup, recent history with unavailable network/cloud paths, callback dispatch, overlapping requests, file round trips and recent-file parity, Unicode/uppercase filenames, shared read-only access, failed-read stream cleanup, save cancellation, edits during a save and save-before-load ordering. It preserves Recent Builds/directory preferences through `LocalPreferences` and deletes its temporary files. Pass a fresh `--collab-profile <directory>` to isolate these checks (including `BuildTransferValidation.Smoke`) from normal user preferences. This does not replace a manual macOS native-panel/focus check in the next player build.
 
 For initial hole placement checks, use `-executeMethod ProtobotEditorTools.HolePlacementValidation.Validate`. It checks scene rule ordering, serialized references, generated attachment geometry across part types and structural profiles, even hole counts, and rotated/opposite faces.
 Use `-executeMethod ProtobotEditorTools.HolePlacementValidation.Smoke` without `-quit` for a Play Mode check of pointer raycasts, opposite-face input state, preview rule priority, the committed placement pose, repeated placement, attachment refresh after property changes, R toggling during initial placement, circular motion from the pivot, off-center mating contact, retained target twist and free orientation. Placement rotation tests also exercise slash-mode text input, relative/global cycling, input/camera capture, invalid-input recovery, pointer continuity, exact confirmation and undo/redo. The check also queues real keyboard events through Main’s UI module with a live part row focused, verifies main/keypad Enter cannot restart or cancel placement around submission (including invalid input and processing before/after the numeric handler), and verifies captured buttons stay inert while ordinary form buttons still submit.

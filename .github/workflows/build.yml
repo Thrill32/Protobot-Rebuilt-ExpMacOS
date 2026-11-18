@@ -17,13 +17,21 @@ jobs:
         with:
           lfs: true
 
+      - name: Read project Unity version
+        id: unity
+        shell: bash
+        run: |
+          version=$(sed -n 's/^m_EditorVersion: //p' ProjectSettings/ProjectVersion.txt | tr -d '\r')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+[abfp][0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Cache Library
         uses: actions/cache@v4
         with:
           path: Library
-          key: Library-Windows-${{ github.sha }}
+          key: Library-${{ runner.os }}-Windows-${{ steps.unity.outputs.version }}-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json') }}-${{ github.sha }}
           restore-keys: |
-            Library-Windows-
+            Library-${{ runner.os }}-Windows-${{ steps.unity.outputs.version }}-${{ hashFiles('Packages/manifest.json', 'Packages/packages-lock.json') }}-
 
       - name: Build Unity Project
         uses: game-ci/unity-builder@v4
@@ -33,7 +41,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           targetPlatform: StandaloneWindows64
-          unityVersion: 6000.6.6f1
+          unityVersion: ${{ steps.unity.outputs.version }}
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4

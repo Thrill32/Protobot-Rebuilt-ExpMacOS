@@ -8,7 +8,7 @@ Validation commands, targeted regression guidance and player build procedures li
 
 ## Project at a glance
 
-- Unity editor: `6000.6.6f1` (see `ProjectSettings/ProjectVersion.txt`).
+- Unity editor: `6000.6.9f1` (see `ProjectSettings/ProjectVersion.txt`).
 - Active scene: `Assets/Scenes/Main.unity`.
 - Rendering: Universal Render Pipeline (URP). The main 3D camera is the Base camera; `UICamera` is stacked as an Overlay camera.
 - Primary macOS development build: `build.app`.

@@ -42,6 +42,8 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= SmokeTick;
             SessionState.SetBool(SmokeKey, false);
             try {
+                GameObject.Find("Launch Canvas")?.SetActive(false);
+                GameObject.Find("Splash Screen")?.SetActive(false);
                 MoveRotationValidation.Keys();
                 MoveRotationValidation.CheckUIEnterRouting(blocked: false);
                 var placement = Object.FindFirstObjectByType<Placement>();
