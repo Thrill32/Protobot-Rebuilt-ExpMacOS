@@ -88,24 +88,15 @@ namespace Protobot.Simulation {
                 int next = (i + 1) % count;
                 float a = (wraps[i] == 1 ? -1 : 1) * radii[i];
                 float b = (wraps[next] == 1 ? -1 : 1) * radii[next];
-                var delta = centers[next] - centers[i];
-                reason = "The chain route exceeds numerical geometry limits";
-                float distance = delta.magnitude;
-                if (!Finite(distance)) return false;
-                float cosine = (a - b) / distance;
                 reason = "No tangent exists for these wrap choices";
-                if (Mathf.Abs(cosine) >= 1) return false;
-                var u = delta.normalized;
-                var tangentNormal = u * cosine - Vector3.Cross(n, u) * Mathf.Sqrt(1 - cosine * cosine);
-                starts[i] = centers[i] + a * tangentNormal;
-                ends[i] = centers[next] + b * tangentNormal;
+                if (!TryTangent(centers[i], centers[next], a, b, n, out starts[i], out ends[i])) return false;
             }
             var incoming = new Vector3[count]; var angles = new float[count];
             float totalTurn = 0;
             for (int i = 0; i < count; i++) {
                 incoming[i] = ends[(i + count - 1) % count] - centers[i];
                 int sign = wraps[i] == 1 ? -1 : 1;
-                angles[i] = sign * Mathf.Repeat(sign * Vector3.SignedAngle(incoming[i], starts[i] - centers[i], n), 360);
+                angles[i] = SignedSweep(incoming[i], starts[i] - centers[i], n, sign);
                 reason = "A sprocket has no usable wrap; change its wrap or route order";
                 if (!Finite(angles[i]) || Mathf.Abs(angles[i]) < .05f || Mathf.Abs(angles[i]) > 359.95f) return false;
                 totalTurn += angles[i];
@@ -178,7 +169,24 @@ namespace Protobot.Simulation {
             var d = b - a;
             return Vector3.Distance(p, a + d * Mathf.Clamp01(Vector3.Dot(p - a, d) / Mathf.Max(1e-20f, d.sqrMagnitude)));
         }
-        private static bool Intersects(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n) {
+        // A zero radius is a fixed point. Negative radii select inner tangency.
+        internal static bool TryTangent(Vector3 first, Vector3 second, float a, float b, Vector3 normal, out Vector3 start, out Vector3 end) {
+            start = end = default;
+            var delta = second - first;
+            float distance = delta.magnitude;
+            if (!Finite(distance) || distance <= .00001f) return false;
+            float cosine = (a - b) / distance;
+            if (!Finite(cosine) || Mathf.Abs(cosine) >= 1) return false;
+            var u = delta.normalized;
+            var tangentNormal = u * cosine - Vector3.Cross(normal, u) * Mathf.Sqrt(1 - cosine * cosine);
+            start = first + a * tangentNormal;
+            end = second + b * tangentNormal;
+            return true;
+        }
+        internal static float SignedSweep(Vector3 start, Vector3 end, Vector3 normal, float sign) =>
+            sign * Mathf.Repeat(sign * Vector3.SignedAngle(start, end, normal), 360);
+
+        internal static bool Intersects(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n) {
             float Cross(Vector3 u, Vector3 v) => Vector3.Dot(Vector3.Cross(u, v), n);
             float denominator = Cross(b - a, d - c);
             if (Mathf.Abs(denominator) < 1e-9f) return false;
@@ -190,7 +198,7 @@ namespace Protobot.Simulation {
             y = Vector3.Cross(n, x);
         }
         private static float Cross2(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
-        private static bool Finite(float f) => !float.IsNaN(f) && !float.IsInfinity(f);
-        private static bool Finite(Vector3 v) => Finite(v.x) && Finite(v.y) && Finite(v.z);
+        internal static bool Finite(float f) => !float.IsNaN(f) && !float.IsInfinity(f);
+        internal static bool Finite(Vector3 v) => Finite(v.x) && Finite(v.y) && Finite(v.z);
     }
 }

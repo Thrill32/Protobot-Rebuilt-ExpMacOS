@@ -56,6 +56,7 @@ namespace Protobot.Builds {
             SceneBuild.ValidateCustomModels(build);
             if (appearance != (SceneBuild.AppearanceCost(build) > 0))
                 throw new InvalidDataException("The clipboard selection has an invalid appearance format.");
+            ValidateRopes(build);
             return build;
         }
 
@@ -73,11 +74,29 @@ namespace Protobot.Builds {
             }
             CustomModel.RequireAppearanceCapacity(SceneBuild.AppearanceCost(build));
             ValidateExplicitChainMetadata(build);
+            ValidateRopes(build);
             if (build.placementAnchor != null) {
                 var a = build.placementAnchor;
                 if (new[] { a.x, a.y, a.z, a.qx, a.qy, a.qz, a.qw }.Any(v => float.IsNaN(v) || float.IsInfinity(v)) ||
                     Mathf.Abs(a.qx * a.qx + a.qy * a.qy + a.qz * a.qz + a.qw * a.qw - 1) > .01f)
                     throw new InvalidDataException("The build contains an invalid placement anchor.");
+            }
+        }
+
+        public static void ValidateRopes(BuildData build) {
+            if (build?.ropes == null || build.ropes.Length == 0) return;
+            if (build.parts == null || build.ropes.Length > build.parts.Length)
+                throw new InvalidDataException("The build contains more rope routes than parts.");
+            var parts = (build.parts ?? Array.Empty<ObjectData>()).Where(part => !string.IsNullOrEmpty(part?.connectionId))
+                .ToLookup(part => part.connectionId, StringComparer.Ordinal);
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var drums = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var rope in build.ropes) {
+                if (rope == null || !rope.ValidMetadata() || string.IsNullOrEmpty(rope.id) || !ids.Add(rope.id) || !drums.Add(rope.start.part) ||
+                    rope.MemberIds.Any(id => parts[id].Count() != 1 || parts[id].First().partId == "Error") ||
+                    parts[rope.start.part].First().partId != RopeRouteData.DrumId ||
+                    rope.pulleys.Any(id => parts[id].First().partId != RopeRouteData.PulleyId))
+                    throw new InvalidDataException("The build contains an invalid rope route.");
             }
         }
 

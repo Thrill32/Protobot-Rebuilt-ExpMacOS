@@ -432,9 +432,9 @@ namespace Protobot {
                 foreach (var copy in copies) StateSystem.AddElement(new ObjectElement(copy) { existing = false });
                 var elements = new List<IElement>();
                 foreach (var copy in copies) elements.Add(new ObjectElement(copy));
-                foreach (var chain in selection.GeneratedChains) {
-                    StateSystem.AddElement(new ActiveElement(chain, false));
-                    elements.Add(new ActiveElement(chain, true));
+                foreach (var route in selection.GeneratedChains.Concat(selection.GeneratedRopes)) {
+                    StateSystem.AddElement(new ActiveElement(route, false));
+                    elements.Add(new ActiveElement(route, true));
                 }
                 if (!selection.RepeatPlacement) StopPlacing();
                 if (resultSelection != null) {

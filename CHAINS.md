@@ -33,6 +33,16 @@ Collaboration protocol **0.7.0-alpha** carries the same route metadata in `Chain
 
 Apply/remove uses `SetChains`, retaining the existing chain ID, entity versions, tombstones, endpoint leases and expected versions. Copies, accepted saves/exports, deletion and undo/redo retain the route. Remote clients materialize from accepted order/wrap metadata deterministically. The authority validates structure and existence; Unity clients validate physical geometry. Structurally valid accepted entities remain logical entities when a later endpoint transform temporarily invalidates their contour, including across remote rematerialization. Such a contour stays hidden and cannot transmit motion.
 
+## Winch and pulley ropes
+
+Select one Winch Drum and optionally preselect VEX Pulleys. Open **Rope route…** in the Simulation panel, or press **Shift+C** with the drum selected and no sprockets selected. In a local build, the same editor numbers the drum, each pulley, and the fixed end in the viewport.
+
+Use **Pick drum point**, then click the drum to choose the angular position of the first attachment on its groove. Use **Pick end point**, then click a surface or mounting hole on a separate part. Hole picks use the bore center. The fixed end should lie in the groove plane. Use **Add pulley**, **Up/Down**, and **Outer/Inner** to set the guide order and wrap side, then check the cyan preview. **Reverse pulleys** reverses just the guides and retains the two attachments.
+
+The available length starts at 48 inches and accepts a positive decimal in inches. Routed length sums the straight tangent runs and circular wraps of the 1/8-inch rope centerline. The editor shows how many inches remain, or how far the path exceeds the budget. Apply is available when the path is clear and within budget. A saved build has one rope per drum. Select the drum to reopen its route, edit it, or remove it. Each Apply or Remove is one undo step.
+
+Build files and complete copies retain both part-local attachment points, pulley order, wraps, and the available length. Copies receive fresh endpoint and route identities. A missing or misaligned part hides the rope and restoration returns its path. Builds preserve complete route metadata if the parts later move out of alignment. Shared rooms support sprocket chains. Rope routing, hosting a build that contains ropes, and pasting a rope into a shared room are local-only workflows.
+
 ## Validation
 
 See [VALIDATION.md](VALIDATION.md) for Unity commands. `ChainContourValidation.Validate` checks numerical contours, full ribbon coverage from both sides, inner curvature (including adjacent inner sprockets), finite/sample-count bounds, reversed order, flipped faces, oblique planes, mechanical signs, texture travel, binary/JSON compatibility (including binary fields omitted by an old writer), canonical remote materialization and malformed geometry/metadata. `ChainContourValidation.Render` adds front/back inner-idler images to the existing unequal-size probes.

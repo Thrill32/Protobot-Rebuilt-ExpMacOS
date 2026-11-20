@@ -13,6 +13,7 @@ namespace Protobot.Builds {
         public ObjectData[] parts = Array.Empty<ObjectData>();
         public CameraData camera;
         [System.Runtime.Serialization.OptionalField] public ChainData[] chains;
+        [System.Runtime.Serialization.OptionalField] public RopeRouteData[] ropes;
         [System.Runtime.Serialization.OptionalField] public PlacementAnchorData placementAnchor;
 
         public string lastWriteTime;
@@ -36,7 +37,10 @@ namespace Protobot.Builds {
                     return false;
             }
 
-            return ChainKeys(chains).SequenceEqual(ChainKeys(data.chains));
+            var firstRopes = (ropes ?? Array.Empty<RopeRouteData>()).OrderBy(rope => rope.id, StringComparer.Ordinal).ToArray();
+            var secondRopes = (data.ropes ?? Array.Empty<RopeRouteData>()).OrderBy(rope => rope.id, StringComparer.Ordinal).ToArray();
+            return ChainKeys(chains).SequenceEqual(ChainKeys(data.chains)) && firstRopes.Length == secondRopes.Length &&
+                firstRopes.Zip(secondRopes, (first, second) => first.id == second.id && first.SamePath(second)).All(equal => equal);
         }
 
         private static IEnumerable<string> ChainKeys(ChainData[] values) => (values ?? Array.Empty<ChainData>())

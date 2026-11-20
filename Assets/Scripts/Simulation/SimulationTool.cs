@@ -85,12 +85,13 @@ namespace Protobot.Simulation {
             // Keep an existing Shift-containing Chain binding a quick-chain
             // command. The panel button remains available for route editing.
             if (keyboard?.shiftKey.isPressed == true && !chainInput.UsesControl(keyboard.leftShiftKey) && !chainInput.UsesControl(keyboard.rightShiftKey)) {
-                EditChainRoute(); return;
+                if (!CollaborationSession.IsShared && SelectedSprockets().Count == 0 &&
+                    RouteSelection().Any(body => body.GetComponent<SavedObject>()?.id == Builds.RopeRouteData.DrumId))
+                    EditRopeRoute();
+                else EditChainRoute();
+                return;
             }
-            var selection = selectionManager.current;
-            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
-            var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
-                .Where(p => p.kind == DriveKind.Sprocket).Distinct().ToList();
+            var sprockets = SelectedSprockets();
             ExitForEdit();
             if (CollaborationSession.IsShared) { CollaborationSession.ToggleChain(sprockets); return; }
             ChainLoop.Toggle(sprockets, out var message);
@@ -98,16 +99,36 @@ namespace Protobot.Simulation {
         }
 
         public void EditChainRoute() {
-            if (RouteEditor != null || !CollaborationSession.CanEdit || CollaborationSession.HasReservation ||
-                IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing) return;
-            var selection = selectionManager.current;
-            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
-            var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
-                .Where(p => p.kind == DriveKind.Sprocket).Distinct().ToList();
+            if (!CanEditRoute()) return;
+            var sprockets = SelectedSprockets();
             ExitForEdit();
             if (!ChainRouteGeometry.CompatiblePlane(sprockets, out var reason)) { Protobot.UI.InteractionFeedback.Notify(reason); return; }
-            RouteEditor = new ChainRoutingPanel(sprockets, () => { RouteEditor = null; consumedFrame = Time.frameCount; });
+            RouteEditor = new ChainRoutingPanel(sprockets, RouteClosed);
         }
+
+        public void EditRopeRoute() {
+            if (CollaborationSession.IsShared || !CanEditRoute()) return;
+            var selected = RouteSelection().Select(body => body.GetComponent<SavedObject>()).Where(body => body != null).Distinct().ToArray();
+            var drums = selected.Where(body => body.id == Builds.RopeRouteData.DrumId).ToArray();
+            if (drums.Length != 1) { UI.InteractionFeedback.Notify("Select one Winch Drum to route a rope."); return; }
+            ExitForEdit();
+            RouteEditor = new ChainRoutingPanel(new RopeRoutingDraft(drums[0], selected.Where(body => body.id == Builds.RopeRouteData.PulleyId)), RouteClosed);
+        }
+
+        private bool CanEditRoute() => RouteEditor == null && CollaborationSession.CanEdit && !CollaborationSession.HasReservation &&
+            !IsTypingRotation && !RebindAction.Rebinding && !KeyboardTransformTool.IsCapturingInput && !KeyboardTransformTool.IsEditingText() && !placement.placing;
+
+        private IEnumerable<GameObject> RouteSelection() {
+            var selection = selectionManager.current;
+            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
+            return selected.Where(body => body != null);
+        }
+
+        private List<SimulationPart> SelectedSprockets() => RouteSelection().SelectMany(body => body.GetComponentsInChildren<SimulationPart>())
+            .Where(part => part.kind == DriveKind.Sprocket).Distinct().ToList();
+
+        private void RouteClosed() { RouteEditor = null; consumedFrame = Time.frameCount; }
+
         public static bool CancelRouting() {
             if (!IsRouting) return false;
             instance.RouteEditor.Dispose(); return true;

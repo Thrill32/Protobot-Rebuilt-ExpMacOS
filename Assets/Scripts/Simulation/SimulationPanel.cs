@@ -14,7 +14,7 @@ namespace Protobot.Simulation {
         private readonly RectTransform panel, controls, content;
         private readonly Text status, help, clock, playLabel, speedLabel;
         private readonly Slider timeline, speed;
-        private readonly Button play, reset, commit;
+        private readonly Button play, reset, commit, ropeRoute;
         private readonly List<(MechanismSimulation.Track track, Text text, RectTransform marker)> rows = new();
         private bool updating;
         private readonly Color accent = new(.18f, .67f, 1f, 1);
@@ -35,6 +35,11 @@ namespace Protobot.Simulation {
             Background(panel, new Color(.055f, .065f, .08f, .97f));
             status = Label(panel, "Status", "", 14, new Vector2(14, -8), new Vector2(-28, 24));
             help = Label(panel, "Help", "", 12, new Vector2(14, -33), new Vector2(-28, 22));
+            help.horizontalOverflow = HorizontalWrapMode.Wrap;
+            ropeRoute = Button(panel, "Rope Route", "Rope route…", -128, -33, 114, tool.EditRopeRoute);
+            var ropeRect = (RectTransform)ropeRoute.transform;
+            ropeRect.anchorMin = ropeRect.anchorMax = Vector2.one;
+            ropeRect.anchoredPosition = new Vector2(-128, -33);
             controls = Rect("Animation", panel, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, -62), new Vector2(730, 210));
             play = Button(controls, "Play Pause", "Play", 14, 0, 66, tool.TogglePlayback);
             playLabel = play.GetComponentInChildren<Text>();
@@ -92,6 +97,8 @@ namespace Protobot.Simulation {
             canvasObject.SetActive(SimulationTool.IsActive);
             if (!canvasObject.activeSelf) return;
             inputGroup.interactable = !tool.IsTypingRotation && !tool.IsCommitting;
+            ropeRoute.gameObject.SetActive(!CollaborationSession.IsShared);
+            help.rectTransform.sizeDelta = new Vector2(ropeRoute.gameObject.activeSelf ? -156 : -28, 22);
             float width = Mathf.Clamp(((RectTransform)canvasObject.transform).rect.width - 150, 260, 730);
             panel.sizeDelta = new Vector2(width, tool.AnimationVisible ? 280 : 64);
             // Scale just the animation interior on narrower windows; the status remains readable.

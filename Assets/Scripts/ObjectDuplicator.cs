@@ -94,6 +94,8 @@ namespace Protobot {
                 }
                 foreach (var chain in Simulation.ChainLoop.SaveAll().Where(c => c.members.All(ids.ContainsKey)))
                     Simulation.ChainLoop.FromData(chain.Remap(id => ids[id]));
+                foreach (var rope in Simulation.RopeRoute.Capture(ids.Keys.ToHashSet()))
+                    Simulation.RopeRoute.FromData(rope.Remap(id => ids[id]));
             }
             return copies;
         }
@@ -110,6 +112,8 @@ namespace Protobot {
                 chain.gameObject.SetActive(false);
                 if (Application.isPlaying) Destroy(chain.gameObject); else DestroyImmediate(chain.gameObject);
             }
+            foreach (var rope in Object.FindObjectsByType<Simulation.RopeRoute>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .Where(route => route.MemberIds.All(ids.Contains))) rope.Discard();
             foreach (var copy in copies.Where(copy => copy != null)) {
                 copy.SetActive(false);
                 if (copy.TryGetComponent<CustomModel>(out var custom)) custom.ReleaseGeometry();

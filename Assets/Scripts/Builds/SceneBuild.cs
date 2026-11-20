@@ -29,6 +29,7 @@ namespace Protobot.Builds {
         /// </summary>
         public static void GenerateBuild(BuildData buildData, bool validateRoutes = true) {
             ValidateCustomModels(buildData);
+            BuildTransfer.ValidateRopes(buildData);
             if (validateRoutes) BuildTransfer.ValidateExplicitChainGeometry(buildData);
             RequireBuildAppearanceCapacity(buildData);
             CollaborationSession.LeaveForFileOpen();
@@ -37,6 +38,7 @@ namespace Protobot.Builds {
             if (Placement.IsCopyingSelection) UnityEngine.Object.FindFirstObjectByType<Placement>()?.StopPlacing();
             Protobot.Simulation.SimulationTool.ExitForEdit();
             Protobot.Simulation.ChainLoop.ClearAll();
+            Protobot.Simulation.RopeRoute.ClearAll();
             Debug.Log("Generating a build with " +
                       (buildData.parts == null ? 0 : buildData.parts.Length) + " parts");
 
@@ -78,6 +80,7 @@ namespace Protobot.Builds {
             }
             
             foreach (var chain in buildData.chains ?? Array.Empty<ChainData>()) Protobot.Simulation.ChainLoop.FromData(chain);
+            foreach (var rope in buildData.ropes ?? Array.Empty<RopeRouteData>()) Protobot.Simulation.RopeRoute.FromData(rope);
             OnGenerateBuild?.Invoke(buildData);
 
             if (AppPlatform.OnMac)
@@ -212,6 +215,7 @@ namespace Protobot.Builds {
                 camera = newCameraData,
                 parts = newParts,
                 chains = Protobot.Simulation.ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray(),
+                ropes = Protobot.Simulation.RopeRoute.Capture(ids),
             };
         }
     }

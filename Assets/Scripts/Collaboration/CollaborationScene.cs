@@ -88,6 +88,8 @@ namespace Protobot {
         }
         public static Document CaptureDocument(CatalogManifest catalog) {
             var bodies = PartsManager.FindLoadedObjects();
+            if (Simulation.RopeRoute.Capture(bodies.Select(body => body.GetComponent<SavedObject>().ConnectionId).ToHashSet()).Length != 0)
+                throw new InvalidOperationException("Rope routes are available in local builds. Open a build without ropes to share it.");
             var loops = UnityEngine.Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsSortMode.None);
             var chainParts = loops.ToDictionary(loop => loop, loop => loop.ResolveParts());
             if (loops.Any(loop => !loop.TryContour(out _, out _)))
@@ -129,7 +131,9 @@ namespace Protobot {
         public static BuildData ToBuild(Document document) {
             var local = SceneBuild.ToBuildData();
             local.parts = document.parts.Select(part => ToObjectData(part, DocumentModel.Assets(document))).ToArray();
-            local.chains = DocumentModel.Chains(document).Select(c => new ChainData { id = c.id, members = c.members.ToArray(), routeVersion = c.routeVersion, wraps = c.wraps?.ToArray() }).ToArray(); return local;
+            local.chains = DocumentModel.Chains(document).Select(c => new ChainData { id = c.id, members = c.members.ToArray(), routeVersion = c.routeVersion, wraps = c.wraps?.ToArray() }).ToArray();
+            local.ropes = null;
+            return local;
         }
         public static void Load(Document document) {
             SceneBuild.GenerateBuild(ToBuild(document), validateRoutes: false);

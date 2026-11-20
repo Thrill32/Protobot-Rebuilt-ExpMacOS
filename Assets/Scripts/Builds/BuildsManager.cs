@@ -250,6 +250,7 @@ namespace Protobot.Builds {
 
         internal static void WriteBuild(string path, BuildData build) {
             SceneBuild.ValidateCustomModels(build);
+            BuildTransfer.ValidateRopes(build);
             bool appearance = SceneBuild.AppearanceCost(build) > 0;
             using var file = File.Create(path);
             // Older readers stop at the unrecognized header instead of losing imported appearance.
@@ -277,6 +278,7 @@ namespace Protobot.Builds {
                 throw new InvalidDataException("This file does not contain a valid build.");
             build.parts ??= Array.Empty<ObjectData>();
             SceneBuild.ValidateCustomModels(build);
+            BuildTransfer.ValidateRopes(build);
             if (appearance != (SceneBuild.AppearanceCost(build) > 0))
                 throw new InvalidDataException("This build has an invalid custom-model appearance format.");
             return build;
