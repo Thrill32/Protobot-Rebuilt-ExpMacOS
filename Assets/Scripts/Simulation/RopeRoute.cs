@@ -140,7 +140,7 @@ namespace Protobot.Simulation {
             }
             if (changed) {
                 bool valid = TryContour(data, parts, out var contour, out _) && contour.length <= data.availableLength + .0001f;
-                visual.Show(valid ? contour : null);
+                visual.Show(valid ? contour : null, availableLength: data.availableLength);
             }
         }
 

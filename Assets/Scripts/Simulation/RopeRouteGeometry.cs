@@ -13,8 +13,25 @@ namespace Protobot.Simulation {
 
         internal sealed class Contour {
             public Vector3[] points;
-            public Vector3 normal, exit;
-            public float length, drumWrapLength;
+            public Vector3 normal, exit, drumCenter;
+            public float length, drumWrapLength, drumRadius;
+            public int drumExitIndex, drumSign;
+            public double DrumCircumference => 2 * Math.PI * drumRadius;
+            public double FullDrumTurns(float availableLength) =>
+                Math.Max(0, Math.Floor((availableLength - length + .0001) / DrumCircumference));
+
+            // Multiple wound turns share one effective radius. Draw one
+            // complete turn while the partial wrap sits under the wound rope.
+            public Vector3[] WoundPoints(float availableLength) {
+                if (FullDrumTurns(availableLength) < 1) return points;
+                int segments = Mathf.CeilToInt(360 / ArcStep);
+                var wound = new Vector3[segments + points.Length - drumExitIndex];
+                var radial = points[drumExitIndex] - drumCenter;
+                for (int i = 0; i < segments; i++)
+                    wound[i] = drumCenter + Quaternion.AngleAxis(drumSign * 360f * i / segments, normal) * radial;
+                Array.Copy(points, drumExitIndex, wound, segments, points.Length - drumExitIndex);
+                return wound;
+            }
         }
 
         internal static float Radius(RopeGroove groove) => groove.SurfaceRadius * groove.transform.lossyScale.x + Diameter * .5f;
@@ -118,11 +135,13 @@ namespace Protobot.Simulation {
 
             var points = new List<Vector3>();
             float length = 0;
+            int drumExitIndex = 0;
             for (int i = 0; i < count; i++) {
                 var radial = incoming[i] - centers[i];
                 int samples = Mathf.CeilToInt(Mathf.Abs(sweeps[i]) / ArcStep);
                 for (int step = 0; step < samples; step++)
                     points.Add(origin + centers[i] + Quaternion.AngleAxis(sweeps[i] * step / samples, normal) * radial);
+                if (i == 0) drumExitIndex = points.Count;
                 points.Add(origin + outgoing[i]);
                 var end = i == count - 1 ? finish : origin + runEnds[i];
                 length += Mathf.Abs(sweeps[i]) * Mathf.Deg2Rad * radii[i] + Vector3.Distance(origin + outgoing[i], end);
@@ -133,7 +152,8 @@ namespace Protobot.Simulation {
             for (int i = 1; i < points.Count; i++)
                 if (!Finite(points[i]) || (points[i] - points[i - 1]).sqrMagnitude < 1e-12f) return false;
             contour = new Contour { points = points.ToArray(), normal = normal, length = length,
-                exit = origin + outgoing[^1], drumWrapLength = Mathf.Abs(sweeps[0]) * Mathf.Deg2Rad * radii[0] };
+                exit = origin + outgoing[^1], drumWrapLength = Mathf.Abs(sweeps[0]) * Mathf.Deg2Rad * radii[0],
+                drumCenter = origin, drumRadius = radii[0], drumExitIndex = drumExitIndex, drumSign = wraps[0] == 0 ? 1 : -1 };
             reason = null;
             return true;
         }

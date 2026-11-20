@@ -15,7 +15,7 @@ namespace Protobot.Simulation {
             if (meshRenderer != null) meshRenderer.forceRenderingOff = value;
         }
 
-        public void Show(RopeRouteGeometry.Contour contour, bool preview = false) {
+        public void Show(RopeRouteGeometry.Contour contour, bool preview = false, float availableLength = 0) {
             if (displayed == contour) return;
             displayed = contour;
             if (contour == null) {
@@ -33,7 +33,7 @@ namespace Protobot.Simulation {
                 material.color = preview ? new Color(.2f, .8f, 1f) : new Color(.79f, .68f, .5f);
                 meshRenderer.sharedMaterial = material;
             }
-            var points = contour.points;
+            var points = preview ? contour.points : contour.WoundPoints(availableLength);
             float radius = RopeRouteGeometry.Diameter * .5f;
             var vertices = new Vector3[points.Length * Sides + 2];
             var normals = new Vector3[vertices.Length];

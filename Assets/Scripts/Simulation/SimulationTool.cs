@@ -174,7 +174,11 @@ namespace Protobot.Simulation {
             var candidate = MechanismSimulation.Create(driver);
             if (candidate == null) return false;
             if (candidate.HasConflict) { status = "This gear loop has conflicting ratios"; return false; }
-            if (!candidate.HasMotion) { status = "Attach a shaft to this motor to preview its output"; return false; }
+            if (!candidate.HasMotion) {
+                status = candidate.WinchStatus ?? "Attach a shaft to this motor to preview its output";
+                panel?.Refresh();
+                return false;
+            }
             simulation = candidate;
             previewRevision = CollaborationSession.CommittedRevision;
             previewVersions = CollaborationSession.Versions(candidate.tracks.Select(t => t.body.GetComponent<SavedObject>().ConnectionId));
@@ -399,7 +403,7 @@ namespace Protobot.Simulation {
                 $"Enter: set pose · Esc: revert\n{reference}\n{next}    Invalid input: mouse control");
         }
 
-        internal string Status => simulation?.WinchStatus ?? status;
+        internal string Status => status;
         private string RotationHint => simulation?.DriverRotates == true ? " · /: rotation" : "";
         internal string ControlsText => animation
             ? $"Timeline: scrub · Set pose: keep changes{RotationHint} · Esc: revert · {activateInput.GetCurrentKeybind()}: manual"

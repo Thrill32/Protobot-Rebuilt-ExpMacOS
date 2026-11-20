@@ -14,6 +14,7 @@ namespace Protobot.Simulation {
             public Pose start;
             public double ratio;
             public bool rotates, linear, showInTimeline = true;
+            internal bool winchLoad;
             public string Label => PartLabel(body);
             public double Period => linear ? double.PositiveInfinity : 4 / Math.Abs(ratio);
             public double LinearSpeed => 90 * ratio;
@@ -44,7 +45,7 @@ namespace Protobot.Simulation {
         public bool HasConflict { get; private set; }
         public bool IsValid => tracks.All(t => Live(t.body)) &&
             (winch == null || winch.route != null && winch.route.isActiveAndEnabled && (!HasWinchPawl || Live(winch.pawl)));
-        public bool HasMotion => tracks.Any(t => t.rotates);
+        public bool HasMotion => WinchStatus == null && tracks.Any(t => t.rotates);
         public bool HasWinch => winch != null;
         public bool HasWinchPawl => winch?.HasPawl == true;
         public bool PawlEngaged => winch?.PawlEngaged == true;
@@ -227,11 +228,11 @@ namespace Protobot.Simulation {
                 pawl?.body, out var reason);
             WinchStatus = reason;
             if (winch == null) return;
-            tracks.Add(new Track { body = pulley.gameObject, center = winch.pulleyCenter, axis = winch.normal,
+            tracks.Add(new Track { body = pulley.gameObject, center = winch.pulleyCenter, axis = winch.pulleyAxis,
                 start = new Pose(pulley.transform.position, pulley.transform.rotation), ratio = winch.pulleyRatio, rotates = true });
             foreach (var body in load.bodies)
                 tracks.Add(new Track { body = body, axis = winch.axis, start = new Pose(body.transform.position, body.transform.rotation),
-                    ratio = winch.inchesPerDegree, linear = true, rotates = true, showInTimeline = body == parts[^1].gameObject });
+                    ratio = winch.inchesPerDegree, linear = true, winchLoad = true, rotates = true, showInTimeline = body == parts[^1].gameObject });
         }
 
         private static bool ShaftThrough(Port shaft, Vector3 center, Vector3 axis, float radialTolerance = .025f) {
@@ -247,15 +248,16 @@ namespace Protobot.Simulation {
         }
 
         public bool Advance(double seconds) {
-            Evaluate(Time + (PawlEngaged ? -Math.Sign(winch.PayoutSpeed) : 1) * seconds);
-            return winch == null || (PawlEngaged && winch.PayoutSpeed > 0 ? Time > winch.MinTime : Time < winch.MaxTime);
+            bool reverse = winch?.PayoutSpeed > 0;
+            Evaluate(Time + (reverse ? -seconds : seconds));
+            return winch == null || (reverse ? Time > winch.MinTime : Time < winch.MaxTime);
         }
         private static bool Live(GameObject body) => body != null && body.activeInHierarchy && !body.IsDeleted() && body.layer != Placement.PLACEMENT_LAYER;
         // Relative values retain full turns: 360 degrees of a 12T driver is
         // still 120 degrees of motion at its 36T output. Global angles choose
         // the nearest equivalent phase to preserve the current gear cycle.
         public bool TrySetDriverRotation(string text, bool global) {
-            if (!DriverRotates || !double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double degrees) ||
+            if (WinchStatus != null || !DriverRotates || !double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double degrees) ||
                 double.IsNaN(degrees) || double.IsInfinity(degrees)) return false;
             double seconds = global ? Time + (PositiveTurn(PositiveTurn(degrees) - GlobalDriverDegrees + 180) - 180) / 90 : degrees / 90;
             // Avoid finite input overflowing a downstream rack's float position.
@@ -266,10 +268,15 @@ namespace Protobot.Simulation {
         }
         private static double PositiveTurn(double degrees) => (degrees % 360 + 360) % 360;
         public void Evaluate(double seconds) {
+            if (WinchStatus != null) return;
             if (winch != null) seconds = Math.Max(winch.MinTime, Math.Min(winch.MaxTime, seconds));
             Time = seconds;
             foreach (var track in tracks.Where(t => t.body != null && t.rotates).OrderBy(t => Depth(t.body.transform))) {
-                if (track.linear) { track.body.transform.SetPositionAndRotation(track.start.position + track.axis * (float)(seconds * 90 * track.ratio), track.start.rotation); continue; }
+                if (track.linear) {
+                    double distance = track.winchLoad ? winch.LoadDisplacement(RopeTravel) : seconds * 90 * track.ratio;
+                    track.body.transform.SetPositionAndRotation(track.start.position + track.axis * (float)distance, track.start.rotation);
+                    continue;
+                }
                 var rotation = Quaternion.AngleAxis((float)((seconds * 90 * track.ratio) % 360), track.axis);
                 track.body.transform.SetPositionAndRotation(track.center + rotation * (track.start.position - track.center), rotation * track.start.rotation);
             }

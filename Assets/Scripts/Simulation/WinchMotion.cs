@@ -10,9 +10,10 @@ namespace Protobot.Simulation {
         public const string PawlId = "WPAW";
         public readonly RopeRoute route;
         public readonly GameObject pawl;
-        public readonly Vector3 axis, normal, pulleyCenter;
+        public readonly Vector3 axis, pulleyAxis, pulleyCenter;
         public readonly double inchesPerDegree, pulleyRatio;
         private readonly double takeUpLimit, payoutLimit;
+        private readonly double planarSpan, axialOffset, tailLength;
         public bool PawlEngaged { get; set; }
         public bool HasPawl { get; }
         public double PayoutSpeed => inchesPerDegree * 90;
@@ -30,12 +31,6 @@ namespace Protobot.Simulation {
             var pulley = parts[1].GetComponent<RopeGroove>();
             var start = parts[0].transform.TransformPoint(data.start.LocalPoint);
             var end = parts[2].transform.TransformPoint(data.end.LocalPoint);
-            if (Mathf.Abs(Vector3.Dot(pulley.Center - drum.Center, contour.normal)) > .001f ||
-                Mathf.Abs(Vector3.Dot(end - contour.exit, contour.normal)) > .001f ||
-                Mathf.Abs(Vector3.Dot(pulley.Axis, contour.normal)) < .99999f) {
-                reason = "Align the winch grooves and load point in the same travel plane.";
-                return null;
-            }
             if (!ClearOfDrum(drum, contour.exit, end)) {
                 reason = "Keep the load's travel span clear of the drum.";
                 return null;
@@ -49,27 +44,36 @@ namespace Protobot.Simulation {
             this.pawl = pawl;
             HasPawl = pawl != null;
             PawlEngaged = HasPawl;
-            normal = contour.normal;
             pulleyCenter = pulley.Center;
-            axis = Vector3.ProjectOnPlane(end - contour.exit, normal).normalized;
+            pulleyAxis = Vector3.Dot(pulley.Axis, contour.normal) < 0 ? -pulley.Axis : pulley.Axis;
+            var tail = end - contour.exit;
+            var projectedTail = Vector3.ProjectOnPlane(tail, contour.normal);
+            axis = projectedTail.normalized;
+            planarSpan = projectedTail.magnitude;
+            axialOffset = Vector3.Dot(tail, contour.normal);
+            tailLength = Math.Sqrt(planarSpan * planarSpan + axialOffset * axialOffset);
             double drumRadius = RopeRouteGeometry.Radius(drum), pulleyRadius = RopeRouteGeometry.Radius(pulley);
             inchesPerDegree = drumRatio * WrapSign(data.wraps[0]) * drumRadius * Math.PI / 180;
             pulleyRatio = inchesPerDegree * 180 / Math.PI / pulleyRadius * WrapSign(data.wraps[1]);
 
-            // Each additional turn fits only when the authored length can cover it.
-            // The visible partial turn ends at the explicit drum attachment.
-            double turn = 2 * Math.PI * drumRadius;
-            double turns = Math.Max(0, Math.Floor((data.availableLength - contour.length + .0001) / turn));
-            double payout = contour.drumWrapLength + turns * turn;
-            float takeUp = Mathf.Max(0, Vector3.Dot(end - contour.exit, axis) - RopeRouteGeometry.Diameter);
+            double payout = contour.drumWrapLength + contour.FullDrumTurns(data.availableLength) * contour.DrumCircumference;
+            double minimumSpan = Math.Sqrt(RopeRouteGeometry.Diameter * RopeRouteGeometry.Diameter + axialOffset * axialOffset);
+            double takeUp = Math.Max(0, tailLength - minimumSpan);
             var grooves = new[] { drum, pulley };
             bool Clear(double distance) {
-                Vector3 target = end + axis * (float)distance;
+                Vector3 target = end + axis * (float)LoadDisplacement(distance);
                 return ClearOfDrum(drum, contour.exit, target) &&
                     RopeRouteGeometry.TryBuild(grooves, start, target, data.wraps, out _, out _);
             }
             takeUpLimit = ClearDistance(takeUp, distance => Clear(-distance));
             payoutLimit = ClearDistance(payout, Clear);
+        }
+
+        // Preserve the load attachment's perpendicular offset while changing
+        // the actual tail length by exactly the amount wound off the drum.
+        public double LoadDisplacement(double ropeTravel) {
+            double length = tailLength + ropeTravel;
+            return Math.Sqrt(Math.Max(0, length * length - axialOffset * axialOffset)) - planarSpan;
         }
 
         private static int WrapSign(int wrap) => wrap == 0 ? 1 : -1;

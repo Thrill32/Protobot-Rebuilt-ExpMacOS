@@ -95,12 +95,17 @@ namespace ProtobotEditorTools {
             var pawlRotation = Quaternion.AngleAxis(pawlAngle, Vector3.forward);
             var pawlPin = PartsManager.GeneratePart("SHFT-Normal-4", pawlPivot - Vector3.forward * (side * 1.9f), pawlRotation);
             var pawl = Place("WPAW", pawlPivot, pawlRotation);
-            var redirectPoint = center + new Vector3(5, .5f, .025f);
-            var axle = PartsManager.GeneratePart("SHFT-Normal-2", redirectPoint, Quaternion.identity);
-            var pulley = Place("PULY", redirectPoint);
-            var load = PartsManager.GeneratePart("PLTE-1-1", center + new Vector3(9, 5, 0), Quaternion.identity);
+            // Matching axle Z leaves the actual pulley groove .025 in off plane.
+            // A plate attachment on the other side keeps the last span skewed.
+            const float loadOffset = .028f;
+            var redirectPoint = center + new Vector3(5, .5f, 0);
+            var redirectRotation = Quaternion.Euler(0, 1, 0);
+            var axle = PartsManager.GeneratePart("SHFT-Normal-2", redirectPoint, redirectRotation);
+            var pulley = Place("PULY", redirectPoint, redirectRotation);
+            var attachment = center + new Vector3(9, 5, loadOffset);
+            var load = PartsManager.GeneratePart("PLTE-1-1", attachment, Quaternion.identity);
             var eye = load.GetComponentsInChildren<HoleCollider>().First();
-            load.transform.position += center + new Vector3(9, 5, 0) - eye.transform.position;
+            load.transform.position += attachment - eye.transform.position;
             Physics.SyncTransforms();
 
             string bracketId = Id(bracket), shaftId = Id(shaft), drumId = Id(drum), pulleyId = Id(pulley), loadId = Id(load);
@@ -150,9 +155,26 @@ namespace ProtobotEditorTools {
                 await History(false); Require(Rope().Data.availableLength == 48, "Undo did not restore rope length.");
                 await History(true); Require(Rope().Data.availableLength == 26, "Redo did not restore the new length.");
 
+                if (!shared) {
+                    var guide = Body(pulleyId).transform;
+                    var start = guide.position;
+                    guide.position -= Vector3.forward * .05f;
+                    var drive = Body(shaftId);
+                    var initialRotation = drive.transform.rotation;
+                    var blocked = MechanismSimulation.Create(drive);
+                    Require(!blocked.HasMotion && blocked.WinchStatus?.Contains("one plane") == true, "Misaligned rope did not block its driven mechanism.");
+                    blocked.Evaluate(1);
+                    Require(drive.transform.rotation == initialRotation, "A blocked winch still spun the drive shaft.");
+                    Require(!tool.Begin(drive) && tool.Current == null, "Tool 5 entered a shaft-only preview for a blocked winch.");
+                    guide.position = start;
+                }
+
                 var baseline = CollaborationSession.SaveSnapshot();
                 var originalLoad = Body(loadId).transform.position;
                 var originalPulley = Body(pulleyId).transform.rotation;
+                var pulleyCenter = Body(pulleyId).GetComponent<RopeGroove>().Center;
+                float originalTail = TailLength(Rope());
+                var originalWoundStart = Rope().GetComponent<MeshFilter>().sharedMesh.vertices[^2];
                 var originals = assemblyIds.ToDictionary(id => id, id => new Pose(Body(id).transform.position, Body(id).transform.rotation));
                 var model = Begin();
                 Require(model.HasWinchPawl && model.PawlEngaged, "Mounted ratchet and pawl were not detected.");
@@ -169,6 +191,7 @@ namespace ProtobotEditorTools {
                 CheckMotion(1);
                 await Task.Delay(180);
                 Require(Rope().GetComponent<MeshRenderer>().enabled, "Taut rope disappeared during preview.");
+                Near(TailLength(Rope()) - originalTail, (float)model.RopeTravel, "Paid-out tail length");
                 Require(baseline.CompareData(CollaborationSession.SaveSnapshot()), "Simulation preview leaked into a build snapshot.");
                 if (shared) Require(ghosts == 0 && !CollaborationSession.HasReservation, "Winch preview sent ghosts or reserved parts.");
 
@@ -176,12 +199,18 @@ namespace ProtobotEditorTools {
                 CheckMotion(4.4);
                 await Task.Delay(35);
                 Require(Rope().GetComponent<MeshRenderer>().enabled, "Rope disappeared after a complete drum turn.");
+                Near(Rope().GetComponent<MeshFilter>().sharedMesh.vertices[^2], originalWoundStart, "Wound rope shifted with the drum phase");
                 tool.Seek(1e6);
                 Near((float)model.Time, (float)model.TimelineEnd, "Payout stop");
                 await Task.Delay(35);
                 Require(Rope().GetComponent<MeshRenderer>().enabled, "The rope disappeared at its payout stop.");
                 tool.Seek(-1e6);
                 Near((float)model.Time, (float)model.TimelineStart, "Take-up stop");
+                await Task.Delay(35);
+                Near(TailLength(Rope()) - originalTail, (float)model.RopeTravel, "Tail length at take-up stop");
+                tool.Seek(0);
+                Require(model.Advance(.5) && model.RopeTravel < 0, "Winch playback did not start by pulling the load with the pawl disengaged.");
+                CheckMotion(model.Time);
                 tool.Cancel();
                 foreach (var id in assemblyIds) Match(id, originals[id]);
 
@@ -306,9 +335,13 @@ namespace ProtobotEditorTools {
                 void CheckMotion(double seconds) {
                     var payout = .4210216f * (float)(seconds * Math.PI / 2);
                     Near((float)model.RopeTravel, payout, "Signed drum travel");
-                    Near(Body(loadId).transform.position, originalLoad + travelAxis * payout, "Load displacement");
-                    var pulleyRotation = Quaternion.AngleAxis(payout / .3625f * Mathf.Rad2Deg, Vector3.forward) * originalPulley;
+                    float tail = originalTail + payout;
+                    float slide = Mathf.Sqrt(tail * tail - loadOffset * loadOffset) -
+                        Mathf.Sqrt(originalTail * originalTail - loadOffset * loadOffset);
+                    Near(Body(loadId).transform.position, originalLoad + travelAxis * slide, "Load displacement");
+                    var pulleyRotation = Quaternion.AngleAxis(payout / .3625f * Mathf.Rad2Deg, originalPulley * Vector3.forward) * originalPulley;
                     Require(Quaternion.Angle(Body(pulleyId).transform.rotation, pulleyRotation) < .06f, "Pulley did not follow signed rope travel.");
+                    Near(Body(pulleyId).GetComponent<RopeGroove>().Center, pulleyCenter, "Redirect groove pivot");
                     foreach (var id in new[] { axleId, bracketId, pawlId, pinId }) Match(id, originals[id]);
                 }
             }
@@ -368,6 +401,15 @@ namespace ProtobotEditorTools {
                 await Change(() => { if (redo) StateSystem.instance.Redo(); else StateSystem.instance.Undo(); });
                 if (!shared) await Task.Delay(320);
             }
+        }
+
+        private static float TailLength(RopeRoute route) {
+            var vertices = route.GetComponent<MeshFilter>().sharedMesh.vertices;
+            // The two caps follow the 8-vertex rings. The penultimate ring is
+            // the redirect exit, and the last cap is the load attachment.
+            var exit = Vector3.zero;
+            for (int i = vertices.Length - 18; i < vertices.Length - 10; i++) exit += vertices[i] / 8;
+            return Vector3.Distance(exit, vertices[^1]);
         }
 
         private static void PickDrum(GameObject drum, Vector3 center) {
