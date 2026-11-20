@@ -74,7 +74,7 @@ namespace Protobot {
             options = true;
             bool shared = CollaborationSession.IsShared;
             var panel = CreatePanel("Import Custom Model", true, shared ? 390 : 340);
-            AddLabel(panel, "OBJ and STL geometry is embedded in your build.\nChoose the source file's units before importing.", 50, 70);
+            AddLabel(panel, "Choose the source units for OBJ and STL.\nGLB dimensions are read in meters.", 50, 70);
             units = Mathf.Clamp(LocalPreferences.GetInt("customModelUnits", 0), 0, 2);
             Button unitButton = null;
             unitButton = AddButton(panel, "Source units: " + UnitNames[units], 140, () => {
@@ -82,10 +82,10 @@ namespace Protobot {
                 UpdateUnitLabel();
             });
             void UpdateUnitLabel() => unitButton.GetComponentInChildren<Text>().text = "Source units: " + UnitNames[units];
-            AddLabel(panel, "Models use one editable color. OBJ material and texture files are not imported.", 185, 55);
+            AddLabel(panel, "Diffuse colors and supported textures are embedded in your build.", 185, 55);
             if (shared) AddLabel(panel, $"This room allows {CollaborationSession.CustomGeometryByteLimit / (1024 * 1024)} MiB encoded geometry per model (file size can differ). " +
                 (CollaborationSession.CustomGeometryByteLimit < GeometryTransfer.MaxAssetBytes ? "Update the server for 64 MiB." : "64 MiB total per room."), 235, 55);
-            AddButton(panel, "Choose OBJ / STL file…", shared ? 300 : 250, ChooseFile);
+            AddButton(panel, "Choose OBJ / STL / GLB file…", shared ? 300 : 250, ChooseFile);
             AddButton(panel, "Cancel", shared ? 342 : 292, CancelMode);
         }
 
@@ -152,7 +152,7 @@ namespace Protobot {
             if (shared) {
                 publishing = true;
                 var confirmation = CreatePanel("Adding model to shared room…", true, 140);
-                AddLabel(confirmation, "Uploading geometry and waiting for accepted placement. The room may already have received the edit; wait for its outcome.", 50, 75);
+                AddLabel(confirmation, "Uploading the model and waiting for accepted placement. The room may already have received the edit; wait for its outcome.", 50, 75);
                 try {
                     if (await CollaborationSession.PlaceCopiesAsync(new List<GameObject> { obj }, selectResult: selectionManager)) {
                         LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");

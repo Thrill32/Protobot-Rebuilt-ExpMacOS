@@ -1,8 +1,12 @@
-# Imported OBJ appearance
+# Imported model appearance
 
 Import an OBJ from a directory that also contains its MTL files and diffuse images. The importer supports RGB `Kd` channels in the range 0–1, one `map_Kd` PNG or JPEG per material, and explicit OBJ texture coordinates, including relative indices and UV seams. A texture modulates its material's diffuse color. A texture with no `Kd` uses white, and faces without a diffuse color or texture use the standard custom-model material. OBJ and STL geometry-only imports use the existing single-material path.
 
-Use one relative MTL path per `mtllib` line. Resolve image paths relative to the declaring MTL. Use forward slashes for subdirectories. The importer checks paths against the selected directory tree and rejects absolute paths, parent segments, remote URLs, symlinks and junctions. Referenced libraries, used materials and used image files must be present. Invalid dependencies and UVs report an import failure before placement. The 64 MiB source OBJ/STL, 500,000-triangle and 1,500,000-vertex limits still apply, including vertices split at UV seams.
+Use one relative MTL path per `mtllib` line. Resolve image paths relative to the declaring MTL. Use forward slashes for subdirectories. The importer checks paths against the selected directory tree and rejects absolute paths, parent segments, remote URLs, symlinks and junctions. Referenced libraries, used materials and used image files must be present. Invalid dependencies and UVs report an import failure before placement. The 64 MiB source model, 500,000-triangle and 1,500,000-vertex limits still apply, including vertices split at UV seams.
+
+GLB 2.0 import supports one self-contained static scene with indexed or unindexed triangles, node transforms, opaque base colors, and embedded PNG/JPEG base-color maps. It reads the GLB default scene and converts its meter units to inches. Diffuse textures use repeating UVs and the built-in bilinear filter. Export uncompressed geometry and bake any texture transforms into the UVs before importing. External buffers and images, required extensions, skinning, animation, vertex colors, morph targets, transparency, sparse or compressed mesh data, and clamp or mirror wrapping are outside this subset. Secondary PBR maps, filtering preferences, and authored normals are omitted. Imported GLB geometry and appearance use the existing save and collaboration formats. [Khronos glTF 2.0 specification](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html)
+
+The imported diffuse material keeps color in range under scene lighting. For `Notes/KirbyObjMTL1`, both maps contain the intended pink (RGB 245, 152, 176). The previous lit material clipped broad areas of the body toward white. The matte material keeps directional shading and preserves pink in both the supplied OBJ and its Blender-exported GLB counterpart.
 
 Paint applies one solid RGB color to all the body's material slots and removes their diffuse maps from rendering. Default restores each original color and map. The immutable imported data stays on the model asset throughout paint, copies, mounting-point edits and history. Each instance has its own Paint setting and mounting points. Saves and transferable selections embed the appearance, so moved or deleted source files have no effect.
 
@@ -57,6 +61,10 @@ python3 Collaboration/tools/check-custom-model-players.py --appearance \
 ```
 
 The check uses a host-owned durable helper and separate player profiles. It checks offline creation, Undo/Redo and release of an abandoned redo branch before hosting. It imports a colored PNG model as owner, joins a second player after that model is accepted, and imports a colored JPEG model as editor. It checks renderer materials and UVs, copies, a mounting edit, Paint/Default/Undo/Redo, clipboard and local saves, dependency and dimension failures, source-free reload, both clients' state after helper restart, and an editor replacing the room from a local save followed by owner resynchronization. The OS file picker alone is substituted during import. Windows/Linux/Pi execution and native picker focus are separate checks.
+
+### GLB and Kirby checks
+
+Run the .NET lab with `--glb-only` to check the static scene, embedded image, transform, meter, winding, UV, material and rejection paths. Run Unity with `-batchmode -quit -executeMethod ProtobotEditorTools.CustomModelAppearanceValidation.InspectFixture -customModelFixture <file> -customModelCapture <directory>` to inspect and render a local OBJ or GLB. Use `Notes/KirbyObjMTL1/scene.obj` to check the original material and body textures. Omit `-nographics` when capturing renders. Pass one or more `-customModelFixture` paths to `ProtobotEditorTools.CustomModelValidation.Smoke` for runtime import, clipboard persistence, and Paint/Default checks. The original Kirby OBJ and a Blender-produced GLB both passed in Unity. The GLB lab passed 17 assertions, alongside 29 appearance and 14 large-model assertions.
 
 ## Built artifacts and test results
 

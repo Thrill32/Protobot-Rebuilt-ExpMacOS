@@ -198,10 +198,9 @@ namespace Protobot {
                         texture.LoadRawTextureData(data.GetPixels());
                         texture.Apply(false, true);
                     }
+                    var diffuse = Resources.Load<Material>("Custom Models/Imported Diffuse");
                     ownedMaterials = new Material[counts.Length];
-                    for (int i = 0; i < counts.Length; i++)
-                        ownedMaterials[i] = new Material(source) { name = "Imported diffuse", };
-                    foreach (var material in ownedMaterials) material.SetFloat("_Metallic", 0);
+                    for (int i = 0; i < counts.Length; i++) ownedMaterials[i] = new Material(diffuse);
                     ApplyImportedAppearance(painted, inheritedColor);
                 }
                 ownedMesh.RecalculateNormals(); ownedMesh.RecalculateBounds();

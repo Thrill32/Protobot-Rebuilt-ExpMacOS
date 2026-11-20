@@ -14,16 +14,14 @@ namespace Protobot {
 
         public static CustomModelData Read(string path, float inchesPerUnit) {
             var data = ReadPackage(path, inchesPerUnit, out var images);
-            if (images.Count > 0) throw new InvalidDataException("This OBJ requires the model texture importer.");
+            if (images.Count > 0) throw new InvalidDataException("This file requires the model texture importer.");
             return data;
         }
 
         internal static CustomModelData ReadPackage(string path, float inchesPerUnit, out List<byte[]> images) {
             path = Path.GetFullPath(path);
             var package = new ObjPackage(Path.GetDirectoryName(path));
-            var data = Parse(ReadBytes(path, MaxFileBytes), Path.GetExtension(path), Path.GetFileNameWithoutExtension(path), inchesPerUnit, package);
-            images = package.images;
-            return data;
+            return Parse(ReadBytes(path, MaxFileBytes), Path.GetExtension(path), Path.GetFileNameWithoutExtension(path), inchesPerUnit, package, out images);
         }
 
         private static byte[] ReadBytes(string path, int maximum) {
@@ -39,20 +37,28 @@ namespace Protobot {
             return bytes;
         }
 
-        public static CustomModelData Parse(byte[] bytes, string extension, string name, float inchesPerUnit) =>
-            Parse(bytes, extension, name, inchesPerUnit, null);
+        public static CustomModelData Parse(byte[] bytes, string extension, string name, float inchesPerUnit) {
+            var data = Parse(bytes, extension, name, inchesPerUnit, null, out var images);
+            if (images.Count > 0) throw new InvalidDataException("This file requires the model texture importer.");
+            return data;
+        }
 
-        private static CustomModelData Parse(byte[] bytes, string extension, string name, float inchesPerUnit, ObjPackage package) {
+        private static CustomModelData Parse(byte[] bytes, string extension, string name, float inchesPerUnit, ObjPackage package, out List<byte[]> images) {
             if (bytes == null || bytes.Length == 0 || bytes.Length > MaxFileBytes)
                 throw new InvalidDataException("The model is empty or larger than 64 MB.");
+            bool glb = string.Equals(extension, ".glb", StringComparison.OrdinalIgnoreCase);
+            if (glb) inchesPerUnit = 1f / .0254f; // glTF stores linear distances in meters.
             if (!Finite(inchesPerUnit) || inchesPerUnit <= 0) throw new InvalidDataException("Invalid model units.");
+            var imageSources = package?.imageSources ?? new SourceImages();
+            images = imageSources.bytes;
             var vertices = new List<float>();
             var triangles = new List<int>();
             CustomAppearance appearance = null;
             switch (extension.ToLowerInvariant()) {
                 case ".obj": appearance = ParseObj(Encoding.UTF8.GetString(bytes), vertices, triangles, package); break;
                 case ".stl": ParseStl(bytes, vertices, triangles); break;
-                default: throw new InvalidDataException("Choose an OBJ or STL model.");
+                case ".glb": appearance = Glb.Read(bytes, vertices, triangles, imageSources); break;
+                default: throw new InvalidDataException("Choose an OBJ, STL, or GLB model.");
             }
             if (vertices.Count == 0 || triangles.Count == 0) throw new InvalidDataException("The model contains no triangle faces.");
             // Center the editing pivot and bake units into geometry, keeping ordinary transforms at scale one.

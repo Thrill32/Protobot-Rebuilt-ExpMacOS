@@ -20,7 +20,7 @@ namespace Protobot.Builds {
 
         public static Task<string[]> OpenModelAsync(string directory) => Show<string[]>(complete =>
             StandaloneFileBrowser.OpenFilePanelAsync("Import Custom Model", directory,
-                new[] { new ExtensionFilter("OBJ / STL models", "obj", "stl") }, false, complete));
+                new[] { new ExtensionFilter("OBJ / STL / GLB models", "obj", "stl", "glb") }, false, complete));
 
         public static Task<string> SaveFileAsync(string title, string directory, string name, string extension) =>
             Show<string>(complete => StandaloneFileBrowser.SaveFilePanelAsync(title, directory, name, extension, complete));

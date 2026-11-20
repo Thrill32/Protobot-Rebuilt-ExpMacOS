@@ -19,10 +19,8 @@ namespace Protobot {
 
         private sealed class ObjPackage {
             private readonly string root;
-            public readonly List<byte[]> images = new();
-            public readonly List<DiffuseTexture> textures = new();
+            public readonly SourceImages imageSources = new();
             private readonly Dictionary<string, int> texturePaths = new(StringComparer.Ordinal);
-            private long rgbBytes, imageBytes;
 
             public ObjPackage(string root) => this.root = root;
 
@@ -82,21 +80,11 @@ namespace Protobot {
             public int AddTexture(Mtl material) {
                 var path = Resolve(material.directory, material.map);
                 if (texturePaths.TryGetValue(path, out int slot)) return slot;
-                if (textures.Count >= CustomAppearance.MaxTextures)
-                    throw new InvalidDataException("An OBJ may use up to eight diffuse images.");
                 string extension = Path.GetExtension(path).ToLowerInvariant();
                 if (extension != ".png" && extension != ".jpg" && extension != ".jpeg")
                     throw new InvalidDataException("Diffuse images must be local PNG or JPEG files.");
-                var bytes = ReadBytes(path, (int)(MaxImageBytes - imageBytes));
-                var image = extension == ".png" ? PngDimensions(bytes) : JpegDimensions(bytes);
-                rgbBytes += image.RgbBytes;
-                if (rgbBytes > CustomAppearance.MaxRgbBytes)
-                    throw new InvalidDataException("Diffuse images exceed the 16 MiB decoded RGB budget.");
-                imageBytes += bytes.Length;
-                slot = textures.Count;
+                slot = imageSources.Add(ReadBytes(path, imageSources.AvailableBytes), extension == ".png");
                 texturePaths.Add(path, slot);
-                textures.Add(image);
-                images.Add(bytes);
                 return slot;
             }
 
@@ -197,7 +185,29 @@ namespace Protobot {
                     uv.Add(0); uv.Add(0);
                 }
                 return hasAppearance ? new CustomAppearance { materials = materials.ToArray(), faceMaterials = faceMaterials.ToArray(),
-                    uv = package.textures.Count == 0 ? Array.Empty<float>() : uv.ToArray(), textures = package.textures.ToArray() } : null;
+                    uv = package.imageSources.textures.Count == 0 ? Array.Empty<float>() : uv.ToArray(), textures = package.imageSources.textures.ToArray() } : null;
+            }
+        }
+
+        private sealed class SourceImages {
+            public readonly List<byte[]> bytes = new();
+            public readonly List<DiffuseTexture> textures = new();
+            public int AvailableBytes { get; private set; } = MaxImageBytes;
+            private long rgbBytes;
+
+            public int Add(byte[] source, bool png) {
+                if (textures.Count >= CustomAppearance.MaxTextures)
+                    throw new InvalidDataException("A model may use up to eight diffuse images.");
+                if (source.Length > AvailableBytes) throw new InvalidDataException("Diffuse image files exceed the 16 MiB source budget.");
+                var image = png ? PngDimensions(source) : JpegDimensions(source);
+                rgbBytes += image.RgbBytes;
+                if (rgbBytes > CustomAppearance.MaxRgbBytes)
+                    throw new InvalidDataException("Diffuse images exceed the 16 MiB decoded RGB budget.");
+                int slot = textures.Count;
+                AvailableBytes -= source.Length;
+                textures.Add(image);
+                bytes.Add(source);
+                return slot;
             }
         }
 

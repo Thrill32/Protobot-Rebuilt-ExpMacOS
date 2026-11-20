@@ -31,6 +31,10 @@ internal static partial class Program {
                 await EditorReplacementChecks(directory);
                 Console.WriteLine("Editor replacement passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
+            if (args.Contains("--glb-only")) {
+                GlbChecks(directory);
+                Console.WriteLine("GLB passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--appearance-only")) {
                 await AppearanceChecks(directory);
                 Console.WriteLine("Appearance passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -112,6 +116,7 @@ internal static partial class Program {
             await AssetChecks(directory);
             await LargeModelChecks(directory);
             await AppearanceChecks(directory);
+            GlbChecks(directory);
             await ConnectionChecks(directory);
             await AdmissionChecks(directory);
             await DiagnosticChecks(directory);
