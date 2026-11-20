@@ -7,7 +7,8 @@ namespace Protobot.Collaboration {
     public static class WireFailure {
         private static readonly HashSet<string> Codes = new HashSet<string>(StringComparer.Ordinal) {
             "room-directory-disabled", "room-directory-unavailable",
-            "geometry-limits-client-required", "geometry-limits-unsupported",
+            "geometry-limits-client-required", "geometry-limits-unsupported", "appearance-client-required", "appearance-helper-required",
+            "appearance-version-unsupported", "appearance-texture-dimensions", "appearance-texture-budget", "invalid-appearance", "invalid-appearance-texture",
             "alpha-history-limit", "asset-already-exists", "asset-byte-limit", "asset-hash-mismatch", "asset-materialization-quota",
             "asset-room-quota", "asset-scene-quota", "asset-transfer-busy", "asset-unused-quota", "authority-only-mutation",
             "catalog-mismatch", "catalog-or-room-mismatch", "chain-identity-in-use", "custom-content-immutable", "document-limit",

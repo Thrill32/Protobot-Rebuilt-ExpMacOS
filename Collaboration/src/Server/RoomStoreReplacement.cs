@@ -28,7 +28,7 @@ namespace Protobot.Collaboration.Server {
             Execute("UPDATE info SET data=$data WHERE id=1", transaction, ("$data", WireJson.Encode(info)));
             Finish(transaction, "room-policy");
         }
-        internal void Replace(StoredRoomInfo info, Document next, Dictionary<string, byte[]> assets, IEnumerable<StoredMember> members) {
+        internal void Replace(StoredRoomInfo info, Document next, Dictionary<string, byte[]> assets, IEnumerable<StoredMember> members, bool appearance = false) {
             ValidateReplacements(info, 3);
             using var transaction = db.BeginTransaction();
             // The active generation, portable geometry, history retirement and complete
@@ -39,6 +39,7 @@ namespace Protobot.Collaboration.Server {
             Execute("UPDATE info SET data=$data WHERE id=1", transaction, ("$data", WireJson.Encode(info)));
             Execute("UPDATE state SET checkpoint_revision=$revision,history_bytes=$bytes WHERE id=1; PRAGMA user_version=3;", transaction,
                 ("$revision", next.revision), ("$bytes", info.retiredHistoryBytes));
+            if (appearance) Execute("PRAGMA user_version=4;", transaction);
             Checkpoint(next, transaction);
             Finish(transaction, "replacement"); checkpointRevision = next.revision; checkpointBytes = 0;
         }

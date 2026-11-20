@@ -66,6 +66,7 @@ namespace Protobot.Collaboration.Server {
         public Document Snapshot { get { lock (gate) return WireJson.Clone(document); } }
         public Capabilities Capabilities { get { lock (gate) return new Capabilities { durable = IsDurable, participantAdministration = true,
             geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
+                customAppearanceVersion = CustomAppearance.Version,
             roomReplacementVersion = IsDurable ? RoomReplacement.Version : 0, roomIdentity = RoomStore.Identity(roomInfo),
             editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion, allowEditorProjectReplacement = roomInfo.allowEditorProjectReplacement,
             diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
@@ -105,7 +106,7 @@ namespace Protobot.Collaboration.Server {
                 roomInfo = new StoredRoomInfo { room = Name, generation = document.generation, initialRevision = document.revision, migrationRevision = minimumCursor,
                     catalog = catalog, salt = salt, passwordHash = passwordHash, ownerHash = ownerHash,
                     allowEditorProjectReplacement = seed.allowEditorProjectReplacement };
-                store?.Initialize(roomInfo, document, assetBytes);
+                store?.Initialize(roomInfo, document, assetBytes, GeometryTransfer.HasAppearance(seed.document));
             }
             PasswordRequired = !CryptographicOperations.FixedTimeEquals(Password(""), passwordHash);
             diagnosticHash = DocumentModel.Hash(document);
@@ -118,6 +119,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(request.room == null || request.room == Name, "catalog-or-room-mismatch");
                 DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(request.geometryLimitsVersion == GeometryTransfer.LimitsVersion, "geometry-limits-client-required");
+                DocumentModel.Require(request.customAppearanceVersion == CustomAppearance.Version, "appearance-client-required");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 DocumentModel.Require(!requireGenerationProof || roomInfo.schema < 2 || request.expectedGeneration != null && request.roomIdentity != null,
                     "room-replacement-client-required");

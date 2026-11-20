@@ -126,6 +126,7 @@ namespace Protobot.Collaboration {
                 DocumentModel.Require(capabilities.room == room && capabilities.catalogHash == catalog.hash, "catalog-or-room-mismatch");
                 DocumentModel.Require(Transport != CollaborationTransport.ShortPolling || capabilities.shortPollingVersion == CollaborationProtocol.ShortPollingVersion, "short-polling-unavailable");
                 GeometryAssetByteLimit = GeometryTransfer.ServerAssetLimit(capabilities);
+                AppearanceVersion = capabilities.customAppearanceVersion;
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;

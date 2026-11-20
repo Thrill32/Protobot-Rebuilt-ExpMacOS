@@ -24,7 +24,8 @@ namespace Protobot.SelectionSystem {
             if (!ColorToolActiveCheck.colorToolActive) return;
             var changed = parts.Where(p => ColorTool.UseDefaultColor
                 ? p.GetComponent<SavedObject>().hasPaint || !PartColors.IsDefault(p)
-                : PartColors.Materials(p).Any(m => !PartColors.SameRGB(m.color, ColorTool.ColorToSet))).ToArray();
+                : p.TryGetComponent<CustomModel>(out var model) && model.HasImportedAppearance && !p.GetComponent<SavedObject>().hasPaint ||
+                    PartColors.Materials(p).Any(m => !PartColors.SameRGB(m.color, ColorTool.ColorToSet))).ToArray();
             if (changed.Length == 0) return;
             if (CollaborationSession.IsShared) { CollaborationSession.Paint(changed, ColorTool.ColorToSet, ColorTool.UseDefaultColor); return; }
             var after = new List<IElement>();

@@ -28,11 +28,10 @@ namespace Protobot.Builds {
         /// Generates all the objects into the scene using given BuildData
         /// </summary>
         public static void GenerateBuild(BuildData buildData, bool validateRoutes = true) {
+            ValidateCustomModels(buildData);
             if (validateRoutes) BuildTransfer.ValidateExplicitChainGeometry(buildData);
+            RequireBuildAppearanceCapacity(buildData);
             CollaborationSession.LeaveForFileOpen();
-            // Validate embedded geometry before replacing any current scene objects.
-            foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
-                if (part.IsCustomModel) CustomModel.Validate(part.customModel);
             CustomModelTool.CancelActive();
             BuildTransferTool.CancelPending();
             if (Placement.IsCopyingSelection) UnityEngine.Object.FindFirstObjectByType<Placement>()?.StopPlacing();
@@ -94,6 +93,22 @@ namespace Protobot.Builds {
             }
         }
 
+        internal static void ValidateCustomModels(BuildData buildData) {
+            foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
+                if (part.IsCustomModel) CustomModel.Validate(part.customModel);
+        }
+
+        internal static long AppearanceCost(BuildData buildData) => (buildData.parts ?? Array.Empty<ObjectData>())
+            .Where(part => part.IsCustomModel).Sum(part => CustomModel.AppearanceCost(part.customModel));
+
+        internal static void RequireBuildAppearanceCapacity(BuildData buildData) {
+            long incoming = AppearanceCost(buildData);
+            if (incoming == 0) return;
+            long released = PartsManager.FindLoadedObjects().Sum(body => body.GetComponent<CustomModel>()?.CurrentAppearanceCost ?? 0) +
+                PartsManager.FindDeletedAppearance().Sum(model => model.CurrentAppearanceCost);
+            CustomModel.RequireAppearanceCapacity(incoming - released);
+        }
+
         internal static GameObject GenerateObject(ObjectData objectData, BuildData buildData)
         {
             GameObject generatedObject = objectData.IsCustomModel
@@ -104,7 +119,7 @@ namespace Protobot.Builds {
             if (buildData.HasColors)
             { 
                 if (objectData.hasPaint) PartColors.ApplyPaint(generatedObject, objectData.GetColor());
-                else if (PartColors.SampleMaterial(generatedObject) != null) {
+                else if (objectData.customModel?.appearance == null && PartColors.SampleMaterial(generatedObject) != null) {
                     OwnedPartMaterials.CaptureGenerated(generatedObject);
                     var material = PartColors.SampleMaterial(generatedObject);
                     var color = objectData.GetColor();

@@ -10,7 +10,8 @@ namespace Protobot.Collaboration {
         public CatalogManifest catalog;
         public Document document;
         public void Validate() {
-            DocumentModel.Require(schema == 1 && version == CollaborationProtocol.Version, "room-export-version-mismatch");
+            DocumentModel.Require((schema == 1 && !GeometryTransfer.HasAppearance(document) ||
+                schema == 2 && GeometryTransfer.HasAppearance(document)) && version == CollaborationProtocol.Version, "room-export-version-mismatch");
             DocumentModel.Require(catalog != null && catalog.entries != null && catalog.entries.Length > 0 && catalog.entries.Length <= 1000 &&
                 catalog.entries.All(e => e != null && DocumentModel.ValidId(e.id) && e.first != null && e.second != null && e.variants != null &&
                     e.variants.All(v => v != null && v.second != null)) &&

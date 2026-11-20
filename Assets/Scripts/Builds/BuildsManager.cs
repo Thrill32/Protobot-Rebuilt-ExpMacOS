@@ -1,4 +1,5 @@
 ﻿using System;
+using Protobot.Collaboration;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading.Tasks;
@@ -103,10 +104,7 @@ namespace Protobot.Builds {
                 if (!IsBuildPath(path)) path += ".pbb";
                 snapshot.name = Path.GetFileNameWithoutExtension(path);
                 snapshot.fileName = Path.GetFileName(path);
-                await Task.Run(() => {
-                    using var file = File.Create(path);
-                    new BinaryFormatter().Serialize(file, snapshot);
-                });
+                await Task.Run(() => WriteBuild(path, snapshot));
                 if (this == null) return false;
                 LocalPreferences.SetString(TransferDirectoryKey, Path.GetDirectoryName(path) ?? "");
                 InteractionFeedback.Notify("Selected parts saved to " + Path.GetFileName(path));
@@ -162,10 +160,7 @@ namespace Protobot.Builds {
                 }
                 var data = CollaborationSession.SaveSnapshot();
                 var sharedHash = CollaborationSession.CommittedHash;
-                await Task.Run(() => {
-                    using var file = File.Create(path);
-                    new BinaryFormatter().Serialize(file, data);
-                });
+                await Task.Run(() => WriteBuild(path, data));
                 if (this == null) return false;
                 buildPath = path;
                 savedBuildData = data;
@@ -251,13 +246,39 @@ namespace Protobot.Builds {
         /// <summary>
         /// Converts a given file path to BuildData
         /// </summary>
+        private static readonly byte[] AppearanceMagic = System.Text.Encoding.ASCII.GetBytes("PBB-APPEARANCE\n");
+
+        internal static void WriteBuild(string path, BuildData build) {
+            SceneBuild.ValidateCustomModels(build);
+            bool appearance = SceneBuild.AppearanceCost(build) > 0;
+            using var file = File.Create(path);
+            // Older readers stop at the unrecognized header instead of losing imported appearance.
+            if (appearance) {
+                file.Write(AppearanceMagic, 0, AppearanceMagic.Length);
+                file.WriteByte(CustomAppearance.Version);
+            }
+            new BinaryFormatter().Serialize(file, build);
+        }
+
         public static BuildData ParsePath(string filePath) {
             if (!IsBuildPath(filePath) || !File.Exists(filePath)) return null;
             using var file = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            bool appearance = true;
+            foreach (var expected in AppearanceMagic) {
+                if (file.ReadByte() == expected) continue;
+                appearance = false;
+                file.Position = 0;
+                break;
+            }
+            if (appearance && file.ReadByte() != CustomAppearance.Version)
+                throw new InvalidDataException("This build uses an unsupported custom-model appearance format.");
             var build = new BinaryFormatter().Deserialize(file) as BuildData;
             if (build?.camera == null)
                 throw new InvalidDataException("This file does not contain a valid build.");
             build.parts ??= Array.Empty<ObjectData>();
+            SceneBuild.ValidateCustomModels(build);
+            if (appearance != (SceneBuild.AppearanceCost(build) > 0))
+                throw new InvalidDataException("This build has an invalid custom-model appearance format.");
             return build;
         }
         
@@ -268,6 +289,7 @@ namespace Protobot.Builds {
         /// <param name="newPath"></param>
         public void AttemptLoad(BuildData newData, string newPath) {
             if (newData == null) return;
+            SceneBuild.RequireBuildAppearanceCapacity(newData);
             attemptContinuation = null;
             attemptData = newData;
             attemptPath = newPath;
@@ -294,6 +316,8 @@ namespace Protobot.Builds {
                 return;
             }
             if (attemptData == null) return;
+            try { SceneBuild.RequireBuildAppearanceCapacity(attemptData); }
+            catch (InvalidDataException error) { InteractionFeedback.Notify(error.Message); return; }
             CollaborationSession.LeaveForFileOpen();
             savedCollaborationHash = null;
             savedBuildData = attemptData;

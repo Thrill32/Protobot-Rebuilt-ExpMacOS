@@ -58,14 +58,21 @@ namespace Protobot {
         public static GeometryAsset[] CaptureAssets(IEnumerable<GameObject> bodies) => Bodies(bodies)
             .Select(body => body.GetComponent<CustomModel>()).Where(model => model != null).Select(model => CaptureAsset(model.Snapshot()))
             .GroupBy(asset => asset.hash, StringComparer.Ordinal).Select(group => group.First()).ToArray();
-        private static GeometryAsset CaptureAsset(CustomModelData data) {
+        internal static GeometryAsset CaptureAsset(CustomModelData data, bool pendingPixels = false) {
             var asset = new GeometryAsset { name = data.name,
-                vertices = data.vertices.Select(value => (double)value).ToArray(), triangles = data.triangles.ToArray() };
-            asset.hash = DocumentModel.GeometryHash(asset); return asset;
+                vertices = data.vertices.Select(value => (double)value).ToArray(), triangles = data.triangles, appearance = data.appearance };
+            asset.hash = pendingPixels ? new string('0', 64) : DocumentModel.GeometryHash(asset); return asset;
         }
         // Pure geometry work; the importer calls this on its parsing worker before
         // allocating Unity meshes/colliders or publishing any shared reference.
         internal static void ValidateCustomImport(CustomModelData data, int maximum) => DocumentModel.ValidateAsset(CaptureAsset(data), maximum);
+        internal static void ValidatePendingTextures(CustomModelData data, int maximum) {
+            data.appearance.Validate(data.vertices.Length / 3, data.triangles.Length / 3, pendingPixels: true);
+            int pixels = data.appearance.textures.Sum(texture => texture.EncodedLength);
+            DocumentModel.Require(pixels < maximum, "asset-byte-limit");
+            LocalJson.Encode(CaptureAsset(data, pendingPixels: true), maximum - pixels);
+        }
+
         private static CustomMount CaptureMount(CustomMountData mount) => new CustomMount {
             position = new double[] { mount.x, mount.y, mount.z }, rotation = new double[] { mount.qx, mount.qy, mount.qz, mount.qw },
             diameter = mount.diameter, depth = mount.depth, threaded = mount.threaded
@@ -112,7 +119,7 @@ namespace Protobot {
         private static CustomModelData ToCustomModel(Part part, IEnumerable<GeometryAsset> geometry) {
             var asset = (geometry ?? Array.Empty<GeometryAsset>()).FirstOrDefault(value => value.hash == part.assetHash);
             if (asset == null || !GeometryTransfer.HasGeometry(asset)) throw new InvalidOperationException("The shared custom model geometry is unavailable.");
-            return new CustomModelData { name = asset.name, vertices = asset.vertices.Select(value => (float)value).ToArray(), triangles = asset.triangles.ToArray(),
+            return new CustomModelData { name = asset.name, vertices = asset.vertices.Select(value => (float)value).ToArray(), triangles = asset.triangles, appearance = asset.appearance,
                 mounts = DocumentModel.Mounts(part).Select(mount => new CustomMountData {
                     x = (float)mount.position[0], y = (float)mount.position[1], z = (float)mount.position[2],
                     qx = (float)mount.rotation[0], qy = (float)mount.rotation[1], qz = (float)mount.rotation[2], qw = (float)mount.rotation[3],
@@ -200,6 +207,7 @@ namespace Protobot {
             if (part.hasPaint) PartColors.ApplyPaint(body, color);
             else {
                 PartColors.RestoreDefaults(body);
+                if (body.TryGetComponent<CustomModel>(out var custom) && custom.HasImportedAppearance) return;
                 var material = PartColors.SampleMaterial(body);
                 if (material != null) { color.a = material.color.a; material.color = color; }
             }

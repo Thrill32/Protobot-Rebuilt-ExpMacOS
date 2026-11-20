@@ -9,6 +9,7 @@ namespace Protobot.Builds {
     /// <summary>Portable selection snapshots shared by export, import, clipboard and placement.</summary>
     public static class BuildTransfer {
         public const string ClipboardPrefix = "PROTOBOT_SELECTION_V1\n";
+        private const string AppearanceClipboardPrefix = "PROTOBOT_SELECTION_V2\n";
         private const int MaxClipboardCharacters = 96 * 1024 * 1024;
 
         public static List<GameObject> SelectedBodies(ISelection selection) {
@@ -38,15 +39,23 @@ namespace Protobot.Builds {
         }
 
         public static string ToClipboard(BuildData build) {
-            var text = ClipboardPrefix + JsonUtility.ToJson(build);
+            var prefix = SceneBuild.AppearanceCost(build) > 0 ? AppearanceClipboardPrefix : ClipboardPrefix;
+            var text = prefix + JsonUtility.ToJson(build);
             if (text.Length > MaxClipboardCharacters) throw new InvalidDataException("The copied selection is too large.");
             return text;
         }
 
+        public static bool HasClipboardBuild(string text) => text != null &&
+            (text.StartsWith(ClipboardPrefix, StringComparison.Ordinal) || text.StartsWith(AppearanceClipboardPrefix, StringComparison.Ordinal));
+
         public static BuildData FromClipboard(string text) {
-            if (string.IsNullOrEmpty(text) || !text.StartsWith(ClipboardPrefix, StringComparison.Ordinal)) return null;
+            if (!HasClipboardBuild(text)) return null;
             if (text.Length > MaxClipboardCharacters) throw new InvalidDataException("The copied selection is too large.");
-            var build = JsonUtility.FromJson<BuildData>(text.Substring(ClipboardPrefix.Length));
+            bool appearance = text.StartsWith(AppearanceClipboardPrefix, StringComparison.Ordinal);
+            var build = JsonUtility.FromJson<BuildData>(text.Substring(appearance ? AppearanceClipboardPrefix.Length : ClipboardPrefix.Length));
+            SceneBuild.ValidateCustomModels(build);
+            if (appearance != (SceneBuild.AppearanceCost(build) > 0))
+                throw new InvalidDataException("The clipboard selection has an invalid appearance format.");
             return build;
         }
 
@@ -62,6 +71,7 @@ namespace Protobot.Builds {
                 else if (part.partId != "Error" && PartsManager.GetPartType(part.partId) == null)
                     throw new InvalidDataException("Unknown part type: " + part.partId);
             }
+            CustomModel.RequireAppearanceCapacity(SceneBuild.AppearanceCost(build));
             ValidateExplicitChainMetadata(build);
             if (build.placementAnchor != null) {
                 var a = build.placementAnchor;

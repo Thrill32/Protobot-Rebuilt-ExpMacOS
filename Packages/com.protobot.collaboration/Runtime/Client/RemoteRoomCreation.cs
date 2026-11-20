@@ -91,6 +91,7 @@ namespace Protobot.Collaboration {
         public async Task<CreatedRoom> CreateAsync(RoomExport content, string room, string password, string credential, bool administrator,
             string recoveryRoot, CancellationToken cancellation, bool allowEditorProjectReplacement = false) {
             var caps = await InspectAsync(cancellation).ConfigureAwait(false);
+            GeometryTransfer.RequireAppearanceSupport(GeometryTransfer.HasAppearance(content.document), caps.customAppearanceVersion);
             DocumentModel.Require(!allowEditorProjectReplacement || caps.editorRoomReplacementVersion == RoomReplacement.EditorPolicyVersion, "editor-room-replacement-unavailable");
             DocumentModel.Require(administrator || caps.roomCreationPolicy != "admin-only", "server-admin-required");
             DocumentModel.Require(administrator || caps.roomCreationPolicy != "key" || DocumentModel.ValidAssetHash(credential), "room-creation-key-required");

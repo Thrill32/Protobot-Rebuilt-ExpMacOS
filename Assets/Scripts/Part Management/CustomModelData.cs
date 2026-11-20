@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Protobot.Collaboration;
 
 namespace Protobot {
     // Primitive arrays keep embedded geometry compatible with both build serializers.
@@ -8,11 +9,16 @@ namespace Protobot {
         public string name;
         public float[] vertices;
         public int[] triangles;
+#if UNITY_5_3_OR_NEWER
+        [UnityEngine.SerializeReference]
+#endif
+        [System.Runtime.Serialization.OptionalField] public CustomAppearance appearance;
         public CustomMountData[] mounts = Array.Empty<CustomMountData>();
 
         public bool SameAs(CustomModelData other) => other != null && name == other.name &&
             (ReferenceEquals(vertices, other.vertices) || vertices.SequenceEqual(other.vertices)) &&
             (ReferenceEquals(triangles, other.triangles) || triangles.SequenceEqual(other.triangles)) &&
+            (appearance?.SameAs(other.appearance) ?? other.appearance == null) &&
             (mounts ?? Array.Empty<CustomMountData>()).SequenceEqual(other.mounts ?? Array.Empty<CustomMountData>());
     }
 

@@ -84,14 +84,14 @@ namespace Protobot.Collaboration.Server {
                     DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA synchronous;")) == 2, "durable-sync-unavailable");
                 }
                 if (!isNew) {
-                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA user_version;")) is 1 or 2 or 3, "room-storage-version-mismatch");
+                    DocumentModel.Require(Convert.ToInt64(Scalar("PRAGMA user_version;")) is 1 or 2 or 3 or 4, "room-storage-version-mismatch");
                     DocumentModel.Require(Convert.ToString(Scalar("PRAGMA quick_check;")) == "ok", "room-storage-corrupt");
                 }
             }
             catch { db?.Dispose(); ownership.Dispose(); throw; }
         }
 
-        internal void Initialize(StoredRoomInfo info, Document document, Dictionary<string, byte[]> assets) {
+        internal void Initialize(StoredRoomInfo info, Document document, Dictionary<string, byte[]> assets, bool appearance = false) {
             DocumentModel.Require(isNew, "room-already-initialized");
             using var transaction = db.BeginTransaction();
             Execute(@"CREATE TABLE info(id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL);
@@ -103,6 +103,7 @@ namespace Protobot.Collaboration.Server {
                 CREATE TABLE journal(revision INTEGER PRIMARY KEY, data BLOB NOT NULL, cost INTEGER NOT NULL);
                 CREATE TABLE assets(hash TEXT PRIMARY KEY, data BLOB NOT NULL);
                 PRAGMA user_version=2;", transaction);
+            if (appearance) Execute("PRAGMA user_version=4;", transaction);
             Execute("INSERT INTO info VALUES(1,$data)", transaction, ("$data", WireJson.Encode(info)));
             Execute("INSERT INTO state VALUES(1,$revision,0)", transaction, ("$revision", document.revision));
             foreach (var asset in assets) InsertAsset(asset.Key, asset.Value, transaction);
@@ -126,9 +127,10 @@ namespace Protobot.Collaboration.Server {
             DocumentModel.Require(Query("PRAGMA foreign_key_check", r => 1).Count == 0, "room-storage-corrupt");
             var info = Query("SELECT data FROM info WHERE id=1", r => Decode<StoredRoomInfo>(r, 0)).Single();
             int storageVersion = StorageVersion;
-            DocumentModel.Require(info.schema == (storageVersion == 3 ? 2 : 1) && DocumentModel.ValidId(info.room) && DocumentModel.ValidId(info.generation) &&
+            int baseStorageVersion = storageVersion == 4 ? (info.schema == 2 ? 3 : 2) : storageVersion;
+            DocumentModel.Require(info.schema == (baseStorageVersion == 3 ? 2 : 1) && DocumentModel.ValidId(info.room) && DocumentModel.ValidId(info.generation) &&
                 info.salt?.Length == 32 && info.passwordHash?.Length == 32 && info.catalog?.protocol == 1, "room-storage-corrupt");
-            ValidateReplacements(info, storageVersion);
+            ValidateReplacements(info, baseStorageVersion);
             var state = Query("SELECT checkpoint_revision,history_bytes FROM state WHERE id=1", r => (revision: r.GetInt64(0), bytes: r.GetInt64(1))).Single();
             checkpointRevision = state.revision;
             var checkpoint = Query("SELECT document,hash FROM checkpoints WHERE revision=" + checkpointRevision.ToString(System.Globalization.CultureInfo.InvariantCulture), r => {
@@ -197,6 +199,7 @@ namespace Protobot.Collaboration.Server {
                     return (hash: r.GetString(0), bytes: (byte[])r.GetValue(1));
                 })) {
                     var asset = GeometryTransfer.Decode(item.bytes);
+                    DocumentModel.Require(asset.appearance == null || storageVersion == 4, "room-storage-version-mismatch");
                     DocumentModel.Require(item.hash == asset.hash, "asset-hash-mismatch"); archive.assets.Add(item.hash, item.bytes);
                 }
                 ValidateStoredAssets(archive);

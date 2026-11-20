@@ -122,6 +122,7 @@ namespace Protobot.Collaboration.Server {
             app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
             var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version,
                 geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
+                customAppearanceVersion = CustomAppearance.Version,
                 roomCreationVersion = ServerRooms.CreationVersion, roomCreationPolicy = registry.CreationPolicy, serverId = registry.ServerId,
                 roomDirectoryVersion = ServerRooms.DirectoryVersion, roomDirectoryPolicy = registry.DirectoryPolicy,
                 editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion,

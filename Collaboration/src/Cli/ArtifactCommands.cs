@@ -21,8 +21,8 @@ internal static partial class Program {
         [JsonRequired] public string runtime { get; set; }
         [JsonRequired] public string build { get; set; }
         [JsonRequired] public string catalog { get; set; }
-        [JsonRequired] public string[] capabilities { get; set; } = new[] { "geometry-v1", "participants-v1", "diagnostics-v1", "short-polling-v1", "room-creation-v1", "room-directory-v1", "room-replacement-v1", "editor-room-replacement-v1" };
-        [JsonRequired] public int[] storage { get; set; } = new[] { 1, 2, 3 };
+        [JsonRequired] public string[] capabilities { get; set; } = new[] { "geometry-v1", "participants-v1", "diagnostics-v1", "short-polling-v1", "room-creation-v1", "room-directory-v1", "room-replacement-v1", "editor-room-replacement-v1", "custom-appearance-v1" };
+        [JsonRequired] public int[] storage { get; set; } = new[] { 1, 2, 3, 4 };
         [JsonRequired] public int[] documents { get; set; } = new[] { 1, 2 };
         [JsonRequired] public int registry { get; set; } = 1;
         [JsonRequired] public int profile { get; set; } = 1;

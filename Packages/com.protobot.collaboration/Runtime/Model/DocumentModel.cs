@@ -255,6 +255,7 @@ namespace Protobot.Collaboration {
                 "invalid-asset");
             Require(asset.vertices.All(v => Finite(v) && Math.Abs(v) <= 1000000) &&
                 asset.triangles.All(i => i >= 0 && i < asset.vertices.Length / 3), "invalid-asset");
+            asset.appearance?.Validate(asset.vertices.Length / 3, asset.triangles.Length / 3);
             Require(GeometryHash(asset) == asset.hash, "asset-hash-mismatch");
             Require(LocalJson.Encode(asset, maximum).Length <= maximum, "asset-byte-limit");
         }
@@ -268,15 +269,18 @@ namespace Protobot.Collaboration {
         }
 
         public static string GeometryHash(GeometryAsset asset) {
-            using (var stream = new MemoryStream()) {
+            using (var sha = SHA256.Create())
+            using (var stream = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write)) {
                 using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) {
                     writer.Write(asset?.name ?? "");
                     var vertices = asset?.vertices ?? Array.Empty<double>(); writer.Write(vertices.Length);
                     foreach (var value in vertices) writer.Write(value == 0 ? 0f : (float)value);
                     var triangles = asset?.triangles ?? Array.Empty<int>(); writer.Write(triangles.Length);
                     foreach (var value in triangles) writer.Write(value);
+                    asset?.appearance?.WriteHash(writer);
                 }
-                using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(stream.ToArray()));
+                stream.FlushFinalBlock();
+                return Hex(sha.Hash);
             }
         }
 

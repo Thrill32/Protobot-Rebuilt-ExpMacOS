@@ -34,11 +34,12 @@ namespace Protobot.Collaboration {
         public VersionRef[] chainTombstones = Array.Empty<VersionRef>();
         public GeometryAsset[] assets = Array.Empty<GeometryAsset>();
     }
-    [Serializable] public sealed class GeometryAsset {
-        public string hash;
-        public string name;
-        public double[] vertices = Array.Empty<double>();
-        public int[] triangles = Array.Empty<int>();
+    [Serializable, System.Runtime.Serialization.DataContract] public sealed class GeometryAsset {
+        [System.Runtime.Serialization.DataMember] public string hash;
+        [System.Runtime.Serialization.DataMember] public string name;
+        [System.Runtime.Serialization.DataMember] public double[] vertices = Array.Empty<double>();
+        [System.Runtime.Serialization.DataMember] public int[] triangles = Array.Empty<int>();
+        [System.Runtime.Serialization.DataMember(EmitDefaultValue = false)] public CustomAppearance appearance;
     }
     [Serializable] public sealed class CustomMount {
         public double[] position = new double[3];
@@ -107,6 +108,7 @@ namespace Protobot.Collaboration {
     }
     [Serializable] public sealed class JoinRequest {
         [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion = GeometryTransfer.LimitsVersion;
+        [System.Runtime.Serialization.OptionalField] public int customAppearanceVersion = CustomAppearance.Version;
         [System.Runtime.Serialization.OptionalField] public string expectedGeneration, roomIdentity, resynchronizeFromGeneration;
         public int protocol = 1;
         public string version = CollaborationProtocol.Version;
@@ -158,6 +160,7 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public bool participantAdministration;
         [System.Runtime.Serialization.OptionalField] public bool geometryTransfer = true;
         [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion, geometryAssetBytes;
+        [System.Runtime.Serialization.OptionalField] public int customAppearanceVersion;
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;

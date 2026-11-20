@@ -13,6 +13,7 @@ namespace Protobot {
         private RoomExport CaptureRoomExport() {
             var manifest = CollaborationScene.Catalog;
             var content = new RoomExport { catalog = WireJson.Clone(manifest), document = IsShared ? GeometryTransfer.CloneDocument(committed) : CollaborationScene.CaptureDocument(manifest) };
+            if (GeometryTransfer.HasAppearance(content.document)) content.schema = 2;
             content.Validate(); return content;
         }
         private async Task ExportRoomAsync() {

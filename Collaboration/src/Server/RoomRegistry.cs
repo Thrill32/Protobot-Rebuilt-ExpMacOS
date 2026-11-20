@@ -209,7 +209,7 @@ namespace Protobot.Collaboration.Server {
             DocumentModel.Require(seed != null && DocumentModel.ValidId(seed.room) && DocumentModel.ValidAssetHash(seed.ownerCredential) &&
                 (seed.password == null || seed.password.Length <= 256) && seed.document != null && seed.document.revision == 0, "invalid-room-bootstrap");
             Admission(seed.room, seed.document.generation, Hash(seed.ownerCredential));
-            new RoomExport { catalog = seed.catalog, document = seed.document }.Validate();
+            new RoomExport { schema = GeometryTransfer.HasAppearance(seed.document) ? 2 : 1, catalog = seed.catalog, document = seed.document }.Validate();
             string stage = Path.Combine(root, "staging", "create-" + Guid.NewGuid().ToString("N"));
             RecoveryFiles.CreateDirectory(stage);
             try {

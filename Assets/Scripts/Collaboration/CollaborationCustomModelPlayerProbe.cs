@@ -19,7 +19,10 @@ namespace Protobot {
         [Serializable] private sealed class ModelProbeBody {
             public string id, name;
             public bool renderer, shaderSupported, collider, surfaceHit, selected;
-            public int vertices, triangles;
+            public int vertices, triangles, submeshes, uv, mounts;
+            public bool painted;
+            public string[] textureSizes;
+            public float[][] colors;
             public double[] position;
         }
         [Serializable] private sealed class ModelProbeResult {
@@ -29,6 +32,7 @@ namespace Protobot {
             public bool connected, pending, capturing;
             public long revision;
             public int assets, geometryAssetBytes;
+            public long deletedAppearanceBytes;
             public Document accepted;
             public ModelProbeBody[] bodies;
         }
@@ -58,6 +62,7 @@ namespace Protobot {
                 // Remove only transient launch UI, as in the ordinary editor input probes.
                 GameObject.Find("Launch Canvas")?.SetActive(false);
                 GameObject.Find("Splash Screen")?.SetActive(false);
+                FindFirstObjectByType<MacRebind>()?.setting.SetValue(2);
                 WriteModelProbe(output, "ready", null);
                 while (!closing) {
                     await Task.Delay(50);
@@ -106,11 +111,52 @@ namespace Protobot {
                                 typeof(KeyboardTransformTool).GetMethod("CompleteConfirmation", flags).Invoke(keyboard, null);
                                 if (!await WaitForSaveAsync()) throw new InvalidOperationException("The edit did not settle.");
                                 break;
+                            case "paint":
+                            case "default":
+                                Paint(new[] { ProbeBody(command.path) }, new Color(.16f, .45f, .8f), command.action == "default");
+                                if (!await WaitForSaveAsync()) throw new InvalidOperationException("The paint did not settle.");
+                                break;
+                            case "undo":
+                            case "redo":
+                                if (IsShared) History(command.action == "redo");
+                                else if (command.action == "redo") StateSystems.StateSystem.instance.Redo();
+                                else StateSystems.StateSystem.instance.Undo();
+                                if (!await WaitForSaveAsync()) throw new InvalidOperationException("History did not settle.");
+                                break;
+                            case "copy":
+                                var copySource = ProbeBody(command.path);
+                                var copies = FindFirstObjectByType<ObjectDuplicator>().CreateCopies(new[] { copySource });
+                                foreach (var copy in copies) copy.transform.position += Vector3.right * 6;
+                                if (!await PlaceCopiesAsync(copies)) throw new InvalidOperationException("The copy did not settle.");
+                                break;
+                            case "mount":
+                                var model = ProbeBody(command.path).GetComponent<CustomModel>();
+                                var reserved = new TaskCompletionSource<bool>();
+                                ReserveCustomMounts(new[] { model }, () => reserved.SetResult(true), () => reserved.SetResult(false));
+                                await ModelProbeWait(() => reserved.Task.IsCompleted);
+                                if (!await reserved.Task) throw new InvalidOperationException("Could not reserve mounting edit.");
+                                model.AddMount(model.transform.position, Vector3.forward, .169f, .046f, true);
+                                ConfirmCustomMounts(new[] { model });
+                                if (!await WaitForSaveAsync()) throw new InvalidOperationException("The mounting edit did not settle.");
+                                break;
+                            case "clipboard":
+                                var build = SceneBuild.ToBuildData();
+                                var roundTrip = BuildTransfer.FromClipboard(BuildTransfer.ToClipboard(build));
+                                if (!build.CompareData(roundTrip)) throw new InvalidOperationException("Clipboard appearance did not round trip.");
+                                break;
+                            case "restart-owned":
+                                if (host == null) throw new InvalidOperationException("An owned helper is required.");
+                                await host.RestartAsync();
+                                await ReconnectAsync();
+                                break;
                             case "save":
                                 dialogs.path = command.path;
                                 bool saved = await (Task<bool>)typeof(BuildsManager).GetMethod("SaveAsync", BindingFlags.Instance | BindingFlags.NonPublic)
                                     .Invoke(FindFirstObjectByType<BuildsManager>(), new object[] { true });
                                 if (!saved) throw new InvalidOperationException("Save failed."); break;
+                            case "new":
+                                FindFirstObjectByType<BuildsManager>().CreateNewBuild();
+                                break;
                             case "reload":
                                 if (!await FindFirstObjectByType<BuildsManager>().OpenPathAsync(command.path)) throw new InvalidOperationException("Reload failed.");
                                 break;
@@ -130,7 +176,9 @@ namespace Protobot {
                                 await ModelProbeWait(() => !busy); break;
                             case "capture":
                                 var models = PartsManager.FindLoadedObjects().Where(b => b.GetComponent<CustomModel>() != null).ToArray();
-                                if (models.Length > 0) PivotCamera.Main.SetTransform(models[0].transform.position, new Vector3(20, 30, 0), -8);
+                                string preferred = client?.Participant?.role == "owner" ? "owner-png" : "editor-jpeg";
+                                var subject = models.FirstOrDefault(m => m.name == preferred) ?? models.FirstOrDefault();
+                                if (subject != null) PivotCamera.Main.SetTransform(subject.transform.position, new Vector3(10, 180, 0), -8);
                                 await Task.Delay(100);
                                 ScreenCapture.CaptureScreenshot(command.path);
                                 await ModelProbeWait(() => File.Exists(command.path)); break;
@@ -144,6 +192,9 @@ namespace Protobot {
             }
             finally { wrapper.SetValue(null, previous); }
         }
+        private static GameObject ProbeBody(string id) =>
+            PartsManager.FindLoadedObjects().Single(b => b.GetComponent<SavedObject>().ConnectionId == id);
+
         private static async Task ModelProbeWait(Func<bool> condition) {
             var until = DateTime.UtcNow.AddSeconds(120);
             while (!condition()) { if (DateTime.UtcNow > until) throw new TimeoutException("Model UI probe timed out."); await Task.Delay(25); }
@@ -165,16 +216,27 @@ namespace Protobot {
                 role = client?.Participant?.role, participant = client?.Participant?.id, hash = committed == null ? null : DocumentModel.Hash(committed),
                 clientHash = snapshot == null ? null : DocumentModel.Hash(snapshot), catalog = catalog?.hash,
                 geometryAssetBytes = CustomGeometryByteLimit,
+                deletedAppearanceBytes = PartsManager.FindDeletedAppearance().Sum(model => model.CurrentAppearanceCost),
                 helper = CollaborationHost.HelperPath, revision = committed?.revision ?? 0, assets = committed?.assets?.Length ?? 0,
                 accepted = committed == null ? null : GeometryTransfer.References(committed),
-                bodies = PartsManager.FindLoadedObjects().Select(b => new ModelProbeBody { id = b.GetComponent<SavedObject>().ConnectionId,
-                    name = b.name, renderer = b.GetComponentsInChildren<Renderer>().Any(r => r.enabled && r.sharedMaterial != null),
-                    shaderSupported = b.GetComponentsInChildren<Renderer>().Any(r => r.sharedMaterial != null && r.sharedMaterial.shader.isSupported),
-                    collider = b.GetComponentsInChildren<Collider>().Any(c => c.enabled), selected = selected.Contains(b),
-                    surfaceHit = ModelProbeSurfaceHit(b),
-                    vertices = b.GetComponent<MeshFilter>()?.sharedMesh?.vertexCount ?? 0,
-                    triangles = (int)(b.GetComponent<MeshFilter>()?.sharedMesh?.GetIndexCount(0) ?? 0) / 3,
-                    position = new double[] { b.transform.position.x, b.transform.position.y, b.transform.position.z } }).ToArray() };
+                bodies = PartsManager.FindLoadedObjects().Select(b => {
+                    var saved = b.GetComponent<SavedObject>();
+                    var mesh = b.GetComponent<MeshFilter>()?.sharedMesh;
+                    var materials = PartColors.Materials(b);
+                    return new ModelProbeBody { id = saved.ConnectionId,
+                        name = b.name, renderer = b.GetComponentsInChildren<Renderer>().Any(r => r.enabled && r.sharedMaterial != null),
+                        shaderSupported = b.GetComponentsInChildren<Renderer>().Any(r => r.sharedMaterial != null && r.sharedMaterial.shader.isSupported),
+                        collider = b.GetComponentsInChildren<Collider>().Any(c => c.enabled), selected = selected.Contains(b),
+                        surfaceHit = ModelProbeSurfaceHit(b),
+                        vertices = mesh?.vertexCount ?? 0,
+                        triangles = mesh == null ? 0 : Enumerable.Range(0, mesh.subMeshCount).Sum(slot => (int)mesh.GetIndexCount(slot) / 3),
+                        submeshes = mesh?.subMeshCount ?? 0,
+                        uv = mesh != null && mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord0) ? mesh.vertexCount : 0,
+                        mounts = b.GetComponent<CustomModel>()?.Snapshot().mounts.Length ?? 0,
+                        painted = saved.hasPaint, colors = materials.Select(m => new[] { m.color.r, m.color.g, m.color.b }).ToArray(),
+                        textureSizes = materials.Select(m => m.mainTexture is Texture texture ? texture.width + "x" + texture.height : "").ToArray(),
+                        position = new double[] { b.transform.position.x, b.transform.position.y, b.transform.position.z } };
+                }).ToArray() };
             File.WriteAllBytes(output + ".tmp", WireJson.Encode(result));
             if (File.Exists(output)) File.Replace(output + ".tmp", output, null); else File.Move(output + ".tmp", output);
         }

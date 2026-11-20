@@ -13,6 +13,7 @@ namespace Protobot.Collaboration {
             public readonly Dictionary<string, GeometryAsset> assets = new Dictionary<string, GeometryAsset>(StringComparer.Ordinal);
             public readonly Dictionary<string, int> sizes = new Dictionary<string, int>(StringComparer.Ordinal);
         }
+        public int AppearanceVersion { get; private set; }
         private GeometryCache geometryCache = new GeometryCache();
         private readonly SemaphoreSlim transferGate = new SemaphoreSlim(1, 1);
         private void Cache(GeometryAsset asset, int bytes, GeometryCache cache = null) {
@@ -77,6 +78,7 @@ namespace Protobot.Collaboration {
         public async Task UploadAssetAsync(GeometryAsset asset, CancellationToken cancellation = default) {
             DocumentModel.Require(IsConnected, "disconnected");
             DocumentModel.Require(Participant?.role != "viewer", "viewer-read-only");
+            GeometryTransfer.RequireAppearanceSupport(asset.appearance != null, AppearanceVersion);
             long epoch = ConnectionEpoch;
             await transferGate.WaitAsync(cancellation).ConfigureAwait(false);
             try {

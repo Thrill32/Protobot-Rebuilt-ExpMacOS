@@ -23,18 +23,23 @@ namespace Protobot.Collaboration {
                 capabilities.geometryAssetBytes > 0 && capabilities.geometryAssetBytes <= MaxAssetBytes, "geometry-limits-unsupported");
             return capabilities.geometryAssetBytes;
         }
+        public static bool HasAppearance(Document document) => DocumentModel.Assets(document).Any(asset => asset?.appearance != null);
+        public static void RequireAppearanceSupport(bool hasAppearance, int version) {
+            DocumentModel.Require(!hasAppearance || version == CustomAppearance.Version, "appearance-helper-required");
+        }
         public static bool HasGeometry(GeometryAsset asset) => asset?.vertices != null && asset.vertices.Length > 0;
         public static GeometryAsset Reference(GeometryAsset asset) => new GeometryAsset { hash = asset.hash, name = asset.name };
         public static void ValidateReference(GeometryAsset asset) {
             DocumentModel.Require(asset != null && DocumentModel.ValidAssetHash(asset.hash) && asset.name != null && asset.name.Length >= 1 &&
-                asset.name.Length <= 200 && asset.vertices != null && asset.vertices.Length == 0 && asset.triangles != null && asset.triangles.Length == 0, "invalid-asset-reference");
+                asset.name.Length <= 200 && asset.vertices != null && asset.vertices.Length == 0 && asset.triangles != null && asset.triangles.Length == 0 && asset.appearance == null, "invalid-asset-reference");
         }
-        public static long MaterializedBytes(GeometryAsset asset) => (long)(asset.vertices?.Length ?? 0) * sizeof(double) + (long)(asset.triangles?.Length ?? 0) * sizeof(int);
+        public static long MaterializedBytes(GeometryAsset asset) => asset.appearance?.ResourceBytes(asset.vertices.Length, asset.triangles.Length) ??
+            ((long)(asset.vertices?.Length ?? 0) * sizeof(double) + (long)(asset.triangles?.Length ?? 0) * sizeof(int));
         public static Document CloneDocument(Document document) {
             var assets = DocumentModel.Assets(document);
             DocumentModel.Require(assets.Sum(MaterializedBytes) <= MaxMaterializedBytes, "asset-materialization-quota");
             var copy = WireJson.Clone(References(document));
-            copy.assets = assets.Select(asset => new GeometryAsset { hash = asset.hash, name = asset.name, vertices = asset.vertices.ToArray(), triangles = asset.triangles.ToArray() }).ToArray();
+            copy.assets = assets.Select(asset => new GeometryAsset { hash = asset.hash, name = asset.name, vertices = asset.vertices.ToArray(), triangles = asset.triangles.ToArray(), appearance = asset.appearance?.Copy() }).ToArray();
             return copy;
         }
         public static Document References(Document document) {
@@ -49,7 +54,7 @@ namespace Protobot.Collaboration {
         public static byte[] Encode(GeometryAsset asset, int maximum) {
             DocumentModel.ValidateAsset(asset, maximum);
             // The established geometry hash uses IEEE float coordinates. Store exactly those values.
-            var canonical = new GeometryAsset { hash = asset.hash, name = asset.name, vertices = asset.vertices.Select(v => v == 0 ? 0.0 : (double)(float)v).ToArray(), triangles = asset.triangles };
+            var canonical = new GeometryAsset { hash = asset.hash, name = asset.name, vertices = asset.vertices.Select(v => v == 0 ? 0.0 : (double)(float)v).ToArray(), triangles = asset.triangles, appearance = asset.appearance };
             return LocalJson.Encode(canonical, maximum);
         }
         public static GeometryAsset Decode(byte[] bytes) {
@@ -57,8 +62,8 @@ namespace Protobot.Collaboration {
             DocumentModel.ValidateAsset(asset); return asset;
         }
         // Count each live instance, even when its source asset is deduplicated. This also bounds accepted build-file expansion.
-        public static void RequireSceneBudget(Document document, Func<string, long> arrayBytes) => DocumentModel.Require(
-            document.parts.Where(p => p.catalogId == "CUSTOM").Sum(p => arrayBytes(p.assetHash)) <= MaxSceneGeometryBytes, "asset-scene-quota");
+        public static void RequireSceneBudget(Document document, Func<string, long> arrayBytes, long additionalBytes = 0) => DocumentModel.Require(
+            document.parts.Where(p => p.catalogId == "CUSTOM").Sum(p => arrayBytes(p.assetHash)) + additionalBytes <= MaxSceneGeometryBytes, "asset-scene-quota");
         public static void RequireHydrated(Document document) {
             DocumentModel.Require(DocumentModel.Assets(document).Sum(MaterializedBytes) <= MaxMaterializedBytes, "asset-materialization-quota");
             DocumentModel.Require(DocumentModel.Assets(document).All(HasGeometry), "missing-asset");

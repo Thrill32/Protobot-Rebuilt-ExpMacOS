@@ -81,7 +81,7 @@ namespace Protobot.Collaboration.Server {
                 long arrayDelta = arrays.Values.Sum() - old.arrays;
                 long sceneDelta = next.parts.Where(p => p.catalogId == "CUSTOM").Sum(p => arrays[p.assetHash]) - old.instances;
                 using var capacity = processBudget?.Reserve(Math.Max(0, byteDelta), Math.Max(0, arrayDelta), Math.Max(0, sceneDelta));
-                Persist(() => store.Replace(info, next, bytes, records));
+                Persist(() => store.Replace(info, next, bytes, records, GeometryTransfer.HasAppearance(content)));
                 roomInfo = info; document = next; diagnosticHash = hash; historyBytes = lifetimeCost; minimumCursor = next.revision;
                 assetBytes = bytes; assetNames = names; assetArrayBytes = arrays;
                 events.Clear(); leases.Clear();

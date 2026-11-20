@@ -68,6 +68,7 @@ namespace Protobot {
                 .Select(saved => saved.gameObject).Distinct().ToList();
             var sourceRoots = parts.Where(part => !parts.Any(other =>
                 other != part && part.transform.IsChildOf(other.transform))).ToList();
+            CustomModel.RequireAppearanceCapacity(parts.Sum(part => part.GetComponent<CustomModel>()?.CurrentAppearanceCost ?? 0));
             var copies = new List<GameObject>();
             foreach (var part in sourceRoots) {
                 var copy = Instantiate(part, part.transform.position, part.transform.rotation, parent);

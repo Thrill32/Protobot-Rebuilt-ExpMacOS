@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Protobot.InputEvents;
 using System;
 
@@ -30,6 +31,7 @@ namespace Protobot.StateSystems {
         }
 
         public void ResetStates() {
+            DiscardOrphanedAppearance(states, new HashSet<GameObject>());
             states.Clear();
             AddEmptyState();
         }
@@ -62,8 +64,13 @@ namespace Protobot.StateSystems {
         /// </summary>
         /// <param name="newState"></param>
         public static void AddState(State newState) {
-            if (curIndex < lastStateIndex)
-                 states = states.GetRange(0, curIndex+1);
+            if (curIndex < lastStateIndex) {
+                var discarded = states.GetRange(curIndex + 1, lastStateIndex - curIndex);
+                states = states.GetRange(0, curIndex + 1);
+                var restorable = states.Append(newState).SelectMany(state => state.elements).OfType<ObjectElement>()
+                    .Where(element => element.existing).Select(element => element.obj).ToHashSet();
+                DiscardOrphanedAppearance(discarded, restorable);
+            }
 
             states.Add(newState);
 
@@ -71,6 +78,13 @@ namespace Protobot.StateSystems {
             InvokeOnChangeState();
         }
 
+
+        private static void DiscardOrphanedAppearance(IEnumerable<State> discarded, HashSet<GameObject> restorable) {
+            foreach (var obj in discarded.SelectMany(state => state.elements).OfType<ObjectElement>().Select(element => element.obj).Distinct()) {
+                if (obj != null && !restorable.Contains(obj) && obj.TryGetComponent<CustomModel>(out var model))
+                    model.DiscardDeletedAppearance();
+            }
+        }
 
         /// <summary>
         /// Adds and advances the current state with a given element

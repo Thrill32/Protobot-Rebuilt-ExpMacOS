@@ -70,6 +70,10 @@ namespace Protobot.Collaboration {
             RoomReplacement.ValidateTarget(target); cancellation.ThrowIfCancellationRequested();
             var current = await InspectAsync(target.room, ownerCredential, cancellation).ConfigureAwait(false);
             DocumentModel.Require(RoomReplacement.SameTarget(current, target), "replacement-target-changed");
+            if (GeometryTransfer.HasAppearance(content.document)) {
+                var caps = await ConnectionRetry.GetAsync<Capabilities>(http, Origin + "/rooms/" + target.room + "/capabilities", cancellation).ConfigureAwait(false);
+                GeometryTransfer.RequireAppearanceSupport(true, caps.customAppearanceVersion);
+            }
             var request = new RoomReplacementRequest { expected = WireJson.Clone(target), content = content };
             var body = await Task.Run(() => { content.Validate(); DocumentModel.Require(content.catalog.hash == target.catalogHash, "catalog-mismatch");
                 return LocalJson.Encode(request, cancellation: cancellation); }, cancellation).ConfigureAwait(false);

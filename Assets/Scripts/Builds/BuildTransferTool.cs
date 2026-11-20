@@ -78,7 +78,7 @@ namespace Protobot.Builds {
             if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return false;
             if (!CanStart) return false;
             var text = GUIUtility.systemCopyBuffer;
-            if (string.IsNullOrEmpty(text) || !text.StartsWith(BuildTransfer.ClipboardPrefix, StringComparison.Ordinal)) {
+            if (!BuildTransfer.HasClipboardBuild(text)) {
                 InteractionFeedback.Notify("The clipboard does not contain Protobot parts."); return false;
             }
             busy = true;

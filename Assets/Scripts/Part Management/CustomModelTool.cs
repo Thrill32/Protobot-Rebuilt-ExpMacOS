@@ -124,14 +124,32 @@ namespace Protobot {
             AddButton(panel, "Cancel", 120, CancelMode);
             bool shared = CollaborationSession.IsShared;
             int maximum = CollaborationSession.CustomGeometryByteLimit;
-            var data = await Task.Run(() => {
-                var parsed = CustomModelImporter.Read(path, inchesPerUnit);
-                if (shared) CollaborationScene.ValidateCustomImport(parsed, maximum);
-                return parsed;
+            int appearanceVersion = CollaborationSession.CustomAppearanceVersion;
+            var (data, images) = await Task.Run(() => {
+                var parsed = CustomModelImporter.ReadPackage(path, inchesPerUnit, out var sources);
+                GeometryTransfer.RequireAppearanceSupport(parsed.appearance != null, appearanceVersion);
+                if (sources.Count > 0) CollaborationScene.ValidatePendingTextures(parsed, maximum);
+                else if (shared || parsed.appearance != null) CollaborationScene.ValidateCustomImport(parsed, maximum);
+                return (parsed, sources);
             });
             if (this == null || request != generation || !isActiveAndEnabled) return null;
+            if (shared != CollaborationSession.IsShared || maximum != CollaborationSession.CustomGeometryByteLimit ||
+                appearanceVersion != CollaborationSession.CustomAppearanceVersion)
+                throw new InvalidOperationException("The active room changed while reading the model. Import it again.");
+            long appearanceCost = CustomModel.AppearanceCost(data);
+            CustomModel.RequireAppearanceCapacity(appearanceCost);
+            if (shared && appearanceCost > 0) CollaborationSession.RequireRoomAppearanceCapacity(appearanceCost);
+            if (images.Count > 0) {
+                CustomModel.DecodeSourceImages(data.appearance, images);
+                await Task.Run(() => CollaborationScene.ValidateCustomImport(data, maximum));
+                if (this == null || request != generation || !isActiveAndEnabled) return null;
+                if (shared != CollaborationSession.IsShared || maximum != CollaborationSession.CustomGeometryByteLimit ||
+                    appearanceVersion != CollaborationSession.CustomAppearanceVersion)
+                    throw new InvalidOperationException("The active room changed while reading the model. Import it again.");
+            }
+            if (shared && appearanceCost > 0 && images.Count > 0) CollaborationSession.RequireRoomAppearanceCapacity(appearanceCost);
             var obj = CustomModel.Create(data, PivotCamera.Main.focusPosition, Quaternion.identity);
-            if (CollaborationSession.IsShared) {
+            if (shared) {
                 publishing = true;
                 var confirmation = CreatePanel("Adding model to shared room…", true, 140);
                 AddLabel(confirmation, "Uploading geometry and waiting for accepted placement. The room may already have received the edit; wait for its outcome.", 50, 75);

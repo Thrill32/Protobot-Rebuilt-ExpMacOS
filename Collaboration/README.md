@@ -1,5 +1,7 @@
 # Collaboration development alpha
 
+[Imported OBJ appearance, limits and matching artifacts](CUSTOM_MODEL_APPEARANCE.md)
+
 Owner-authorized online replacement and explicit participant resynchronization are implemented for local testing; see [confirmation, durable transition, CLI and recovery contracts](ROOM_REPLACEMENT.md). Replacement alone upgrades SQLite/archive to v3; unreplaced rooms remain v2. The top-bar Collaboration button sits beside the filename and includes the participant count during a session. See [local validation evidence and pending field gates](ACCEPTANCE.md).
 
 For local CLI installation, guided isolated setup, build inspection, explicit updates and compatible previous-version selection, see [portable installation](INSTALLATION.md). Published artifacts include .NET; the SDK below is for source builds.
