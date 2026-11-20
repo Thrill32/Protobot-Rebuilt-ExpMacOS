@@ -88,16 +88,18 @@ namespace Protobot {
         }
         public static Document CaptureDocument(CatalogManifest catalog) {
             var bodies = PartsManager.FindLoadedObjects();
-            if (Simulation.RopeRoute.Capture(bodies.Select(body => body.GetComponent<SavedObject>().ConnectionId).ToHashSet()).Length != 0)
-                throw new InvalidOperationException("Rope routes are available in local builds. Open a build without ropes to share it.");
+            var ropes = Simulation.RopeRoute.Capture(bodies.Select(body => body.GetComponent<SavedObject>().ConnectionId).ToHashSet());
             var loops = UnityEngine.Object.FindObjectsByType<Simulation.ChainLoop>(FindObjectsSortMode.None);
             var chainParts = loops.ToDictionary(loop => loop, loop => loop.ResolveParts());
             if (loops.Any(loop => !loop.TryContour(out _, out _)))
                 throw new InvalidOperationException("Remove or repair invalid chains before hosting.");
             var used = new HashSet<string>(StringComparer.Ordinal);
+            var ropeMembers = ropes.SelectMany(rope => rope.MemberIds).ToHashSet(StringComparer.Ordinal);
             foreach (var body in bodies) {
                 var saved = body.GetComponent<SavedObject>();
                 if (!DocumentModel.ValidId(saved.ConnectionId) || !used.Add(saved.ConnectionId)) {
+                    if (ropeMembers.Contains(saved.ConnectionId))
+                        throw new InvalidOperationException("A rope member has an invalid or duplicate part ID.");
                     saved.ConnectionId = Guid.NewGuid().ToString("N"); used.Add(saved.ConnectionId);
                 }
             }
@@ -105,6 +107,11 @@ namespace Protobot {
             foreach (var loop in loops) {
                 if (!used.Add(loop.ConnectionId)) { do loop.SetConnectionId(Guid.NewGuid().ToString("N")); while (!used.Add(loop.ConnectionId)); }
                 chains.Add(loop.Capture(chainParts[loop], 1));
+            }
+            foreach (var rope in ropes) {
+                if (!DocumentModel.ValidId(rope.id) || !used.Add(rope.id))
+                    do rope.id = Guid.NewGuid().ToString("N"); while (!used.Add(rope.id));
+                chains.Add(CaptureRope(rope, 1));
             }
             var document = new Document { catalogHash = catalog.hash, parts = bodies.Select(b => Capture(b, 1)).ToArray(), chains = chains.ToArray(),
                 assets = CaptureAssets(bodies) };
@@ -131,10 +138,24 @@ namespace Protobot {
         public static BuildData ToBuild(Document document) {
             var local = SceneBuild.ToBuildData();
             local.parts = document.parts.Select(part => ToObjectData(part, DocumentModel.Assets(document))).ToArray();
-            local.chains = DocumentModel.Chains(document).Select(c => new ChainData { id = c.id, members = c.members.ToArray(), routeVersion = c.routeVersion, wraps = c.wraps?.ToArray() }).ToArray();
-            local.ropes = null;
+            var routes = DocumentModel.Chains(document);
+            local.chains = routes.Where(c => c.rope == null).Select(c => new ChainData { id = c.id, members = c.members.ToArray(),
+                routeVersion = c.routeVersion, wraps = c.wraps?.ToArray() }).ToArray();
+            local.ropes = routes.Where(c => c.rope != null).Select(ToRope).ToArray();
             return local;
         }
+        internal static ChainRecord CaptureRope(RopeRouteData route, long version = 0) => new ChainRecord {
+            id = route.id, version = version, members = route.MemberIds.ToArray(), wraps = route.wraps.ToArray(),
+            rope = new RopeRecord { start = new[] { route.start.x, route.start.y, route.start.z },
+                end = new[] { route.end.x, route.end.y, route.end.z }, length = route.availableLength }
+        };
+        private static RopeRouteData ToRope(ChainRecord route) => new RopeRouteData {
+            id = route.id, wraps = route.wraps.ToArray(), availableLength = route.rope.length,
+            start = ToAttachment(route.members[0], route.rope.start), end = ToAttachment(route.members[^1], route.rope.end),
+            pulleys = route.members.Skip(1).Take(route.members.Length - 2).ToArray()
+        };
+        private static RopeAttachment ToAttachment(string part, float[] point) =>
+            new RopeAttachment { part = part, x = point[0], y = point[1], z = point[2] };
         public static void Load(Document document) {
             SceneBuild.GenerateBuild(ToBuild(document), validateRoutes: false);
             Simulation.ChainLoop.ApplyRecords(DocumentModel.Chains(document));
@@ -183,8 +204,10 @@ namespace Protobot {
                     .Any(b => edit.transaction.writes.Any(p => p.id == b.GetComponent<SavedObject>().ConnectionId))) multi.pivot.Center();
             foreach (var outlines in UnityEngine.Object.FindObjectsByType<GroupOutlineSelectionResponse>(FindObjectsSortMode.None)) { outlines.ClearDisplay(); outlines.SetSelectionDisplay(); }
             UnityEngine.Object.FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
-            if (DocumentModel.ChainWrites(edit.transaction).Length > 0 || DocumentModel.ChainDeletes(edit.transaction).Length > 0)
+            if (DocumentModel.ChainWrites(edit.transaction).Length > 0 || DocumentModel.ChainDeletes(edit.transaction).Length > 0) {
                 Simulation.ChainLoop.ApplyRecords(DocumentModel.Chains(accepted));
+                Simulation.RopeRoute.ApplyRecords(DocumentModel.Chains(accepted).Where(route => route.rope != null).Select(ToRope));
+            }
         }
         public static void ApplyParts(IEnumerable<Part> parts) {
             var bodies = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);

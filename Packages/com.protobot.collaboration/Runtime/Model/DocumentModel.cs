@@ -32,8 +32,9 @@ namespace Protobot.Collaboration {
             }
             foreach (var tombstone in document.tombstones)
                 Require(tombstone != null && ValidId(tombstone.id) && tombstone.version > 0 && ids.Add(tombstone.id), "invalid-tombstone");
+            var routeParts = document.parts.ToDictionary(part => part.id, StringComparer.Ordinal);
             foreach (var chain in Chains(document)) {
-                ValidateChain(chain, document.parts);
+                ValidateRouteRecord(chain, routeParts);
                 Require(chain.version > 0 && ids.Add(chain.id), "duplicate-or-invalid-id");
             }
             Require(Chains(document).Select(ChainTopology).Distinct(StringComparer.Ordinal).Count() == Chains(document).Length,
@@ -141,10 +142,11 @@ namespace Protobot.Collaboration {
             Require(chainMemberDependencies.All(expected.ContainsKey), "missing-chain-member-version");
             var changedChains = new HashSet<string>(StringComparer.Ordinal);
             foreach (var write in chainWrites) {
-                ValidateChain(write, parts.Values);
+                ValidateRouteRecord(write, parts);
                 Require(changedChains.Add(write.id) && chainExpected.ContainsKey(write.id) && !parts.ContainsKey(write.id) && !tombstones.ContainsKey(write.id),
                     "missing-chain-version");
                 bool exists = chains.TryGetValue(write.id, out var before);
+                Require(!exists || (before.rope == null) == (write.rope == null), "invalid-chain-mutation");
                 if (tx.kind == "AddParts" || tx.kind == "TransformAndCopy")
                     Require(!exists && write.members.All(created.Contains), "invalid-chain-mutation");
                 if (tx.kind == "RestoreParts") Require(exists || chainTombstones.ContainsKey(write.id), "missing-chain");
@@ -160,6 +162,7 @@ namespace Protobot.Collaboration {
                 chainTombstones[id] = chains[id].version + 1; chains.Remove(id);
             }
             Require(chains.Values.All(chain => chain.members.All(parts.ContainsKey)), "missing-chain-member");
+            foreach (var rope in chains.Values.Where(chain => chain.rope != null)) ValidateRopeParts(rope, parts);
             Require(chains.Values.Select(ChainTopology).Distinct(StringComparer.Ordinal).Count() == chains.Count, "duplicate-chain");
             Require(parts.Count <= MaxParts && tombstones.Count <= 20000 && chains.Count <= MaxChains && chainTombstones.Count <= 20000 &&
                 assets.Count <= MaxAssets, "document-limit");
@@ -182,7 +185,10 @@ namespace Protobot.Collaboration {
             SameCustom(a, b);
 
         public static bool SameChain(ChainRecord a, ChainRecord b) => a == null || b == null ? a == b :
-            a.id == b.id && RouteKey(a.members, a.routeVersion, a.wraps) == RouteKey(b.members, b.routeVersion, b.wraps);
+            a.id == b.id && (a.rope == null && b.rope == null
+                ? RouteKey(a.members, a.routeVersion, a.wraps) == RouteKey(b.members, b.routeVersion, b.wraps)
+                : a.rope != null && b.rope != null && a.members.SequenceEqual(b.members) && a.wraps.SequenceEqual(b.wraps) &&
+                    a.rope.length == b.rope.length && a.rope.start.SequenceEqual(b.rope.start) && a.rope.end.SequenceEqual(b.rope.end));
 
         public static bool ValidRoute(string[] members, int version, int[] wraps) =>
             members != null && members.Length >= 2 && members.Length <= MaxWriteSet &&
@@ -193,6 +199,7 @@ namespace Protobot.Collaboration {
         // Only cyclic rotations and reversal are equivalent. Wraps always move
         // with their member; sorting an explicit route would change its shape.
         public static void NormalizeRoute(ChainRecord chain) {
+            if (chain.rope != null) return;
             if (chain.routeVersion == 0) { chain.members = chain.members.OrderBy(id => id, StringComparer.Ordinal).ToArray(); return; }
             int count = chain.members.Length;
             int start = Array.IndexOf(chain.members, chain.members.OrderBy(id => id, StringComparer.Ordinal).First());
@@ -209,14 +216,39 @@ namespace Protobot.Collaboration {
                 string.Join("|", chain.members.Select((id, i) => id + ":" + chain.wraps[i]));
         }
 
-        private static string ChainTopology(ChainRecord chain) => string.Join("\0",
-            (chain.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal));
+        private static string ChainTopology(ChainRecord chain) => chain.rope != null ? "rope:" + chain.members[0] :
+            string.Join("\0", chain.members.OrderBy(id => id, StringComparer.Ordinal));
+
+        private static void ValidateRouteRecord(ChainRecord record, IReadOnlyDictionary<string, Part> parts) {
+            ValidateRouteMetadata(record);
+            Require(record.members.All(parts.ContainsKey), "missing-chain-member");
+            if (record.rope != null) ValidateRopeParts(record, parts);
+        }
+
+        // Historical routes can refer to parts that are currently deleted.
+        public static void ValidateRouteMetadata(ChainRecord record) {
+            Require(record != null && ValidId(record.id) && record.members != null && record.members.Length >= 2 &&
+                record.members.Length <= MaxWriteSet && record.members.All(ValidId) &&
+                record.members.Distinct(StringComparer.Ordinal).Count() == record.members.Length, "invalid-chain");
+            var rope = record.rope;
+            if (rope == null) {
+                Require(ValidRoute(record.members, record.routeVersion, record.wraps), "invalid-chain-route");
+                return;
+            }
+            Require(record.routeVersion == 0 && record.members.Length >= 3 &&
+                record.wraps != null && record.wraps.Length == record.members.Length - 1 && record.wraps.All(w => w == 0 || w == 1) &&
+                Finite(rope.length) && rope.length > 0 && ValidAttachment(rope.start) && ValidAttachment(rope.end), "invalid-rope-route");
+        }
+
+        private static void ValidateRopeParts(ChainRecord record, IReadOnlyDictionary<string, Part> parts) =>
+            Require(parts[record.members[0]].catalogId == RopeRecord.DrumId &&
+                record.members.Skip(1).Take(record.members.Length - 2).All(id => parts[id].catalogId == RopeRecord.PulleyId), "invalid-rope-route");
+
+        private static bool ValidAttachment(float[] point) => point != null && point.Length == 3 && point.All(value => Finite(value));
 
         public static void ValidateChain(ChainRecord chain, IEnumerable<Part> parts) {
-            Require(chain != null && ValidId(chain.id) && chain.members != null && chain.members.Length >= 2 &&
-                chain.members.Length <= MaxWriteSet && chain.members.All(ValidId) && chain.members.Distinct(StringComparer.Ordinal).Count() == chain.members.Length,
-                "invalid-chain");
-            Require(ValidRoute(chain.members, chain.routeVersion, chain.wraps), "invalid-chain-route");
+            ValidateRouteMetadata(chain);
+            Require(chain.rope == null, "invalid-chain-route");
             var available = new HashSet<string>(parts.Select(p => p.id), StringComparer.Ordinal);
             Require(chain.members.All(available.Contains), "missing-chain-member");
         }
@@ -335,7 +367,13 @@ namespace Protobot.Collaboration {
                         writer.Write(chain.id); writer.Write(chain.version);
                         var members = chain.members.OrderBy(id => id, StringComparer.Ordinal).ToArray(); writer.Write(members.Length);
                         foreach (var member in members) writer.Write(member);
-                        if (chain.routeVersion != 0) writer.Write(RouteKey(chain.members, chain.routeVersion, chain.wraps));
+                        if (chain.rope != null) {
+                            writer.Write("rope1");
+                            foreach (var member in chain.members) writer.Write(member);
+                            foreach (var wrap in chain.wraps) writer.Write(wrap);
+                            foreach (var n in chain.rope.start.Concat(chain.rope.end).Append(chain.rope.length)) writer.Write(n == 0 ? 0f : n);
+                        }
+                        else if (chain.routeVersion != 0) writer.Write(RouteKey(chain.members, chain.routeVersion, chain.wraps));
                     }
                     writer.Write(ChainTombstones(document).Length);
                     foreach (var dead in ChainTombstones(document).OrderBy(c => c.id, StringComparer.Ordinal)) { writer.Write(dead.id); writer.Write(dead.version); }

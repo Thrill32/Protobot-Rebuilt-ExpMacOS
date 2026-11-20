@@ -182,10 +182,8 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(history.entry.ids.Length + history.entry.chainIds.Length > 0 &&
                     history.entry.chainIds.Length <= DocumentModel.MaxWriteSet && history.entry.chainIds.Distinct().Count() == history.entry.chainIds.Length &&
                     history.entry.chainIds.All(DocumentModel.ValidId), "room-storage-corrupt");
-                foreach (var chain in history.entry.chainsBefore.Concat(history.entry.chainsAfter))
-                    DocumentModel.Require(chain != null && DocumentModel.ValidId(chain.id) && chain.members != null && chain.members.Length >= 2 &&
-                        chain.members.Length <= DocumentModel.MaxWriteSet && chain.members.All(DocumentModel.ValidId) &&
-                        DocumentModel.ValidRoute(chain.members, chain.routeVersion, chain.wraps), "room-storage-corrupt");
+                foreach (var route in history.entry.chainsBefore.Concat(history.entry.chainsAfter))
+                    DocumentModel.ValidateRouteMetadata(route);
                 history.entry.blocked = history.blocked; list.Add(history.entry);
             }
             DocumentModel.Require(members.Values.All(m => m.member.historyCursor <= m.history.Count) && journal.All(j => members.ContainsKey(j.edit.author)), "room-storage-corrupt");

@@ -53,6 +53,15 @@ namespace Protobot.Collaboration {
         public string[] members = Array.Empty<string>();
         public int routeVersion;
         public int[] wraps;
+        // The existing route transaction also carries open ropes. Members of a
+        // rope are ordered drum, guides, then the load or fixed attachment.
+        [System.Runtime.Serialization.OptionalField] public RopeRecord rope;
+    }
+    [Serializable] public sealed class RopeRecord {
+        public const string DrumId = "WDRM";
+        public const string PulleyId = "PULY";
+        public float[] start, end;
+        public float length;
     }
     [Serializable] public sealed class VersionRef { public string id; public long version; }
     [Serializable] public sealed class ParameterRule {

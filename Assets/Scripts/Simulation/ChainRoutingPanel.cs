@@ -208,7 +208,7 @@ namespace Protobot.Simulation {
         }
 
         private void RefreshRope() {
-            if (rope.drum == null || !rope.drum.gameObject.activeInHierarchy || CollaborationSession.IsShared) { Dispose(); return; }
+            if (rope.drum == null || !rope.drum.gameObject.activeInHierarchy || !CollaborationSession.CanEdit) { Dispose(); return; }
             bool hasContour = rope.TryPreview(out var contour, out var reason);
             bool hasLength = ChainRouteGeometry.Finite(rope.availableLength) && rope.availableLength > 0;
             valid = hasContour && hasLength && contour.length <= rope.availableLength && pick == RopeRoutingDraft.Pick.None;
@@ -261,8 +261,9 @@ namespace Protobot.Simulation {
         public void Dispose() {
             if (disposed) return; disposed = true;
             if (original != null && original.TryGetComponent<LineRenderer>(out var renderer)) renderer.forceRenderingOff = false;
-            rope?.original?.SetPreviewHidden(false);
-            canvasObject.SetActive(false); preview.SetActive(false);
+            if (rope?.original != null) rope.original.SetPreviewHidden(false);
+            if (canvasObject != null) canvasObject.SetActive(false);
+            if (preview != null) preview.SetActive(false);
             Release(canvasObject); Release(preview); Release(material);
             closed?.Invoke();
         }

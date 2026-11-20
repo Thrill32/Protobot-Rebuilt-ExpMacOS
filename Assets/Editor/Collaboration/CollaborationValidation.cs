@@ -72,7 +72,8 @@ namespace ProtobotEditorTools {
             var url = Get<string>(session, "endpoint");
             using var bob = new CollaborationClient(url, "team", catalog, CollaborationTransport.LongPolling);
             await bob.JoinAsync("Second editor");
-            var added = WireJson.Clone(initial.parts[0]); added.id = Guid.NewGuid().ToString("N"); added.position[0] = 30;
+            var added = WireJson.Clone(initial.parts.Single(part => part.catalogId == "CCHL-1x2-5"));
+            added.id = Guid.NewGuid().ToString("N"); added.position[0] = 30;
             Require((await bob.SubmitAsync(bob.CreateTransaction("AddParts", new[] { added }))).accepted, "Remote add rejected.");
             await Until(() => PartsManager.FindLoadedObjects().Count == 3);
             Require(manager.buildPath == savedPath && CollaborationSession.SaveSnapshot().parts.Length == 3, "Remote events changed local path or omitted committed parts.");

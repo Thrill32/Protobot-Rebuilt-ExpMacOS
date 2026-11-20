@@ -85,7 +85,7 @@ namespace Protobot.Simulation {
             // Keep an existing Shift-containing Chain binding a quick-chain
             // command. The panel button remains available for route editing.
             if (keyboard?.shiftKey.isPressed == true && !chainInput.UsesControl(keyboard.leftShiftKey) && !chainInput.UsesControl(keyboard.rightShiftKey)) {
-                if (!CollaborationSession.IsShared && SelectedSprockets().Count == 0 &&
+                if (SelectedSprockets().Count == 0 &&
                     RouteSelection().Any(body => body.GetComponent<SavedObject>()?.id == Builds.RopeRouteData.DrumId))
                     EditRopeRoute();
                 else EditChainRoute();
@@ -107,7 +107,7 @@ namespace Protobot.Simulation {
         }
 
         public void EditRopeRoute() {
-            if (CollaborationSession.IsShared || !CanEditRoute()) return;
+            if (!CanEditRoute()) return;
             var selected = RouteSelection().Select(body => body.GetComponent<SavedObject>()).Where(body => body != null).Distinct().ToArray();
             var drums = selected.Where(body => body.id == Builds.RopeRouteData.DrumId).ToArray();
             if (drums.Length != 1) { UI.InteractionFeedback.Notify("Select one Winch Drum to route a rope."); return; }
@@ -205,6 +205,12 @@ namespace Protobot.Simulation {
         public void SetSpeed(float value) { if (IsTypingRotation || committing) return; speed = Mathf.Clamp(value, .1f, 4); panel?.Refresh(); }
         public void Seek(double seconds) { if (simulation == null || IsTypingRotation || committing) return; playing = false; simulation.Evaluate(seconds); panel?.Refresh(); }
         public void ResetMotion() { if (!active) return; Seek(0); }
+        public void TogglePawl() {
+            if (simulation?.HasWinchPawl != true || IsTypingRotation || committing) return;
+            playing = false;
+            simulation.SetPawlEngaged(!simulation.PawlEngaged);
+            panel?.RebuildTracks();
+        }
 
         public void Commit() {
             if (simulation == null || IsTypingRotation || committing) return;
@@ -343,7 +349,7 @@ namespace Protobot.Simulation {
                 }
                 return;
             }
-            if (playing && simulation != null) simulation.Evaluate(simulation.Time + UnityEngine.Time.unscaledDeltaTime * speed);
+            if (playing && simulation != null) playing = simulation.Advance(UnityEngine.Time.unscaledDeltaTime * speed);
             bool overUI = OverPanel || MouseInput.overUI;
             if (simulation != null && !animation && Time.frameCount != beganFrame) {
                 if (!OverPanel) {
@@ -393,7 +399,7 @@ namespace Protobot.Simulation {
                 $"Enter: set pose · Esc: revert\n{reference}\n{next}    Invalid input: mouse control");
         }
 
-        internal string Status => status;
+        internal string Status => simulation?.WinchStatus ?? status;
         private string RotationHint => simulation?.DriverRotates == true ? " · /: rotation" : "";
         internal string ControlsText => animation
             ? $"Timeline: scrub · Set pose: keep changes{RotationHint} · Esc: revert · {activateInput.GetCurrentKeybind()}: manual"

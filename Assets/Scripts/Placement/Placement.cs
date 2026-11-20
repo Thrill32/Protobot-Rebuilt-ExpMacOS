@@ -420,7 +420,7 @@ namespace Protobot {
                 if (CollaborationSession.IsShared) {
                     var selected = selection.ResultSelection;
                     var sharedCopies = selection.Generate(displacePos, displaceRot);
-                    var sharedChains = selection.GeneratedChains.ToList();
+                    var sharedChains = selection.GeneratedChains.Concat(selection.GeneratedRopes).ToList();
                     if (!selection.RepeatPlacement) StopPlacing();
                     CollaborationSession.PlaceCopies(sharedCopies, targetDependencies, selected, sharedChains);
                     return;

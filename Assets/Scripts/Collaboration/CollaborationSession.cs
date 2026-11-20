@@ -414,7 +414,7 @@ namespace Protobot {
             try {
                 DocumentModel.Require(session.client.IsConnected, "disconnected");
                 var sourceBodies = CollaborationScene.Bodies(bodies);
-                var copiedChains = session.CaptureCopiedChains(sourceBodies, copies);
+                var copiedChains = session.CaptureCopiedRoutes(sourceBodies, copies);
                 var writes = CollaborationScene.Bodies(sourceBodies.Concat(copies ?? Enumerable.Empty<GameObject>())).Select(b => CollaborationScene.Capture(b)).ToArray();
                 if ((copies == null || copies.Count == 0) && writes.All(p => DocumentModel.SamePart(p, session.committed.parts.FirstOrDefault(before => before.id == p.id)))) { CancelPose(); return; }
                 var expected = (dependencies ?? Array.Empty<VersionRef>()).Concat(session.reservedVersions).GroupBy(v => v.id).Select(g => g.First()).ToArray();
@@ -451,7 +451,7 @@ namespace Protobot {
             }
         }
         public static void CancelCustomMounts() => CancelPose();
-        private ChainRecord[] CaptureCopiedChains(List<GameObject> sourceBodies, List<GameObject> copies) {
+        private ChainRecord[] CaptureCopiedRoutes(List<GameObject> sourceBodies, List<GameObject> copies) {
             if (copies == null || copies.Count == 0) return Array.Empty<ChainRecord>();
             var sourceParts = sourceBodies.Where(body => body != null).SelectMany(body => body.GetComponentsInChildren<SavedObject>(true))
                 .Select(saved => saved.gameObject).Distinct().ToList();
@@ -468,7 +468,8 @@ namespace Protobot {
                 .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet(StringComparer.Ordinal);
             return DocumentModel.Chains(committed).Where(chain => chain.members.All(ids.ContainsKey)).Select(chain => {
                 string id; do id = Guid.NewGuid().ToString("N"); while (!used.Add(id));
-                return new ChainRecord { id = id, members = chain.members.Select(member => ids[member]).ToArray(), routeVersion = chain.routeVersion, wraps = chain.wraps?.ToArray() };
+                return new ChainRecord { id = id, members = chain.members.Select(member => ids[member]).ToArray(),
+                    routeVersion = chain.routeVersion, wraps = chain.wraps?.ToArray(), rope = chain.rope };
             }).ToArray();
         }
         public static void PlaceCatalog(GameObject temporary, VersionRef[] dependencies = null) => PlaceCopies(new List<GameObject> { temporary }, dependencies);
@@ -485,8 +486,9 @@ namespace Protobot {
                 var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
                 var existingAssets = DocumentModel.Assets(session.committed).Select(asset => asset.hash).ToHashSet(StringComparer.Ordinal);
                 var assets = CollaborationScene.CaptureAssets(temporary).Where(asset => !existingAssets.Contains(asset.hash)).ToArray();
-                var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj => obj.GetComponent<Simulation.ChainLoop>())
-                    .Where(loop => loop != null).Select(loop => loop.Capture()).ToArray();
+                var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj =>
+                    obj.TryGetComponent<Simulation.RopeRoute>(out var rope) ? CollaborationScene.CaptureRope(rope.Data) :
+                    obj.GetComponent<Simulation.ChainLoop>()?.Capture()).Where(route => route != null).ToArray();
                 var tx = session.CreateTransaction("AddParts", parts, dependencies: dependencies,
                     chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)), assetWrites: assets);
                 if (selectResult != null) session.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
@@ -560,7 +562,7 @@ namespace Protobot {
             var selected = parts?.Distinct().ToList() ?? new List<Simulation.SimulationPart>();
             if (Simulation.ChainLoop.Find(selected.Select(p => p.GetComponent<SavedObject>().ConnectionId)) == null &&
                 !Simulation.ChainLoop.Compatible(selected, out var reason)) { InteractionFeedback.Notify(reason); return; }
-            _ = instance.ToggleChainAsync(selected);
+            instance.ChangeChain(selected);
         }
         public static void SetChainRoute(Builds.ChainData data, bool remove = false) {
             if (!IsShared || !CanEdit) return;
@@ -570,35 +572,46 @@ namespace Protobot {
             if (!remove && !Simulation.ChainRouteGeometry.TryBuild(parts, data.routeVersion, data.wraps, out _, out var reason)) {
                 InteractionFeedback.Notify(reason); return;
             }
-            _ = instance.ToggleChainAsync(parts, data, remove);
+            instance.ChangeChain(parts, data, remove);
         }
-        private async Task ToggleChainAsync(List<Simulation.SimulationPart> parts, Builds.ChainData route = null, bool remove = false) {
+        private void ChangeChain(List<Simulation.SimulationPart> parts, ChainData route = null, bool remove = false) {
+            if (parts.Any(part => part == null)) return;
+            var memberIds = parts.Select(p => p.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
+            var existing = DocumentModel.Chains(committed).FirstOrDefault(c => c.rope == null && c.members.ToHashSet().SetEquals(memberIds));
+            var write = !remove && (route != null || existing == null) ? new ChainRecord {
+                id = existing?.id ?? Guid.NewGuid().ToString("N"), members = memberIds,
+                routeVersion = route?.routeVersion ?? 0, wraps = route?.wraps?.ToArray()
+            } : null;
+            _ = ChangeRouteAsync(existing, write, "Chain");
+        }
+        public static void SetRopeRoute(RopeRouteData route, bool remove = false) {
+            if (!IsShared || !CanEdit) return;
+            var session = instance;
+            var existing = DocumentModel.Chains(session.committed).FirstOrDefault(c => c.rope != null && c.members[0] == route.start.part);
+            var write = remove ? null : CollaborationScene.CaptureRope(route);
+            if (write != null) write.id = existing?.id ?? Guid.NewGuid().ToString("N");
+            _ = session.ChangeRouteAsync(existing, write, "Rope");
+        }
+        private async Task ChangeRouteAsync(ChainRecord existing, ChainRecord write, string label) {
+            if (write == null && existing == null) return;
             if (lease != null || submitting) return;
             submitting = true;
             var connection = client; long epoch = connection.ConnectionEpoch; string token = null;
-            var memberIds = parts.Select(p => p.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
             try {
-                var existing = DocumentModel.Chains(committed).FirstOrDefault(c => c.members.ToHashSet().SetEquals(memberIds));
+                var memberIds = (existing?.members ?? Array.Empty<string>()).Concat(write?.members ?? Array.Empty<string>()).Distinct().ToArray();
                 var expected = Versions(memberIds);
+                var versions = ChainVersions(new[] { write?.id ?? existing.id });
                 await reservationPending; await releasePending;
                 token = (await connection.ReserveAsync(memberIds)).token;
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
-                ChainRecord[] writes = Array.Empty<ChainRecord>(); string[] deletes = Array.Empty<string>();
-                if (route != null && !remove || existing == null && route == null) {
-                    string id; var used = committed.parts.Select(p => p.id).Concat(committed.tombstones.Select(p => p.id))
-                        .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet();
-                    do id = Guid.NewGuid().ToString("N"); while (used.Contains(id));
-                    writes = new[] { new ChainRecord { id = existing?.id ?? id, members = memberIds,
-                        routeVersion = route?.routeVersion ?? 0, wraps = route?.wraps?.ToArray() } };
-                }
-                else if (existing != null) deletes = new[] { existing.id };
-                else return;
                 var tx = CreateTransaction("SetChains", Array.Empty<Part>(), dependencies: expected, token: token,
-                    chainWrites: writes, chainDeletes: deletes, chainDependencies: ChainVersions(writes.Select(c => c.id).Concat(deletes)));
+                    chainWrites: write == null ? null : new[] { write }, chainDeletes: write == null ? new[] { existing.id } : null,
+                    chainDependencies: versions);
                 var receipt = await connection.SubmitAsync(tx);
                 if (client != connection || connection.ConnectionEpoch != epoch) return;
                 if (receipt.accepted) lastSubmittedRevision = Math.Max(lastSubmittedRevision, receipt.revision);
-                status = receipt.accepted ? (writes.Length > 0 ? "Chain route saved" : "Chain removed") + " at revision " + receipt.revision : "Chain edit rejected: " + receipt.error;
+                status = receipt.accepted ? label + (write != null ? " route saved" : " removed") + " at revision " + receipt.revision :
+                    label + " edit rejected: " + receipt.error;
                 InteractionFeedback.Notify(status);
             }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch) Report(error); }

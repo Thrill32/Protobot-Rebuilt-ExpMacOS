@@ -13,8 +13,8 @@ namespace Protobot.Simulation {
 
         internal sealed class Contour {
             public Vector3[] points;
-            public Vector3 normal;
-            public float length;
+            public Vector3 normal, exit;
+            public float length, drumWrapLength;
         }
 
         internal static float Radius(RopeGroove groove) => groove.SurfaceRadius * groove.transform.lossyScale.x + Diameter * .5f;
@@ -75,11 +75,14 @@ namespace Protobot.Simulation {
                 reason = "These wrap choices have no common tangent.";
                 if (!TryTangent(centers[i], centers[next], sign * radii[i], nextRadius, normal, out outgoing[i], out runEnds[i])) return false;
                 if (next < count) incoming[next] = runEnds[i];
-                sweeps[i] = SignedSweep(incoming[i] - centers[i], outgoing[i] - centers[i], normal, sign);
+                sweeps[i] = i == 0 && (incoming[i] - outgoing[i]).sqrMagnitude < 1e-10f ? 0 :
+                    SignedSweep(incoming[i] - centers[i], outgoing[i] - centers[i], normal, sign);
                 float angle = Mathf.Abs(sweeps[i]);
                 reason = "A wrap needs clearance at both ends. Change its side or move an attachment.";
-                if (!Finite(angle) || (i > 0 && angle < .05f) ||
-                    (angle > 180 && Vector3.Distance(incoming[i], outgoing[i]) < Diameter - ClearanceSlop)) return false;
+                // The drum represents wound turns on one effective radius.
+                // A pulley still needs clearance between its entry and exit.
+                if (!Finite(angle) || i > 0 && (angle < .05f ||
+                    angle > 180 && Vector3.Distance(incoming[i], outgoing[i]) < Diameter - ClearanceSlop)) return false;
             }
 
             bool OnArc(int i, Vector3 radial) {
@@ -129,7 +132,8 @@ namespace Protobot.Simulation {
             if (!Finite(length)) return false;
             for (int i = 1; i < points.Count; i++)
                 if (!Finite(points[i]) || (points[i] - points[i - 1]).sqrMagnitude < 1e-12f) return false;
-            contour = new Contour { points = points.ToArray(), normal = normal, length = length };
+            contour = new Contour { points = points.ToArray(), normal = normal, length = length,
+                exit = origin + outgoing[^1], drumWrapLength = Mathf.Abs(sweeps[0]) * Mathf.Deg2Rad * radii[0] };
             reason = null;
             return true;
         }

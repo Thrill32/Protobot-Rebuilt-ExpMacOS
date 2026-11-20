@@ -35,13 +35,19 @@ Apply/remove uses `SetChains`, retaining the existing chain ID, entity versions,
 
 ## Winch and pulley ropes
 
-Select one Winch Drum and optionally preselect VEX Pulleys. Open **Rope route…** in the Simulation panel, or press **Shift+C** with the drum selected and no sprockets selected. In a local build, the same editor numbers the drum, each pulley, and the fixed end in the viewport.
+Select one Winch Drum and optionally preselect VEX Pulleys. Open **Rope route…** in the Simulation panel, or press **Shift+C** with the drum selected and no sprockets selected. The editor numbers the drum, each pulley, and the end attachment in the viewport.
 
-Use **Pick drum point**, then click the drum to choose the angular position of the first attachment on its groove. Use **Pick end point**, then click a surface or mounting hole on a separate part. Hole picks use the bore center. The fixed end should lie in the groove plane. Use **Add pulley**, **Up/Down**, and **Outer/Inner** to set the guide order and wrap side, then check the cyan preview. **Reverse pulleys** reverses just the guides and retains the two attachments.
+Use **Pick drum point**, then click the drum to choose the angular position of the first attachment on its groove. Use **Pick end point**, then click a surface or mounting hole on a separate part. Hole picks use the bore center. The end should lie in the groove plane. Use **Add pulley**, **Up/Down**, and **Outer/Inner** to set the guide order and wrap side, then check the cyan preview. **Reverse pulleys** reverses just the guides and retains the two attachments.
 
 The available length starts at 48 inches and accepts a positive decimal in inches. Routed length sums the straight tangent runs and circular wraps of the 1/8-inch rope centerline. The editor shows how many inches remain, or how far the path exceeds the budget. Apply is available when the path is clear and within budget. A saved build has one rope per drum. Select the drum to reopen its route, edit it, or remove it. Each Apply or Remove is one undo step.
 
-Build files and complete copies retain both part-local attachment points, pulley order, wraps, and the available length. Copies receive fresh endpoint and route identities. A missing or misaligned part hides the rope and restoration returns its path. Builds preserve complete route metadata if the parts later move out of alignment. Shared rooms support sprocket chains. Rope routing, hosting a build that contains ropes, and pasting a rope into a shared room are local-only workflows.
+Build files and complete copies retain both part-local attachment points, pulley order, wraps, and the available length. Copies receive fresh endpoint and route identities. A missing or misaligned part hides the rope and restoration returns its path. Builds preserve complete route metadata if the parts later move out of alignment. Shared Apply and Remove are versioned room edits with leases on both attachments and all pulleys. Complete copies, deletion of an incident endpoint, undo/redo, and accepted saves and room recovery preserve the corresponding topology.
+
+### Tool 5 winch preview
+
+Mount a drum on the driving shaft and route it over one fixed redirect pulley to the load. Align both grooves and the load point in a single plane. The final straight rope span defines the load axis, shown on the animation panel. Choose the load point and pulley placement to set this axis. Select the drive shaft and open Tool 5. Scrubbing moves the load and spins the pulley with the signed rope travel. Take-up stops before the load reaches the groove. Payout is limited by the partial wrap and the complete turns the available length can supply.
+
+A ratchet on the drum shaft and a nearby pawl mounted on a separate stationary shaft enable the **Pawl engaged** control. Each preview starts engaged when that hardware is present. Engagement allows take-up and blocks payout from the preview's starting pose. Toggle the pawl to preview payout. **Set Pose** saves the evaluated part poses as one undo step. Cancel restores the starting poses. The pawl control and all scrubbing and playback stay private in a shared room. Confirmed poses use the normal shared simulation transaction. The model uses a constant effective radius and represents wound turns on the drum as a single visible partial wrap.
 
 ## Validation
 

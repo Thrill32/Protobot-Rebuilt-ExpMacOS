@@ -30,8 +30,8 @@ namespace Protobot.Simulation {
         }
 
         public static bool Apply(RopeRouteData data, out string reason) {
-            reason = "Rope routes are available in local builds.";
-            if (CollaborationSession.IsShared) return false;
+            reason = "Editing is unavailable in this shared room.";
+            if (!CollaborationSession.CanEdit) return false;
             reason = "Choose a drum attachment, at least one pulley, an end attachment, and a positive length.";
             if (data == null || !data.ValidMetadata()) return false;
             var parts = Resolve(data);
@@ -41,12 +41,16 @@ namespace Protobot.Simulation {
                 return false;
             }
             var route = Find(data.start.part);
+            if (data.SamePath(route?.data)) return true;
+            if (CollaborationSession.IsShared) {
+                CollaborationSession.SetRopeRoute(data);
+                return true;
+            }
             if (route == null) {
                 route = FromData(data);
                 StateSystem.AddElement(new RopeElement(route, false));
             }
             else {
-                if (data.SamePath(route.data)) return true;
                 StateSystem.AddElement(new RopeElement(route, true));
                 var edited = data.Snapshot();
                 edited.id = route.data.id;
@@ -59,6 +63,10 @@ namespace Protobot.Simulation {
         internal void SetPreviewHidden(bool hidden) => visual.SetHidden(hidden);
 
         public void Remove() {
+            if (CollaborationSession.IsShared) {
+                CollaborationSession.SetRopeRoute(data, remove: true);
+                return;
+            }
             StateSystem.AddElement(new RopeElement(this, true));
             gameObject.SetActive(false);
             StateSystem.AddState(new RopeElement(this, false));
@@ -68,6 +76,15 @@ namespace Protobot.Simulation {
             foreach (var route in FindObjectsByType<RopeRoute>(FindObjectsInactive.Include, FindObjectsSortMode.None)) route.Discard();
         }
 
+        internal static void ApplyRecords(IEnumerable<RopeRouteData> records) {
+            var accepted = records.ToDictionary(route => route.id, StringComparer.Ordinal);
+            foreach (var route in FindObjectsByType<RopeRoute>(FindObjectsSortMode.None)) {
+                if (!accepted.Remove(route.data.id, out var data)) route.Discard();
+                else if (!route.data.SamePath(data)) route.SetData(data);
+            }
+            foreach (var data in accepted.Values) FromData(data);
+        }
+
         internal void Discard() {
             gameObject.SetActive(false);
             RopeVisual.Release(gameObject);
@@ -75,7 +92,7 @@ namespace Protobot.Simulation {
 
         private static bool Live(SavedObject part) => part != null && part.isActiveAndEnabled && !part.gameObject.IsDeleted();
 
-        private static SavedObject[] Resolve(RopeRouteData data) {
+        internal static SavedObject[] Resolve(RopeRouteData data) {
             var live = FindObjectsByType<SavedObject>(FindObjectsSortMode.None).Where(Live).ToLookup(part => part.ConnectionId);
             return data.MemberIds.Select(id => live[id].FirstOrDefault()).ToArray();
         }
@@ -122,7 +139,7 @@ namespace Protobot.Simulation {
                 matrices[i] = matrix;
             }
             if (changed) {
-                bool valid = TryContour(data, parts, out var contour, out _) && contour.length <= data.availableLength;
+                bool valid = TryContour(data, parts, out var contour, out _) && contour.length <= data.availableLength + .0001f;
                 visual.Show(valid ? contour : null);
             }
         }

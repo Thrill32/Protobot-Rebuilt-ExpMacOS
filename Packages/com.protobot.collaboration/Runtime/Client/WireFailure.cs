@@ -16,6 +16,7 @@ namespace Protobot.Collaboration {
             "identity-in-use", "invalid-asset", "invalid-asset-hash", "invalid-asset-mutation", "invalid-asset-reference",
             "invalid-catalog", "invalid-catalog-part", "invalid-chain", "invalid-chain-delete", "invalid-chain-dependency",
             "invalid-chain-mutation", "invalid-chain-route", "invalid-chain-tombstone", "invalid-color", "invalid-custom-mount",
+            "invalid-rope-route",
             "invalid-custom-part", "invalid-delete", "invalid-dependency", "invalid-document", "invalid-history-command",
             "invalid-name", "invalid-operation", "invalid-parameter", "invalid-parameters", "invalid-part",
             "invalid-participant-id", "invalid-position", "invalid-preview", "invalid-preview-sequence", "invalid-reservation",

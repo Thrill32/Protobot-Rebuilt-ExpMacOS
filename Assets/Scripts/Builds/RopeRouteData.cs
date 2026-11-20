@@ -21,8 +21,8 @@ namespace Protobot.Builds {
     public sealed class RopeRouteData {
         public const float KitLength = 48f;
         public const int MaxPulleys = Collaboration.DocumentModel.MaxWriteSet - 2;
-        public const string DrumId = "WDRM";
-        public const string PulleyId = "PULY";
+        public const string DrumId = Collaboration.RopeRecord.DrumId;
+        public const string PulleyId = Collaboration.RopeRecord.PulleyId;
         public string id;
         public RopeAttachment start, end;
         public string[] pulleys;

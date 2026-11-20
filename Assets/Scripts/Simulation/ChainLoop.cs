@@ -70,7 +70,8 @@ namespace Protobot.Simulation {
         public static void ApplyRecords(IEnumerable<Protobot.Collaboration.ChainRecord> records) {
             ClearAll();
             foreach (var record in records ?? Array.Empty<Protobot.Collaboration.ChainRecord>())
-                FromData(new ChainData { members = record.members.ToArray(), routeVersion = record.routeVersion, wraps = record.wraps?.ToArray() }, record.id, retainInvalidGeometry: true);
+                if (record.rope == null)
+                    FromData(new ChainData { members = record.members.ToArray(), routeVersion = record.routeVersion, wraps = record.wraps?.ToArray() }, record.id, retainInvalidGeometry: true);
         }
         public static ChainData[] SaveAll() => UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None)
             .Where(c => c.TryContour(out _, out _)).Select(c => c.Data).ToArray();
