@@ -15,10 +15,12 @@ namespace Protobot.SelectionSystem {
 
         public override void OnSet(ISelection selection) {
             selection.selector = null;
+            if (CollaborationSession.IsShared) return;
             StateSystem.AddState(new SelectionElement(selectionManager, selection));
         }
 
         public override void OnClear(ClearInfo clearInfo) {
+            if (CollaborationSession.IsShared) return;
             StateSystem.AddState(new SelectionElement(selectionManager, null));
         }
     }

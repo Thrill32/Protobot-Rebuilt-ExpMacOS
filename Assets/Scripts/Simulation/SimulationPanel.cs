@@ -12,9 +12,9 @@ namespace Protobot.Simulation {
         private readonly GameObject canvasObject;
         private readonly CanvasGroup inputGroup;
         private readonly RectTransform panel, controls, content;
-        private readonly Text status, help, clock, playLabel, speedLabel;
+        private readonly Text status, help, clock, playLabel, speedLabel, pawlLabel;
         private readonly Slider timeline, speed;
-        private readonly Button play, reset, commit;
+        private readonly Button play, reset, commit, ropeRoute, pawl;
         private readonly List<(MechanismSimulation.Track track, Text text, RectTransform marker)> rows = new();
         private bool updating;
         private readonly Color accent = new(.18f, .67f, 1f, 1);
@@ -35,6 +35,16 @@ namespace Protobot.Simulation {
             Background(panel, new Color(.055f, .065f, .08f, .97f));
             status = Label(panel, "Status", "", 14, new Vector2(14, -8), new Vector2(-28, 24));
             help = Label(panel, "Help", "", 12, new Vector2(14, -33), new Vector2(-28, 22));
+            help.horizontalOverflow = HorizontalWrapMode.Wrap;
+            ropeRoute = Button(panel, "Rope Route", "Rope route…", -128, -33, 114, tool.EditRopeRoute);
+            var ropeRect = (RectTransform)ropeRoute.transform;
+            ropeRect.anchorMin = ropeRect.anchorMax = Vector2.one;
+            ropeRect.anchoredPosition = new Vector2(-128, -33);
+            pawl = Button(panel, "Winch Pawl", "Pawl engaged", -258, -33, 122, tool.TogglePawl);
+            var pawlRect = (RectTransform)pawl.transform;
+            pawlRect.anchorMin = pawlRect.anchorMax = Vector2.one;
+            pawlRect.anchoredPosition = new Vector2(-258, -33);
+            pawlLabel = pawl.GetComponentInChildren<Text>();
             controls = Rect("Animation", panel, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, -62), new Vector2(730, 210));
             play = Button(controls, "Play Pause", "Play", 14, 0, 66, tool.TogglePlayback);
             playLabel = play.GetComponentInChildren<Text>();
@@ -44,9 +54,13 @@ namespace Protobot.Simulation {
             speedLabel = Label(controls, "Speed Label", "1×", 13, new Vector2(322, 0), new Vector2(54, 28), false);
             speed = Slider(controls, "Speed", new Vector2(380, -9), new Vector2(150, 12), .1f, 4);
             speed.onValueChanged.AddListener(value => { if (!updating) tool.SetSpeed(value); });
+            Button(controls, "Chain Route", "Chain route…", 550, 0, 156, tool.EditChainRoute);
             clock = Label(controls, "Clock", "", 12, new Vector2(14, -34), new Vector2(-28, 24));
             timeline = Slider(controls, "Timeline", new Vector2(14, -66), new Vector2(700, 10), 0, 1);
-            timeline.onValueChanged.AddListener(value => { if (!updating && tool.Current != null) tool.Seek(value * tool.Current.LoopDuration); });
+            timeline.onValueChanged.AddListener(value => {
+                var model = tool.Current;
+                if (!updating && model != null) tool.Seek(model.TimelineStart + value * (model.TimelineEnd - model.TimelineStart));
+            });
 
             var viewport = Rect("Tracks", controls, Vector2.up, Vector2.up, new Vector2(14, -86), new Vector2(700, 112));
             Background(viewport, new Color(0, 0, 0, .08f));
@@ -69,11 +83,13 @@ namespace Protobot.Simulation {
                 var text = Label(row, "Part and Period", "", 11, new Vector2(0, 0), new Vector2(235, 26), false);
                 var line = Rect("Loop Track", row, Vector2.up, Vector2.up, new Vector2(244, -12), new Vector2(450, 2));
                 Background(line, new Color(.35f, .4f, .46f, 1));
-                int loops = track.linear ? 0 : Mathf.RoundToInt((float)(model.LoopDuration / track.Period));
-                int stride = Mathf.Max(1, Mathf.CeilToInt(loops / 64f));
-                for (int tick = 0; tick <= loops; tick += stride) {
+                double start = model.TimelineStart, duration = model.TimelineEnd - start;
+                double first = track.linear ? 0 : Math.Ceiling(start / track.Period);
+                double last = track.linear ? 0 : Math.Floor(model.TimelineEnd / track.Period);
+                double stride = Math.Max(1, Math.Ceiling((last - first) / 64));
+                for (double tick = first; !track.linear && duration > 0 && tick <= last; tick += stride) {
                     var mark = Rect("Loop Boundary", line, Vector2.zero, Vector2.zero,
-                        new Vector2(450f * tick / Mathf.Max(1, loops), 4), new Vector2(1, 10));
+                        new Vector2(450f * (float)((tick * track.Period - start) / duration), 4), new Vector2(1, 10));
                     Background(mark, new Color(.4f, .48f, .58f, 1));
                 }
                 var marker = Rect("Playhead", line, Vector2.zero, Vector2.zero, new Vector2(0, 7), new Vector2(2, 16));
@@ -90,33 +106,45 @@ namespace Protobot.Simulation {
             if (canvasObject == null) return;
             canvasObject.SetActive(SimulationTool.IsActive);
             if (!canvasObject.activeSelf) return;
-            inputGroup.interactable = !tool.IsTypingRotation;
+            inputGroup.interactable = !tool.IsTypingRotation && !tool.IsCommitting;
+            ropeRoute.gameObject.SetActive(CollaborationSession.CanEdit);
+            var model = tool.Current;
+            pawl.gameObject.SetActive(model?.HasWinchPawl == true);
+            pawlLabel.text = model?.PawlEngaged == true ? "Pawl engaged" : "Pawl disengaged";
+            help.rectTransform.sizeDelta = new Vector2(pawl.gameObject.activeSelf ? -278 : ropeRoute.gameObject.activeSelf ? -156 : -28, 22);
             float width = Mathf.Clamp(((RectTransform)canvasObject.transform).rect.width - 150, 260, 730);
             panel.sizeDelta = new Vector2(width, tool.AnimationVisible ? 280 : 64);
             // Scale just the animation interior on narrower windows; the status remains readable.
             controls.localScale = Vector3.one * Mathf.Min(1, width / 730);
             controls.gameObject.SetActive(tool.AnimationVisible);
-            status.text = "Simulation · " + tool.Status + (tool.Current?.DriverRotates == true
-                ? $" · {tool.Current.DriverDegrees:0.##}° relative / {tool.Current.GlobalDriverDegrees:0.##}° global" : "");
+            status.text = "Simulation · " + tool.Status + (model?.DriverRotates == true
+                ? $" · {model.DriverDegrees:0.##}° relative / {model.GlobalDriverDegrees:0.##}° global" : "");
+            if (model?.HasWinch == true) status.text += $" · {RopeTravel(model.RopeTravel)}";
             help.text = tool.ControlsText;
-            var model = tool.Current;
-            play.interactable = reset.interactable = commit.interactable = model != null;
+            play.interactable = reset.interactable = model != null && !tool.IsCommitting;
+            commit.interactable = tool.CanSetPose;
             playLabel.text = tool.IsPlaying ? "Pause" : "Play";
             speedLabel.text = $"{tool.Speed:0.##}×";
-            double duration = model?.LoopDuration ?? 4;
+            double start = model?.TimelineStart ?? 0;
+            double duration = (model?.TimelineEnd ?? 4) - start;
             double time = model?.Time ?? 0;
-            double phase = ((time % duration) + duration) % duration;
-            clock.text = model == null ? "Select a motor, gear or shaft to animate" :
+            double progress = duration <= 0 ? 0 : model?.HasWinch == true ? (time - start) / duration : ((time % duration) + duration) % duration / duration;
+            timeline.interactable = model != null && duration > 0;
+            clock.text = model == null ? "Select a motor, gear or shaft to animate" : model.HasWinch ?
+                $"Load axis  {model.WinchTravelAxis.ToString("F2")}   ·   {start * 90:0.##}° to {model.TimelineEnd * 90:0.##}°" :
                 $"{time / tool.Speed:0.00}s   /   {duration / tool.Speed:0.##}s {(model.HasFiniteLoop ? "loop" : "window")}    ·    ticks mark complete turns";
             updating = true;
-            timeline.SetValueWithoutNotify((float)(phase / duration));
+            timeline.SetValueWithoutNotify((float)progress);
             speed.SetValueWithoutNotify(tool.Speed);
             updating = false;
             foreach (var row in rows) {
                 row.text.text = row.track.linear ? $"{row.track.Label} · {row.track.LinearSpeed * tool.Speed:0.##} in/s" : $"{row.track.Label} · {row.track.Period / tool.Speed:0.##}s / turn";
-                row.marker.anchoredPosition = new Vector2((float)(phase / duration) * 450, 7);
+                row.marker.anchoredPosition = new Vector2((float)progress * 450, 7);
             }
         }
+
+        private static string RopeTravel(double value) => value == 0 ? "0.00 in rope travel" :
+            $"{Math.Abs(value):0.00} in {(value > 0 ? "payout" : "take-up")}";
 
         private static RectTransform Rect(string name, Transform parent, Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size) {
             var rect = new GameObject(name, typeof(RectTransform)).GetComponent<RectTransform>();

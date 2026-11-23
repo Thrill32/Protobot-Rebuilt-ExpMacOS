@@ -1,0 +1,257 @@
+{
+  "format": "protobot-unity-upgrade-evidence",
+  "schema": 1,
+  "date": "2026-11-17",
+  "baseCommit": "c98e9feb14801af26c0bb700bf0fea175568c86e",
+  "initialWorktreeClean": true,
+  "unityVersion": "6000.6.9f1",
+  "unityRevision": "8c45277fb9c5",
+  "artifactDirectory": "Collaboration/artifacts/unity-6000.6.9f1",
+  "catalog": "453a571c859f7f347abee11a12d4b81b489e47d0d98a46a562e19459c3d4b9ad",
+  "helpers": {
+    "osx-arm64": {
+      "manifestSha256": "31d438f23fa66c5a9a32c6bf7fa42e534af2e70a5e94c49fc4c952deaaf8ab0b",
+      "build": "5f50dd19576adef15c6e7b312d5eea3a95cd84299bc9220533aadbc55ea05fe7",
+      "assemblies": {
+        "protobot-collab.dll": "02c87791a1af620f59b031a92e5bd0246080eb1c4de024247bf8a9f332b10cbe",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 363
+    },
+    "win-x64": {
+      "manifestSha256": "55913652844cc707b3bb57c0d3feb8a76dd18b1109794162d0385f66fef78421",
+      "build": "26b6981f4b0a7d7aff5cddfec2191e860c4be147d20d4a872d141f60e749f203",
+      "assemblies": {
+        "protobot-collab.dll": "1feac6d328d79fb7c8413715679fa6d12a9ace157d8438e0dd8b83fe37c55e50",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 366
+    },
+    "linux-x64": {
+      "manifestSha256": "f30faf8b695f10810fe35b6775be9142a1ab115d92f2ea22a20c94b34472c135",
+      "build": "5cd6ea561db8ec0c44f4578ce171fbf6daffa44b3eb0ff2fc695e09857d700ac",
+      "assemblies": {
+        "protobot-collab.dll": "0ba717b2314af1b4d585c7ea6a63d6d8912ebf453de1a1af26af4634d26b284c",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 364
+    },
+    "linux-arm64": {
+      "manifestSha256": "fc6f9a497642fcc95f6bfb566ad96a2f2da005854cb1749d8cde47a0239024e0",
+      "build": "d7ba06a91ca402db1b39e4ab1e0ac8c8a2ed705d99a62b9dcc00b15be35b8c4b",
+      "assemblies": {
+        "protobot-collab.dll": "effad269a3d8f7d2a47b6f46c7bf45d3efd332d0c72ed42004fb76166851065a",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 364
+    }
+  },
+  "archives": {
+    "protobot-collab-linux-arm64.tar.gz": {
+      "sha256": "b186a6dd3ee0124130f990f8d99d2da66e7e591c962b6400d34a628d0da7d91b",
+      "bytes": 46359240
+    },
+    "protobot-collab-linux-x64.tar.gz": {
+      "sha256": "e95dde60e81376064fcbbc7eab658c27359a0693bbdad5f67735be7b979d4790",
+      "bytes": 48907353
+    },
+    "protobot-collab-osx-arm64.tar.gz": {
+      "sha256": "72d7129e16fb2d233ae1db3b55139b039eb343e270706e63136b374474f89edf",
+      "bytes": 45428169
+    },
+    "protobot-collab-win-x64.tar.gz": {
+      "sha256": "24e30ff017c8761af61f05254041aacd71a488e7ca3296069028bbc5dc1a50eb",
+      "bytes": 49570568
+    },
+    "Protobot-Mac-collaboration.zip": {
+      "sha256": "5ce68c1ad02699a3e049d1c09f6ff54ceed420f2ef3ad43cc1e73e7084e72747",
+      "bytes": 212497893
+    },
+    "Protobot-Windows-collaboration.zip": {
+      "sha256": "8398d66f8f71e0b27b78851896262d59da7b5feda9ace83a134f553ece3cf943",
+      "bytes": 228177054
+    }
+  },
+  "packageUpdates": {
+    "com.unity.ai.navigation": {
+      "from": "2.0.15",
+      "to": "2.0.16"
+    },
+    "com.unity.ide.rider": {
+      "from": "3.0.38",
+      "to": "3.1.0"
+    },
+    "com.unity.inputsystem": {
+      "from": "1.20.0",
+      "to": "1.20.1"
+    },
+    "com.unity.multiplayer.center": {
+      "from": "2.0.1",
+      "to": "2.1.0"
+    },
+    "com.unity.probuilder": {
+      "from": "6.1.2",
+      "to": "6.1.4"
+    },
+    "com.unity.services.authentication": {
+      "from": "3.8.0",
+      "to": "3.8.1"
+    },
+    "com.unity.services.wire": {
+      "from": "1.6.0",
+      "to": "1.6.2"
+    }
+  },
+  "sourceFiles": {
+    "ProjectSettings/ProjectVersion.txt": "ebaccfd103d4983934b050d2ef8652fcbc3fd5eade2304268930fc6e4dfccf84",
+    "Packages/manifest.json": "6b46be94ff3480b9e935659620533af2d8093237510608e6b545c5e05871c67f",
+    "Packages/packages-lock.json": "b60b344690361f30813fb4fa6b0f5c1d0febce4fe109c3780dfbf4b10727b7a8",
+    "Assets/Scenes/Main.unity": "1859a931fd136b8e42d8892038232373209b6be04b49229be3c9ca346d165d27",
+    "Assets/Resources/Collaboration/catalog.json": "1b3e43ec321283519b12207207d52d4d5762feb9730328dcb1bcf3e14486b8fd",
+    "ProjectSettings/ProjectSettings.asset": "14b2a928c4e6bb5c16cddf690a0f5631dc09a20bb12ac628ef5a757dc617c78e",
+    "Assets/Editor/Collaboration/CollaborationSetup.cs": "7bdac65b56ba97af78f9f02d1014948dd78c13052ad35462a6de52670d7017d9",
+    "Collaboration/tools/validate-release-artifacts.py": "f20b589aead2c9b1132254077b7c17d4bd574d3c2c7da63719e7a757aa8e5bdf",
+    ".github/workflows/build.yml": "f318aa4d7794222cee6fa6c44621dd2259914e348910db87b0711899d9f32aa1"
+  },
+  "sourceWorkingTreeChanges": "Editor validation/build tooling, version references, CI and upgrade evidence; production runtime source and scene unchanged.",
+  "packageVerificationEvidence": "packages-verified-final.json",
+  "historicalArchivesUnchanged": true,
+  "initialAttempts": [
+    {
+      "scenario": "interaction-render",
+      "result": "First palette check failed; diagnostic and final normal-input runs passed. Added explicit Game View size wait and corrected cleanup indices.",
+      "log": "interaction-render-initial.log"
+    },
+    {
+      "scenario": "interaction-render",
+      "result": "A temporary virtual-input experiment failed camera dispatch and was reverted.",
+      "log": "interaction-render-isolated-input.log"
+    },
+    {
+      "scenario": "file-workflows",
+      "result": "Probe wrote global PlayerPrefs while app used isolated LocalPreferences; corrected both file workflow probes.",
+      "log": "file-workflows-profile-initial.log"
+    },
+    {
+      "scenario": "hole-placement",
+      "result": "Launch overlay blocked scene pointer; probe now dismisses startup UI before scene checks.",
+      "log": "hole-placement-startup-initial.log"
+    },
+    {
+      "scenario": "simulation",
+      "result": "Launch overlay blocked commit click; probe now dismisses startup UI before scene checks.",
+      "log": "simulation-startup-initial.log"
+    },
+    {
+      "scenario": "mac-player-archive",
+      "result": "Initial ZIP discarded extended-attribute signatures on managed DLLs; recreated with ditto --sequesterRsrc and retained the original ZIP/record.",
+      "log": "package-verification.log",
+      "initialArchive": "archive-initial-attempt/Protobot-Mac-collaboration.zip"
+    }
+  ],
+  "localRuntimeChecks": {
+    "playerPairs": {
+      "exitCode": 0,
+      "elapsedSeconds": 29.96,
+      "log": "player-pairs.log",
+      "assertions": 8,
+      "actualPlayerVersionsVerified": 4,
+      "artifacts": "/var/folders/d9/s2yrcbfs1gng7p5btk2v241h0000gn/T/protobot-collab-e766926395634684bbf5fcb528abec49",
+      "transports": [
+        "websocket",
+        "long-polling",
+        "short-polling"
+      ],
+      "retainedEvidence": "player-pairs-evidence/"
+    },
+    "renderedUI": {
+      "passed": true,
+      "elapsedSeconds": 26.78,
+      "log": "player-ui-rendered.log",
+      "result": "player-ui-rendered.json",
+      "actualPlayerVersionVerified": true,
+      "ownerAndViewerScreenshotsInspected": true
+    }
+  },
+  "localChecks": {
+    "editorScenarios": {
+      "passed": 26,
+      "failed": 0,
+      "allActualEditorVersionsVerified": true,
+      "compilationErrors": false,
+      "scenarios": [
+        "interaction-render",
+        "file-workflows",
+        "build-transfer",
+        "hole-placement",
+        "keyboard-transform",
+        "grab-hole",
+        "cursor-wrapping",
+        "escape",
+        "custom-model",
+        "custom-mount",
+        "chains",
+        "simulation",
+        "player-script-platforms",
+        "windows-configuration",
+        "collaboration-navigation",
+        "collaboration-core",
+        "collaboration-replacement",
+        "collaboration-connection",
+        "collaboration-creation",
+        "collaboration-ui",
+        "collaboration-simulation",
+        "collaboration-recovery",
+        "collaboration-multi-room",
+        "collaboration-shutdown",
+        "collaboration-proxy",
+        "collaboration-tls"
+      ],
+      "detail": "unity-checks.json"
+    },
+    "playerBuilds": [
+      {
+        "platform": "Mac",
+        "exitCode": 0,
+        "actualEditorVerified": true,
+        "log": "build-mac.log",
+        "output": "players/Protobot.app"
+      },
+      {
+        "platform": "Windows",
+        "exitCode": 0,
+        "actualEditorVerified": true,
+        "log": "build-windows.log",
+        "output": "players/Windows/Protobot.exe"
+      }
+    ],
+    "finalMacImport": {
+      "exitCode": 0,
+      "actualEditorVerified": true,
+      "compilationErrors": false,
+      "log": "final-mac-import.log"
+    },
+    "ciConfiguration": {
+      "yamlSyntaxPassed": true,
+      "versionReader": "6000.6.9f1",
+      "remoteRun": false
+    },
+    "finalEditorToolsCompile": {
+      "exitCode": 0,
+      "actualEditorVerified": true,
+      "compilationErrors": false,
+      "log": "final-editor-tools-compile.log"
+    }
+  },
+  "limitations": [
+    "Windows player built and player scripts compiled for Windows and Linux; those operating systems were not executed.",
+    "Remote GitHub Actions run, human two-person/two-machine acceptance, trusted public TLS/proxy deployment, Debian/Pi services, notarization and Gatekeeper acceptance remain untested.",
+    "Helper binaries reused from the previous RC because helper/runtime source and the catalog did not change; package manifests refreshed for current operator guides."
+  ],
+  "releaseAcceptance": "Local upgrade automation passed; external two-person and target-environment gates remain pending.",
+  "completedDate": "2026-11-18"
+}

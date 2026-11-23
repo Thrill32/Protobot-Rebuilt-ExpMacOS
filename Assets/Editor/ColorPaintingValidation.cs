@@ -13,7 +13,9 @@ using Protobot.StateSystems;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
@@ -37,6 +39,8 @@ namespace ProtobotEditorTools {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Devices() {
             if (!SessionState.GetBool(SmokeKey, false)) return;
+            InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+            InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
             if (Mouse.current == null) InputSystem.AddDevice<Mouse>();
             if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
         }
@@ -47,7 +51,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 await Check();
-                Debug.Log("Color painting validation passed: catalog families, per-slot defaults, default brush UI, default restoration after copy/regeneration/load, nested renderers/material slots, hole and box selection, exact undo/redo without repainting restored selections, no-op paint, material isolation, dirty detection, regeneration, clipboard and binary save/load.");
+                Debug.Log("Color painting validation passed: custom-picker pointer ownership, catalog families, per-slot defaults, default brush UI, default restoration after copy/regeneration/load, nested renderers/material slots, hole and box selection, exact undo/redo without repainting restored selections, no-op paint, material isolation, dirty detection, regeneration, clipboard and binary save/load.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
@@ -235,8 +239,10 @@ namespace ProtobotEditorTools {
             var panel = dropdown.transform.parent.gameObject;
             bool wasActive = panel.activeSelf;
             dropdown.SetValueWithoutNotify(0);
+            panel.SetActive(false);
             tool.EnableUI(panel);
             Require(ColorTool.UseDefaultColor && !ColorTool.CustomColor, "Opening Default brush let slider callbacks replace it with a white tint.");
+            await CheckPickerPointerOwnership(tool, dropdown, panel);
             panel.SetActive(wasActive);
             ColorToolActiveCheck.colorToolActive = true;
 
@@ -324,6 +330,16 @@ namespace ProtobotEditorTools {
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
             await NextFrame();
             ColorToolActiveCheck.colorToolActive = true;
+        }
+
+        private static async Task CheckPickerPointerOwnership(ColorTool tool, UnityEngine.UI.Dropdown dropdown, GameObject panel) {
+            GameObject.Find("Launch Canvas")?.SetActive(false);
+            var toggle = tool.GetComponent<UnityEngine.UI.Toggle>();
+            toggle.isOn = true;
+            panel.SetActive(true);
+            dropdown.value = dropdown.options.Count - 1;
+            await InteractionOverhaulValidation.Frames();
+            await InteractionOverhaulValidation.CheckColorControls(tool, dropdown, panel);
         }
 
         private static Material[] Materials(GameObject part) => MeshCombiner.GetRenderers(new[] { part })

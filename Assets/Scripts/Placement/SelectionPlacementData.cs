@@ -17,6 +17,7 @@ namespace Protobot {
         public SelectionManager ResultSelection { get; private set; }
         public int PartCount => templates.Count;
         public readonly List<GameObject> GeneratedChains = new();
+        public readonly List<GameObject> GeneratedRopes = new();
 
         private readonly GameObject templateRoot;
         private readonly List<GameObject> templates;
@@ -24,6 +25,7 @@ namespace Protobot {
         private Mesh displayMesh;
         private bool disposed;
         private ChainData[] chains = Array.Empty<ChainData>();
+        private RopeRouteData[] ropes = Array.Empty<RopeRouteData>();
 
         public static SelectionPlacementData Capture(ISelection selection, Transform preview, ObjectDuplicator duplicator) {
             if (selection?.gameObject == null || duplicator == null) return null;
@@ -48,6 +50,7 @@ namespace Protobot {
                 templates.AddRange(duplicator.CreateCopies(bodies, templateRoot.transform, true));
                 var ids = bodies.SelectMany(body => body.GetComponentsInChildren<SavedObject>()).Select(s => s.ConnectionId).ToHashSet();
                 chains = ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray();
+                ropes = RopeRoute.Capture(ids);
                 Normalize(frame);
             }
             catch { Dispose(); throw; }
@@ -61,8 +64,10 @@ namespace Protobot {
             templates = new List<GameObject>();
         }
 
-        public static SelectionPlacementData FromBuild(BuildData build, Transform preview, ObjectDuplicator duplicator, SelectionManager selectResult) {
+        public static SelectionPlacementData FromBuild(BuildData build, Transform preview, ObjectDuplicator duplicator, SelectionManager selectResult,
+            bool validateChains = false) {
             BuildTransfer.Validate(build);
+            if (validateChains) BuildTransfer.ValidateChains(build);
             var data = new SelectionPlacementData(preview, duplicator) { RepeatPlacement = false, ResultSelection = selectResult };
             try {
                 var renderers = new List<MeshRenderer>();
@@ -86,6 +91,8 @@ namespace Protobot {
                 data.HasHole = build.placementAnchor?.hole == true;
                 data.displayMesh = MeshCombiner.CombineMeshes(renderers, frame.position, frame.rotation);
                 data.chains = build.chains ?? Array.Empty<ChainData>();
+                data.ropes = build.ropes ?? Array.Empty<RopeRouteData>();
+                data.ValidateChains(explicitOnly: !validateChains);
                 data.Normalize(frame);
                 return data;
             }
@@ -101,6 +108,17 @@ namespace Protobot {
             }
         }
 
+        private void ValidateChains(bool explicitOnly = false) {
+            if (chains.Length == 0) return;
+            var parts = templates.SelectMany(template => template.GetComponentsInChildren<SavedObject>(true))
+                .GroupBy(saved => saved.ConnectionId, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            foreach (var chain in chains.Where(c => !explicitOnly || BuildTransfer.IsExplicitRoute(c))) {
+                var sprockets = chain.members.Select(id => parts[id].GetComponent<SimulationPart>()).ToList();
+                if (!ChainRouteGeometry.TryBuild(sprockets, chain.routeVersion, chain.wraps, out _, out var reason))
+                    throw new System.IO.InvalidDataException("The build contains an invalid chain: " + reason + ".");
+            }
+        }
+
         // Placement takes ownership of this mesh, just as it does for ordinary parts.
         public override Mesh GetDisplayMesh() {
             var mesh = displayMesh;
@@ -110,7 +128,7 @@ namespace Protobot {
 
         public List<GameObject> Generate(Vector3 position, Quaternion rotation) {
             if (disposed) throw new ObjectDisposedException(nameof(SelectionPlacementData));
-            var copies = duplicator.CreateCopies(templates);
+            var copies = duplicator.CreateCopies(templates, copyChains: false);
             foreach (var copy in copies) {
                 var localPosition = copy.transform.position;
                 var localRotation = copy.transform.rotation;
@@ -124,9 +142,12 @@ namespace Protobot {
             }
             GeneratedChains.Clear();
             foreach (var chain in chains.Where(chain => chain?.members != null && chain.members.All(id => !string.IsNullOrEmpty(id) && ids.ContainsKey(id)))) {
-                var loop = ChainLoop.FromData(new ChainData { members = chain.members.Select(id => ids[id]).ToArray() });
+                var loop = ChainLoop.FromData(chain.Remap(id => ids[id]));
                 if (loop != null) GeneratedChains.Add(loop.gameObject);
             }
+            GeneratedRopes.Clear();
+            foreach (var rope in ropes)
+                GeneratedRopes.Add(RopeRoute.FromData(rope.Remap(id => ids[id])).gameObject);
             Physics.SyncTransforms();
             foreach (var detector in copies.SelectMany(copy => copy.GetComponentsInChildren<HoleDetector>())) detector.RefreshOverlaps();
             return copies;

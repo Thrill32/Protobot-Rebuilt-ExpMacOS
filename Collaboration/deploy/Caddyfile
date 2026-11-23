@@ -1,0 +1,6 @@
+# Default automatic-certificate setup. Replace this with your public hostname.
+# For HTTPS on 80 or another chosen port, use Caddyfile.custom-port instead.
+# Keep Kestrel's backend port on loopback (8787 is only the default).
+cad.example.org {
+    reverse_proxy 127.0.0.1:8787
+}

@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Protobot.InputEvents;
+using Protobot.Collaboration;
 using Protobot.SelectionSystem;
 using Protobot.Tools;
 using Protobot.UI;
@@ -46,6 +48,7 @@ namespace Protobot.Builds {
         }
 
         private bool CanStart => isActiveAndEnabled && placement.isActiveAndEnabled && !busy && !buildsManager.IsFileOperationInProgress && !NativeFileDialogs.IsOpen &&
+            !CollaborationSession.HasActivePreview && (!CollaborationSession.IsShared || CollaborationSession.CanEdit) &&
             !placement.placing && !RebindAction.Rebinding && !KeyboardTransformTool.IsEditingText() && !KeyboardTransformTool.IsCapturingInput &&
             !ConnectTool.IsCapturingPoints && !Simulation.SimulationTool.CapturesSelection && !CustomModelTool.IsCapturingInput &&
             !InputEvent.IsNoclipMovementCaptured;
@@ -72,9 +75,10 @@ namespace Protobot.Builds {
         }
 
         public async Task<bool> PasteAsync() {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return false;
             if (!CanStart) return false;
             var text = GUIUtility.systemCopyBuffer;
-            if (string.IsNullOrEmpty(text) || !text.StartsWith(BuildTransfer.ClipboardPrefix, StringComparison.Ordinal)) {
+            if (!BuildTransfer.HasClipboardBuild(text)) {
                 InteractionFeedback.Notify("The clipboard does not contain Protobot parts."); return false;
             }
             busy = true;
@@ -97,6 +101,7 @@ namespace Protobot.Builds {
         }
 
         public async Task<bool> ImportBuildAsync(string path = null) {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return false;
             if (!CanStart) return false;
             busy = true;
             int request = generation;
@@ -110,7 +115,12 @@ namespace Protobot.Builds {
 
         private bool BeginPlacement(BuildData data) {
             if (placement.placing || !isActiveAndEnabled) return false;
-            var copied = SelectionPlacementData.FromBuild(data, placement.transform, duplicator, selectionManager);
+            int partCount = data.parts.Count(p => p.partId != "Error");
+            int customAssetUpperBound = data.parts.Count(p => p.IsCustomModel);
+            if (CollaborationSession.IsShared && partCount + (data.chains?.Length ?? 0) + (data.ropes?.Length ?? 0) + customAssetUpperBound > DocumentModel.MaxWriteSet) {
+                InteractionFeedback.Notify($"A shared paste or import may change at most {DocumentModel.MaxWriteSet} parts, routes and new custom assets at once."); return false;
+            }
+            var copied = SelectionPlacementData.FromBuild(data, placement.transform, duplicator, selectionManager, CollaborationSession.IsShared);
             placement.StartPlacing(copied);
             return true;
         }

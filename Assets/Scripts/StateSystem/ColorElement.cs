@@ -16,6 +16,10 @@ namespace Protobot.StateSystems {
 
         public void Load() {
             if (part == null) return;
+            if (part.TryGetComponent<CustomModel>(out var model) && model.HasImportedAppearance) {
+                model.ApplyImportedAppearance(hasPaint, colors[0].color);
+                return;
+            }
             part.hasPaint = hasPaint;
             foreach (var entry in colors)
                 if (entry.material != null) entry.material.color = entry.color;

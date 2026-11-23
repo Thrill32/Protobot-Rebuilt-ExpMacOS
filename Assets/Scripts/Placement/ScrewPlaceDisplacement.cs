@@ -17,6 +17,7 @@ namespace Protobot {
                     if (currentHoleFace.gameObject.activeInHierarchy)
                     {
                         displacement = new Displacement(currentHoleFace.position, currentHoleFace.LookRotation);
+                        CollaborationScene.Read(currentHoleFace.hole.part);
                         return true;
                     }
                 }

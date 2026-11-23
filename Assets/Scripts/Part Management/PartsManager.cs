@@ -90,10 +90,15 @@ namespace Protobot {
             return GameObject.FindObjectsOfType<SavedObject>().Select(x => x.gameObject).ToList();
         }
 
+        internal static IEnumerable<CustomModel> FindDeletedAppearance() =>
+            GameObject.FindObjectsByType<CustomModel>(FindObjectsInactive.Include, FindObjectsSortMode.None).Where(model => model.IsDeletedAppearance);
+
         /// <Summary> Destroys all loaded parts in the current scene </Summary>
         public static void DestroyLoadedObjects() {
+            foreach (var model in FindDeletedAppearance()) model.DiscardDeletedAppearance();
             foreach (var obj in FindLoadedObjects()) {
                 obj.SetActive(false);
+                if (obj.TryGetComponent<CustomModel>(out var custom)) custom.ReleaseGeometry();
                 GameObject.Destroy(obj);
             }
         }

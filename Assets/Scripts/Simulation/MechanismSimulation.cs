@@ -6,7 +6,7 @@ using DG.Tweening;
 using UnityEngine;
 
 namespace Protobot.Simulation {
-    /// <summary>Rigid fastener assemblies coupled by shaft, gear, rack and chain motion.</summary>
+    /// <summary>Rigid fastener assemblies coupled by shaft, gear, rack, chain and winch motion.</summary>
     public sealed class MechanismSimulation {
         public sealed class Track {
             public GameObject body;
@@ -14,6 +14,7 @@ namespace Protobot.Simulation {
             public Pose start;
             public double ratio;
             public bool rotates, linear, showInTimeline = true;
+            internal bool winchLoad;
             public string Label => PartLabel(body);
             public double Period => linear ? double.PositiveInfinity : 4 / Math.Abs(ratio);
             public double LinearSpeed => 90 * ratio;
@@ -37,12 +38,22 @@ namespace Protobot.Simulation {
         }
         public readonly List<Track> tracks = new();
         private readonly List<ChainLoop> chains = new();
+        private WinchMotion winch;
         public double Time { get; private set; }
         public double LoopDuration { get; private set; } = 4;
         public bool HasFiniteLoop { get; private set; } = true;
         public bool HasConflict { get; private set; }
-        public bool IsValid => tracks.All(t => t.body != null && t.body.activeInHierarchy && !t.body.IsDeleted());
-        public bool HasMotion => tracks.Any(t => t.rotates);
+        public bool IsValid => tracks.All(t => Live(t.body)) &&
+            (winch == null || winch.route != null && winch.route.isActiveAndEnabled && (!HasWinchPawl || Live(winch.pawl)));
+        public bool HasMotion => WinchStatus == null && tracks.Any(t => t.rotates);
+        public bool HasWinch => winch != null;
+        public bool HasWinchPawl => winch?.HasPawl == true;
+        public bool PawlEngaged => winch?.PawlEngaged == true;
+        public double TimelineStart => winch?.MinTime ?? 0;
+        public double TimelineEnd => winch?.MaxTime ?? LoopDuration;
+        public double RopeTravel => Time * (winch?.PayoutSpeed ?? 0);
+        public Vector3 WinchTravelAxis => winch?.axis ?? Vector3.zero;
+        public string WinchStatus { get; private set; }
         public GameObject Driver { get; private set; }
         public bool DriverRotates { get; private set; }
         public Vector3 DriverAxis { get; private set; }
@@ -99,11 +110,9 @@ namespace Protobot.Simulation {
                 else continue;
                 ports.Add(p);
             }
-            foreach (var shaft in ports.Where(p => p.shaft != null)) foreach (var hub in ports.Where(p => p.gear != null && !p.Linear)) {
-                var delta = hub.center - shaft.center;
-                if (Mathf.Abs(Vector3.Dot(shaft.axis, hub.axis)) > .995f && Vector3.ProjectOnPlane(delta, shaft.axis).magnitude < .025f &&
-                    Mathf.Abs(Vector3.Dot(delta, shaft.axis)) <= shaft.shaft.ShaftLength / 2 + .025f) Union(shaft.body, hub.body);
-            }
+            var shafts = ports.Where(p => p.shaft != null).ToArray();
+            foreach (var shaft in shafts) foreach (var hub in ports.Where(p => p.gear != null && !p.Linear))
+                if (ShaftThrough(shaft, hub.center, hub.axis)) Union(shaft.body, hub.body);
             var nodes = bodies.GroupBy(Root).ToDictionary(g => g.Key, g => {
                 var node = new Node(); node.bodies.AddRange(g); return node;
             });
@@ -136,12 +145,13 @@ namespace Protobot.Simulation {
             result.GlobalAngleReference = reference == Vector3.up ? "+Y" : "+Z";
             foreach (var chain in UnityEngine.Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None)) {
                 var members = chain.ResolveParts();
-                if (!ChainLoop.Compatible(members, out _)) continue;
+                if (!chain.TryContour(out var contour, out _)) continue;
+                members = contour.parts.ToList();
                 var chainPorts = members.Select(g => ports.FirstOrDefault(p => p.body == g.gameObject)).ToArray();
                 if (chainPorts.Any(p => p == null)) continue;
                 for (int i = 1; i < chainPorts.Length; i++) {
                     var a = chainPorts[0]; var b = chainPorts[i];
-                    Link(a, b, (double)a.gear.teeth / b.gear.teeth * Math.Sign(Vector3.Dot(a.axis, b.axis)));
+                    Link(a, b, (double)a.gear.teeth / b.gear.teeth * contour.RotationSign(i) / contour.RotationSign(0));
                 }
                 result.chains.Add(chain);
             }
@@ -171,6 +181,15 @@ namespace Protobot.Simulation {
                     start = new Pose(body.transform.position, body.transform.rotation), ratio = node.ratio, rotates = true,
                     showInTimeline = body.GetComponent<Screw>() == null && saved.nameId != "NUT" && saved.nameId != "WSHR" });
             }
+            var drivenRopes = UnityEngine.Object.FindObjectsByType<RopeRoute>(FindObjectsSortMode.None)
+                .Select(route => (route, data: route.Data))
+                .Select(entry => (entry.route, entry.data, drum: ports.FirstOrDefault(port => port.node.assigned &&
+                    port.body.GetComponent<SavedObject>().ConnectionId == entry.data.start.part))).Where(entry => entry.drum != null).ToArray();
+            if (drivenRopes.Length == 1) {
+                var (route, data, drum) = drivenRopes[0];
+                result.AddWinch(route, data, drum, body => parent.ContainsKey(body) ? nodes[Root(body)] : null, ports, shafts);
+            }
+            else if (drivenRopes.Length > 1) result.WinchStatus = "Winch preview needs one driven rope route.";
             result.HasFiniteLoop = !result.tracks.Any(t => t.linear);
             if (result.HasFiniteLoop) {
                 result.HasFiniteLoop = false;
@@ -181,12 +200,64 @@ namespace Protobot.Simulation {
             }
             return result;
         }
+
+        private void AddWinch(RopeRoute route, Builds.RopeRouteData data, Port drum, Func<GameObject, Node> nodeOf,
+            List<Port> ports, Port[] shafts) {
+            WinchStatus = "Winch preview needs one fixed redirect pulley.";
+            if (data.pulleys.Length != 1) return;
+            var parts = RopeRoute.Resolve(data);
+            WinchStatus = "Attach the winch rope to a live pulley and load.";
+            if (parts.Any(part => part == null || nodeOf(part.gameObject) == null) || !parts[1].TryGetComponent<RopeGroove>(out var pulley)) return;
+            WinchStatus = "Mount the winch drum on the driving shaft.";
+            if (drum.node.linear || !shafts.Any(shaft => shaft.node == drum.node && ShaftThrough(shaft, drum.center, drum.axis, .001f)) ||
+                Mathf.Abs(Vector3.Dot(drum.axis, drum.node.axis)) < .99999f ||
+                Vector3.ProjectOnPlane(drum.center - drum.node.center, drum.axis).magnitude > .001f) return;
+            var load = nodeOf(parts[^1].gameObject);
+            var pulleyNode = nodeOf(pulley.gameObject);
+            WinchStatus = "Keep the redirect axle fixed and the load free to travel.";
+            if (load.assigned || load == pulleyNode || pulleyNode.assigned ||
+                shafts.Any(shaft => ShaftThrough(shaft, pulley.Center, pulley.Axis) && (shaft.node.assigned || shaft.node == load))) return;
+
+            var ratchets = ports.Where(port => port.node == drum.node && port.body.GetComponent<SavedObject>().id == WinchMotion.RatchetId &&
+                Vector3.ProjectOnPlane(port.center - drum.center, drum.axis).magnitude < .025f).ToArray();
+            var pawl = ports.FirstOrDefault(port => !port.node.assigned && port.node != load && port.node != pulleyNode &&
+                port.body.GetComponent<SavedObject>().id == WinchMotion.PawlId &&
+                shafts.Any(shaft => shaft.node == port.node && ShaftThrough(shaft, port.center, port.axis)) &&
+                ratchets.Any(ratchet => WinchMotion.ReachesRatchet(port.gear, ratchet.gear)));
+            winch = WinchMotion.Create(route, data, parts, drum.node.ratio * Math.Sign(Vector3.Dot(drum.axis, drum.node.axis)),
+                pawl?.body, out var reason);
+            WinchStatus = reason;
+            if (winch == null) return;
+            tracks.Add(new Track { body = pulley.gameObject, center = winch.pulleyCenter, axis = winch.pulleyAxis,
+                start = new Pose(pulley.transform.position, pulley.transform.rotation), ratio = winch.pulleyRatio, rotates = true });
+            foreach (var body in load.bodies)
+                tracks.Add(new Track { body = body, axis = winch.axis, start = new Pose(body.transform.position, body.transform.rotation),
+                    ratio = winch.inchesPerDegree, linear = true, winchLoad = true, rotates = true, showInTimeline = body == parts[^1].gameObject });
+        }
+
+        private static bool ShaftThrough(Port shaft, Vector3 center, Vector3 axis, float radialTolerance = .025f) {
+            var delta = center - shaft.center;
+            return Mathf.Abs(Vector3.Dot(shaft.axis, axis)) > .995f && Vector3.ProjectOnPlane(delta, shaft.axis).magnitude < radialTolerance &&
+                Mathf.Abs(Vector3.Dot(delta, shaft.axis)) <= shaft.shaft.ShaftLength / 2 + .025f;
+        }
+
+        public void SetPawlEngaged(bool engaged) {
+            if (!HasWinchPawl) return;
+            winch.PawlEngaged = engaged;
+            Evaluate(Time);
+        }
+
+        public bool Advance(double seconds) {
+            bool reverse = winch?.PayoutSpeed > 0;
+            Evaluate(Time + (reverse ? -seconds : seconds));
+            return winch == null || (reverse ? Time > winch.MinTime : Time < winch.MaxTime);
+        }
         private static bool Live(GameObject body) => body != null && body.activeInHierarchy && !body.IsDeleted() && body.layer != Placement.PLACEMENT_LAYER;
         // Relative values retain full turns: 360 degrees of a 12T driver is
         // still 120 degrees of motion at its 36T output. Global angles choose
         // the nearest equivalent phase to preserve the current gear cycle.
         public bool TrySetDriverRotation(string text, bool global) {
-            if (!DriverRotates || !double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double degrees) ||
+            if (WinchStatus != null || !DriverRotates || !double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double degrees) ||
                 double.IsNaN(degrees) || double.IsInfinity(degrees)) return false;
             double seconds = global ? Time + (PositiveTurn(PositiveTurn(degrees) - GlobalDriverDegrees + 180) - 180) / 90 : degrees / 90;
             // Avoid finite input overflowing a downstream rack's float position.
@@ -197,16 +268,23 @@ namespace Protobot.Simulation {
         }
         private static double PositiveTurn(double degrees) => (degrees % 360 + 360) % 360;
         public void Evaluate(double seconds) {
+            if (WinchStatus != null) return;
+            if (winch != null) seconds = Math.Max(winch.MinTime, Math.Min(winch.MaxTime, seconds));
             Time = seconds;
             foreach (var track in tracks.Where(t => t.body != null && t.rotates).OrderBy(t => Depth(t.body.transform))) {
-                if (track.linear) { track.body.transform.SetPositionAndRotation(track.start.position + track.axis * (float)(seconds * 90 * track.ratio), track.start.rotation); continue; }
+                if (track.linear) {
+                    double distance = track.winchLoad ? winch.LoadDisplacement(RopeTravel) : seconds * 90 * track.ratio;
+                    track.body.transform.SetPositionAndRotation(track.start.position + track.axis * (float)distance, track.start.rotation);
+                    continue;
+                }
                 var rotation = Quaternion.AngleAxis((float)((seconds * 90 * track.ratio) % 360), track.axis);
                 track.body.transform.SetPositionAndRotation(track.center + rotation * (track.start.position - track.center), rotation * track.start.rotation);
             }
             foreach (var chain in chains.Where(c => c != null)) {
-                var first = chain.ResolveParts().FirstOrDefault();
+                if (!chain.TryContour(out var contour, out _)) continue;
+                var first = contour.parts[0];
                 var track = first != null ? tracks.FirstOrDefault(t => t.body == first.gameObject) : null;
-                if (track != null) chain.SetTravel((float)(seconds * 90 * track.ratio / 360) * first.teeth * first.chainPitch * Math.Sign(Vector3.Dot(track.axis, first.Axis)));
+                if (track != null) chain.SetTravel((float)(seconds * 90 * track.ratio / 360) * first.teeth * first.chainPitch * Math.Sign(Vector3.Dot(track.axis, first.Axis)) * contour.RotationSign(0));
             }
         }
         private static int Depth(Transform transform) { int depth = 0; while (transform.parent != null) { depth++; transform = transform.parent; } return depth; }

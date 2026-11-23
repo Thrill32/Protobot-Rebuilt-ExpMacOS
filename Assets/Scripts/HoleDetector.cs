@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System;
-using System.Collections;
 using UnityEngine;
 using Protobot.StateSystems;
 
@@ -11,7 +10,7 @@ namespace Protobot {
         [SerializeField] HoleCollider.HoleType targetHoleType;
 
         private void Update() {
-            if (Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             var allHoles = new HashSet<HoleCollider>(holes);
             foreach (var holeCollider in allHoles) {
                 if (!Usable(holeCollider))
@@ -27,22 +26,21 @@ namespace Protobot {
         public Action OnRemoveHole; // Runs whenever any hole gets removed from this hole detector
         public Action OnRemoveTargetHole; // Runs when a target hole is added to this hole detector
         
-        private static bool Usable(HoleCollider hole) => hole != null && hole.isActiveAndEnabled &&
+        private int targetNotificationFrame = -1;
+        public bool CanDetect => this != null && isActiveAndEnabled && gameObject.activeInHierarchy && !gameObject.IsDeleted();
+
+        private static bool Usable(HoleCollider hole) => hole != null && hole.isActiveAndEnabled && hole.gameObject.activeInHierarchy &&
             hole.holeData?.part != null && !hole.gameObject.IsDeleted();
 
         private void OnDisable() {
-            StopAllCoroutines();
+            targetNotificationFrame = -1;
             RemoveAll();
         }
         
-        /// <summary>
-        /// Makes sure to wait until all holes have been added before deciding to add a target hole
-        /// Due to the randomness of OnTriggerStay
-        /// </summary>
-        /// <returns></returns>
-        IEnumerator WaitAddTargetHole() {
-            yield return new WaitForEndOfFrame();
-            if (TargetHoleFound) OnAddTargetHole?.Invoke();
+        private void LateUpdate() {
+            if (targetNotificationFrame < 0 || Time.frameCount <= targetNotificationFrame) return;
+            targetNotificationFrame = -1;
+            if (CanDetect && TargetHoleFound) OnAddTargetHole?.Invoke();
         }
 
         public List<GameObject> GetObjects() {
@@ -68,8 +66,11 @@ namespace Protobot {
 
         /// <summary>Re-query stationary geometry after regeneration instead of
         /// waiting for trigger callbacks from a moving/woken rigidbody.</summary>
-        public void RefreshOverlaps() {
-            if (!isActiveAndEnabled || Protobot.Simulation.SimulationTool.HasPreview) return;
+        public void RefreshOverlaps() => RefreshOverlaps(null, syncTransforms: true);
+
+        private void RefreshOverlaps(HashSet<GameObject> preferredParts, bool syncTransforms) {
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (syncTransforms) Physics.SyncTransforms();
             var capsule = GetComponent<CapsuleCollider>();
             var scale = transform.lossyScale;
             float radius = capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
@@ -80,9 +81,26 @@ namespace Protobot {
                 QueryTriggerInteraction.Collide).Select(c => c.GetComponent<HoleCollider>())
                 .Where(hole => hole != null).ToHashSet();
             foreach (var hole in holes.ToArray())
-                if (!overlaps.Contains(hole) || !Usable(hole)) RemoveHole(hole);
+                if (!overlaps.Contains(hole) || !Usable(hole) || !Aligned(hole)) RemoveHole(hole);
+            if (preferredParts != null)
+                foreach (var hole in overlaps.Where(hole => preferredParts.Contains(hole.holeData?.part))) DetectHole(hole);
             foreach (var hole in overlaps) DetectHole(hole);
             GetComponentInParent<ConnectingPart>()?.FormConnection();
+        }
+
+        internal static void RefreshMirroredParts(GameObject[] parts, HashSet<HoleDetector> affected) {
+            Physics.SyncTransforms();
+            var live = parts.Where(part => part != null && part.activeInHierarchy && !part.IsDeleted()).ToHashSet();
+            var own = live.SelectMany(part => part.GetComponentsInChildren<HoleDetector>()).ToHashSet();
+            foreach (var part in live) CollectNearbyDetectors(part, affected);
+            // Keep internal attachments that still overlap. Release old
+            // external occupancy before giving the batch's bores first claim.
+            foreach (var detector in own)
+                foreach (var hole in detector.holes.ToArray())
+                    if (hole == null || !live.Contains(hole.holeData?.part)) detector.RemoveHole(hole);
+            foreach (var detector in own) detector.RefreshOverlaps(live, syncTransforms: false);
+            foreach (var detector in affected.Except(own))
+                if (detector != null) detector.RefreshOverlaps(null, syncTransforms: false);
         }
 
         public static HashSet<HoleDetector> GetAffectedDetectors(params GameObject[] parts) {
@@ -99,14 +117,18 @@ namespace Protobot {
             // Existence and transforms have just changed; queries must see both.
             Physics.SyncTransforms();
             affected.UnionWith(part.GetComponentsInChildren<HoleDetector>());
+            CollectNearbyDetectors(part, affected);
+            foreach (var detector in affected)
+                if (detector != null && detector.isActiveAndEnabled) detector.RefreshOverlaps();
+        }
+
+        private static void CollectNearbyDetectors(GameObject part, HashSet<HoleDetector> affected) {
             foreach (var hole in part.GetComponentsInChildren<HoleCollider>()) {
                 var bounds = hole.GetComponent<Collider>().bounds;
                 foreach (var collider in Physics.OverlapBox(bounds.center, bounds.extents, Quaternion.identity,
                     HoleCollider.HOLE_COLLISIONS_MASK, QueryTriggerInteraction.Collide))
                     if (collider.TryGetComponent<HoleDetector>(out var detector)) affected.Add(detector);
             }
-            foreach (var detector in affected)
-                if (detector != null && detector.isActiveAndEnabled) detector.RefreshOverlaps();
         }
 
         //Returns true if a hole is intersecting any other hole current detected by holeDetector
@@ -146,20 +168,22 @@ namespace Protobot {
         }
 
         private void OnTriggerStay(Collider other) {
-            if (Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             if (other.TryGetComponent(out HoleCollider hole))
                 DetectHole(hole);
         }
 
         private void DetectHole(HoleCollider hole) {
-            if (Usable(hole) && hole.holeData.part != transform.parent.gameObject &&
-                Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f &&
+            if (Usable(hole) && Aligned(hole) &&
                 (hole.IsOccupiedBy(this) || !hole.IsOccupied) && !IsHoleIntersecting(hole))
                 AddHole(hole);
         }
 
+        private bool Aligned(HoleCollider hole) => hole.holeData.part != transform.parent.gameObject &&
+            Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f;
+
         private void OnTriggerExit(Collider other) {
-            if (Protobot.Simulation.SimulationTool.HasPreview) return;
+            if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             if (other.TryGetComponent(out HoleCollider hole))
                 if (hole.IsOccupiedBy(this))
                     RemoveHole(hole);
@@ -179,13 +203,19 @@ namespace Protobot {
         public bool IsTargetHole(HoleCollider hole) => hole.holeType == targetHoleType;
 
         public void AddHole(HoleCollider hole) {
-            if (!isActiveAndEnabled || !Usable(hole) || holes.Contains(hole) || !hole.TryAddDetector(this)) return;
+            if (!CanDetect || !Usable(hole) || holes.Contains(hole)) return;
+            // Establish both sides before OnSetDetector can disable either end.
             holes.Add(hole);
-
-            if (IsTargetHole(hole)) {
-                StartCoroutine(WaitAddTargetHole());
+            if (!hole.TryAddDetector(this)) {
+                holes.Remove(hole);
+                return;
             }
-            
+            if (!CanDetect || !Usable(hole) || !holes.Contains(hole)) {
+                RemoveHole(hole);
+                return;
+            }
+            if (IsTargetHole(hole) && targetNotificationFrame < 0)
+                targetNotificationFrame = Time.frameCount;
             OnAddHole?.Invoke();
         }
 

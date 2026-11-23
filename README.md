@@ -2,9 +2,11 @@
 
 This is a highly-experimental build meant to be used by my school's Robotics Club. 
 
-This is a fork of Protobot Rebuilt that has been updated to Unity 6000.6.6f1 and had URP enabled to replace BiRP. It has a native Apple silicon port, a new connect feature, improved grid snapping, and an added pseudo-noclip camera manipulation functionality. 
+This is a fork of Protobot Rebuilt that has been updated to Unity 6000.6.9f1 and had URP enabled to replace BiRP. It has a native Apple silicon port, a new connect feature, improved grid snapping, and an added pseudo-noclip camera manipulation functionality.
 
 Shift + WASDQE is the default noclip controls. The mouse controls look direction. 
+
+Open **Collaboration** beside the filename to join a shared build or host one locally. See the [collaboration setup and hosting guide](Collaboration/README.md).
 
 Blender-esque grab/rotate controls. G/R to activate on selected and XYZ keybinds for directions.
 
@@ -26,10 +28,11 @@ https://github.com/user-attachments/assets/7b37e938-61f8-463c-8c47-1981fb4ccd90
 
 Pull requests are welcome and very much appreciated. You can also contribute by submitting issues for problems you find in the software.
 
-For a current architecture and workflow overview, see [CONTEXT_MAP.md](CONTEXT_MAP.md).
+For a current architecture and workflow overview, see [CONTEXT_MAP.md](CONTEXT_MAP.md). Targeted checks and build procedures are in [VALIDATION.md](VALIDATION.md).
 
 #### Notes
-- This branch uses Unity **6000.6.6f1**. Please use this version for changes to the project; [`ProjectVersion.txt`](ProjectSettings/ProjectVersion.txt) is authoritative.
+- This branch uses Unity **6000.6.9f1**. Please use this version for changes to the project; [`ProjectVersion.txt`](ProjectSettings/ProjectVersion.txt) is authoritative.
+- The Unity CI build reads that file directly and keeps Library caches separate across editor and package versions.
 - Documentation for the code itself is limited and there may be unused sections of code, this should be expected.
 Used code sections are well commented and organized modularly to be easily understood and used.
  

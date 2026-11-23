@@ -28,12 +28,15 @@ namespace Protobot {
             return new Pose(targetFace.position + rotation * (pivot.position - sourceFace.position), rotation * pivot.rotation);
         }
 
-        public static MoveTarget ForScrew(Screw screw, Func<Transform, bool> ignore = null) => new(
-            new Pose(screw.GetLowestPoint(ignore), screw.transform.GetAlignmentRotation(true)), screw: screw);
+        public static MoveTarget ForScrew(Screw screw, Func<Transform, bool> ignore = null) {
+            CollaborationScene.Read(screw.gameObject);
+            return new MoveTarget(new Pose(screw.GetLowestPoint(ignore), screw.transform.GetAlignmentRotation(true)), screw: screw);
+        }
 
         public static MoveTarget ForHole(HoleData hole, Vector3 normal, bool opposite,
             Func<Transform, bool> ignore = null, Func<Transform, bool> stackMember = null) {
             var last = hole;
+            CollaborationScene.Read(hole.part);
             var direction = -normal.normalized;
             // Follow the bore, not the camera ray: an oblique view can miss the
             // later holes even though their mating faces touch along one axis.
@@ -59,6 +62,7 @@ namespace Protobot {
                     // that happen to have a hole on the same infinite line.
                     if (center - candidate.depth * .5f > end + tolerance) break;
                     last = candidate;
+                    CollaborationScene.Read(candidate.part);
                     end = far;
                 }
             }

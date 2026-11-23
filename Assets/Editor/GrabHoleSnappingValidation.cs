@@ -51,7 +51,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 Check();
-                Debug.Log("Grab-to-Move smoke passed: direct tool 2 handoff, rollback before preview, body/multi/hole selection scope, rebound input priority, duplicate cleanup, shared preview geometry, single-click Move rotation/commit and fastener grouping.");
+                Debug.Log("Grab-to-Move smoke passed: concrete hole enforcement, anchored additive scope, toolbar preservation, rollback/source loss, rebound input priority, duplicate cleanup, shared preview geometry, single-click Move rotation/commit and fastener grouping.");
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) {
@@ -94,11 +94,22 @@ namespace ProtobotEditorTools {
                 CheckSharedGeometry(tool);
                 var multi = new MultiSelection(null, new List<GameObject> { first, second }) { individual = true };
                 temporary.Add(multi.gameObject);
+                var holeSelection = new HoleSelection { gameObject = marker, holeData = source.holeData,
+                    holeFace = face, faceDirection = Vector3.back, individual = true };
+                var anchoredMulti = new MultiSelection(null, new List<GameObject> { first, second }) {
+                    individual = true,
+                    placementHole = SelectedHoleAnchor.From(holeSelection)
+                };
+                temporary.Add(anchoredMulti.gameObject);
                 var selections = new ISelection[] {
                     new ObjectSelection { gameObject = first, individual = true },
                     multi,
-                    new HoleSelection { gameObject = marker, holeData = source.holeData, holeFace = face, faceDirection = Vector3.back, individual = true }
+                    holeSelection,
+                    anchoredMulti
                 };
+                var transformToggle = GameObject.Find("Transform Tool Toggle").GetComponent<ToolToggle>();
+                transformToggle.Toggle(true);
+                Require(transformToggle.toggled && !toggle.toggled, "The transform tool was not the pre-handoff toolbar state.");
                 foreach (var selected in selections) {
                     manager.SetCurrent(selected, true, true);
                     ResetCapture();
@@ -116,14 +127,26 @@ namespace ProtobotEditorTools {
                     if (selected is HoleSelection movingHole) movingHole.holeFace.Refresh();
                     Require(Vector3.Distance(first.transform.position, start.position) > .1f, "The grab did not move before handoff.");
                     Invoke(tool, "MoveFromGrab");
-                    Require(!Get<bool>(tool, "active") && placement.placing && toggle.toggled, "G/H did not activate the existing Move implementation.");
+                    bool hasHole = MoveToolManager.HasConcreteSourceHole(selected);
+                    Require(!Get<bool>(tool, "active") && placement.placing == hasHole,
+                        "G/H did not enforce a concrete selected source hole.");
+                    Require(transformToggle.toggled && !toggle.toggled,
+                        "G/H changed the previously active toolbar tool.");
                     Require(manager.current == selected, "G/H changed the current selection.");
                     Near(first.transform.position, start.position, "The handoff kept an uncommitted grab offset.");
                     Near(first.transform.rotation, start.rotation, "The handoff kept an uncommitted grab rotation.");
                     Near(second.transform.position, secondStart, "The handoff moved another selection member.");
+                    if (!hasHole) {
+                        Require(StateSystem.curIndex == stateIndex && first.GetComponent<Renderer>().enabled,
+                            "Denied body-only G/H left preview or undo state behind.");
+                        continue;
+                    }
+                    ResetCapture();
+                    Require(!transformToggle.active, "The previous tool's handles stayed active during borrowed Move.");
                     var data = Get<PlacementData>(placement, "currentPlacementData") as GameObjectPlacementData;
-                    Require(data != null && data.GetGameObject() == selected.gameObject && data.individual == selected.individual,
-                        "G/H did not pass the original selection and grouping scope to Move.");
+                    Require(data != null && data.GetGameObject() == selected.gameObject && data.individual == selected.individual &&
+                        data.sourceHole?.Hole == source.holeData,
+                        "G/H did not pass the concrete source hole, selection and grouping scope to Move.");
                     var preview = Get<MeshFilter>(placement, "meshFilter").sharedMesh;
                     Require(preview.vertexCount == expectedVertices, "G/H generated different geometry from tool 2.");
                     Near(preview.bounds.center, expectedBounds.center, "G/H preview center differs from tool 2.");
@@ -132,18 +155,38 @@ namespace ProtobotEditorTools {
                     Require(placement.placing, "The shortcut also committed Move on its starting frame.");
                     Require(StateSystem.curIndex == stateIndex, "Handing off added an undo operation.");
                     placement.CancelPlacement();
-                    Require(StateSystem.curIndex == stateIndex && first.GetComponent<Renderer>().enabled,
-                        "Move cancellation left an undo operation or a hidden source renderer.");
+                    Invoke(tool, "MaintainMoveHandoff"); ResetCapture();
+                    Require(StateSystem.curIndex == stateIndex && first.GetComponent<Renderer>().enabled &&
+                        transformToggle.toggled && transformToggle.active && !toggle.toggled,
+                        "Move cancellation left undo/renderer/tool state behind.");
                 }
-                manager.SetCurrent(new ObjectSelection { gameObject = first, individual = true }, true, true);
+                manager.SetCurrent(holeSelection, true, true);
+                Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
+                Require(placement.placing, "Hole G/H did not start for source-loss validation.");
+                source.gameObject.SetActive(false);
+                Invoke(tool, "MaintainMoveHandoff");
+                Require(!placement.placing && transformToggle.toggled && !toggle.toggled,
+                    "Losing the selected source hole did not cancel and restore the prior toolbar state.");
+                source.gameObject.SetActive(true); face.Set(source.holeData, Vector3.back);
+
+                manager.SetCurrent(holeSelection, true, true);
+                Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
+                Invoke(placement, "Place");
+                placement.CancelPlacement();
+                Require(transformToggle.toggled && !toggle.toggled,
+                    "Confirming G/H left the Move toolbar tool active.");
+
+                manager.SetCurrent(holeSelection, true, true);
                 Invoke(tool, "BeginSelection", false);
                 CheckPriority(tool);
                 // Duplicate's ordinary rollback must also run during the handoff.
+                manager.SetCurrent(new ObjectSelection { gameObject = first, individual = true }, true, true);
                 Invoke(tool, "BeginSelection", false);
                 var copies = Object.FindFirstObjectByType<ObjectDuplicator>().CreateCopies(new[] { first });
                 Get<List<GameObject>>(tool, "duplicates").AddRange(copies);
                 Invoke(tool, "MoveFromGrab");
-                Require(copies.All(copy => copy == null || !copy.activeInHierarchy), "G/H kept temporary grab duplicates.");
+                Require(copies.All(copy => copy == null || !copy.activeInHierarchy) && !placement.placing,
+                    "Denied body-only G/H kept temporary grab duplicates or opened free Move.");
                 placement.CancelPlacement();
                 FastenerGroupingValidation.Check(tool, manager);
             }

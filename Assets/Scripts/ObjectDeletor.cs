@@ -34,6 +34,12 @@ namespace Protobot {
 
             Pivot pivot = obj.GetComponent<Pivot>();
 
+            if (CollaborationSession.IsShared) {
+                var selected = new Protobot.SelectionSystem.ObjectSelection { gameObject = obj, individual = refObj.individual };
+                CollaborationSession.Delete(Protobot.Builds.BuildTransfer.SelectedBodies(selected));
+                return;
+            }
+
             if (pivot != null && pivot.tag != "Group")
                 ObjectElement.SetExistence(pivot, true, false);
             else

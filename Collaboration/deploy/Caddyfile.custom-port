@@ -1,0 +1,15 @@
+# Manual-certificate HTTPS on any selected public port (including 80).
+# Set these values in Caddy's service environment; see README.md.
+{
+	admin off
+	auto_https off
+	# Avoid interpreting port 80 as a plaintext site in the Caddyfile adapter.
+	# No HTTP listener is created: automation and redirects are disabled.
+	http_port 0
+	https_port {$PROTOBOT_HTTPS_PORT:443}
+}
+
+https://{$PROTOBOT_HOST:cad.example.org}:{$PROTOBOT_HTTPS_PORT:443} {
+	tls "{$PROTOBOT_TLS_CERT:/etc/protobot-collab/tls/fullchain.pem}" "{$PROTOBOT_TLS_KEY:/etc/protobot-collab/tls/privkey.pem}"
+	reverse_proxy {$PROTOBOT_UPSTREAM:127.0.0.1:8787}
+}

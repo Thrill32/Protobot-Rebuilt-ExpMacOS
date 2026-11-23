@@ -103,7 +103,15 @@ namespace Protobot.InputEvents {
             const float positionTolerance = 2f;
             bool atDestination = (position - request.to).sqrMagnitude <= positionTolerance * positionTolerance;
             bool atOrigin = (position - request.from).sqrMagnitude <= positionTolerance * positionTolerance;
-            if (atOrigin) return true;
+            if (atOrigin) {
+                // A fast second traversal can reach the same edge during the
+                // native-echo guard. A real event has continuous position/delta;
+                // an old-origin echo has zero/stale delta or the teleport jump.
+                var continuous = position - mouse.position.ReadValue();
+                if (hasDelta && continuous.sqrMagnitude > 4f && (delta - continuous).sqrMagnitude < 1f)
+                    return false;
+                return true;
+            }
             if (atDestination && (!hasDelta || delta.sqrMagnitude < 1f || RemoveJump(delta, request.Jump, out motion)))
                 return true;
             if (hasDelta && RemoveJump(delta, request.Jump, out motion)) return true;

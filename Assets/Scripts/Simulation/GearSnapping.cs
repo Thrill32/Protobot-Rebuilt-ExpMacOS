@@ -120,6 +120,7 @@ namespace Protobot.Simulation {
                 anchor = new Pose(center, Quaternion.LookRotation(candidate.Axis, candidate.Tooth));
             }
             if (candidate == null) return false;
+            CollaborationScene.Read(candidate.gameObject);
             return true;
         }
 
@@ -236,6 +237,7 @@ namespace Protobot.Simulation {
                 float distance = Mathf.Abs(Vector3.Dot(offset, axis));
                 if (distance >= nearest) continue;
                 x = Vector3.ProjectOnPlane(hole.transform.right, axis).normalized;
+                CollaborationScene.Read(owner);
                 nearest = distance;
             }
             y = Vector3.Cross(axis, x).normalized;

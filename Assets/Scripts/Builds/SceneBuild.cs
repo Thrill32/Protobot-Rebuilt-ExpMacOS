@@ -27,15 +27,18 @@ namespace Protobot.Builds {
         /// <summary>
         /// Generates all the objects into the scene using given BuildData
         /// </summary>
-        public static void GenerateBuild(BuildData buildData) {
-            // Validate embedded geometry before replacing any current scene objects.
-            foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
-                if (part.IsCustomModel) CustomModel.Validate(part.customModel);
+        public static void GenerateBuild(BuildData buildData, bool validateRoutes = true) {
+            ValidateCustomModels(buildData);
+            BuildTransfer.ValidateRopes(buildData);
+            if (validateRoutes) BuildTransfer.ValidateExplicitChainGeometry(buildData);
+            RequireBuildAppearanceCapacity(buildData);
+            CollaborationSession.LeaveForFileOpen();
             CustomModelTool.CancelActive();
             BuildTransferTool.CancelPending();
             if (Placement.IsCopyingSelection) UnityEngine.Object.FindFirstObjectByType<Placement>()?.StopPlacing();
             Protobot.Simulation.SimulationTool.ExitForEdit();
             Protobot.Simulation.ChainLoop.ClearAll();
+            Protobot.Simulation.RopeRoute.ClearAll();
             Debug.Log("Generating a build with " +
                       (buildData.parts == null ? 0 : buildData.parts.Length) + " parts");
 
@@ -77,6 +80,7 @@ namespace Protobot.Builds {
             }
             
             foreach (var chain in buildData.chains ?? Array.Empty<ChainData>()) Protobot.Simulation.ChainLoop.FromData(chain);
+            foreach (var rope in buildData.ropes ?? Array.Empty<RopeRouteData>()) Protobot.Simulation.RopeRoute.FromData(rope);
             OnGenerateBuild?.Invoke(buildData);
 
             if (AppPlatform.OnMac)
@@ -92,6 +96,22 @@ namespace Protobot.Builds {
             }
         }
 
+        internal static void ValidateCustomModels(BuildData buildData) {
+            foreach (var part in buildData.parts ?? Array.Empty<ObjectData>())
+                if (part.IsCustomModel) CustomModel.Validate(part.customModel);
+        }
+
+        internal static long AppearanceCost(BuildData buildData) => (buildData.parts ?? Array.Empty<ObjectData>())
+            .Where(part => part.IsCustomModel).Sum(part => CustomModel.AppearanceCost(part.customModel));
+
+        internal static void RequireBuildAppearanceCapacity(BuildData buildData) {
+            long incoming = AppearanceCost(buildData);
+            if (incoming == 0) return;
+            long released = PartsManager.FindLoadedObjects().Sum(body => body.GetComponent<CustomModel>()?.CurrentAppearanceCost ?? 0) +
+                PartsManager.FindDeletedAppearance().Sum(model => model.CurrentAppearanceCost);
+            CustomModel.RequireAppearanceCapacity(incoming - released);
+        }
+
         internal static GameObject GenerateObject(ObjectData objectData, BuildData buildData)
         {
             GameObject generatedObject = objectData.IsCustomModel
@@ -99,10 +119,11 @@ namespace Protobot.Builds {
                 : PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
             generatedObject.GetComponent<SavedObject>().ConnectionId = objectData.connectionId;
             generatedObject.GetComponent<SavedObject>().state = objectData.states;
+            generatedObject.GetComponent<SavedObject>().SetMirrored(objectData.mirrored);
             if (buildData.HasColors)
             { 
                 if (objectData.hasPaint) PartColors.ApplyPaint(generatedObject, objectData.GetColor());
-                else if (PartColors.SampleMaterial(generatedObject) != null) {
+                else if (objectData.customModel?.appearance == null && PartColors.SampleMaterial(generatedObject) != null) {
                     OwnedPartMaterials.CaptureGenerated(generatedObject);
                     var material = PartColors.SampleMaterial(generatedObject);
                     var color = objectData.GetColor();
@@ -174,6 +195,7 @@ namespace Protobot.Builds {
                     connectionId = savedData.ConnectionId,
                     customModel = tForm.TryGetComponent<CustomModel>(out var custom) ? custom.Snapshot() : null,
                     hasPaint = savedData.hasPaint,
+                    mirrored = savedData.Mirrored,
 
                     xPos = position.x,
                     yPos = position.y,
@@ -195,6 +217,7 @@ namespace Protobot.Builds {
                 camera = newCameraData,
                 parts = newParts,
                 chains = Protobot.Simulation.ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray(),
+                ropes = Protobot.Simulation.RopeRoute.Capture(ids),
             };
         }
     }

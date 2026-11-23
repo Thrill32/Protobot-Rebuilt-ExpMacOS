@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Protobot.InputEvents;
 using System;
 
@@ -30,6 +31,7 @@ namespace Protobot.StateSystems {
         }
 
         public void ResetStates() {
+            DiscardOrphanedAppearance(states, new HashSet<GameObject>());
             states.Clear();
             AddEmptyState();
         }
@@ -62,8 +64,13 @@ namespace Protobot.StateSystems {
         /// </summary>
         /// <param name="newState"></param>
         public static void AddState(State newState) {
-            if (curIndex < lastStateIndex)
-                 states = states.GetRange(0, curIndex+1);
+            if (curIndex < lastStateIndex) {
+                var discarded = states.GetRange(curIndex + 1, lastStateIndex - curIndex);
+                states = states.GetRange(0, curIndex + 1);
+                var restorable = ObjectElements(states.Append(newState))
+                    .Where(element => element.existing).Select(element => element.obj).ToHashSet();
+                DiscardOrphanedAppearance(discarded, restorable);
+            }
 
             states.Add(newState);
 
@@ -71,6 +78,20 @@ namespace Protobot.StateSystems {
             InvokeOnChangeState();
         }
 
+
+        private static void DiscardOrphanedAppearance(IEnumerable<State> discarded, HashSet<GameObject> restorable) {
+            foreach (var obj in ObjectElements(discarded).Select(element => element.obj).Distinct()) {
+                if (obj != null && !restorable.Contains(obj) && obj.TryGetComponent<CustomModel>(out var model))
+                    model.DiscardDeletedAppearance();
+            }
+        }
+
+        private static IEnumerable<ObjectElement> ObjectElements(IEnumerable<State> history) =>
+            history.SelectMany(state => state.elements).SelectMany(element => element switch {
+                ObjectElement single => new[] { single },
+                IObjectElements group => group.Objects,
+                _ => Array.Empty<ObjectElement>()
+            });
 
         /// <summary>
         /// Adds and advances the current state with a given element
@@ -94,6 +115,7 @@ namespace Protobot.StateSystems {
         /// Changes the current state to the previous one
         /// </summary>
         public void Undo() {
+            if (CollaborationSession.IsShared) { CollaborationSession.History(false); return; }
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (curIndex - 1 >= 0) {
                 curIndex--;
@@ -106,6 +128,7 @@ namespace Protobot.StateSystems {
         /// Changes the current state to the next one if not at the last created state
         /// </summary>
         public void Redo() {
+            if (CollaborationSession.IsShared) { CollaborationSession.History(true); return; }
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (curIndex + 1 <= lastStateIndex) {
                 curIndex++;

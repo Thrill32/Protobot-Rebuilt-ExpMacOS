@@ -48,14 +48,12 @@ namespace Protobot {
         }
 
         private bool CanCaptureInput() {
-            if (RebindAction.Rebinding || !Application.isFocused || !Protobot.Tools.KeyboardTransformTool.AllowsNoclipCamera(activationInput) || Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
+            if (RebindAction.Rebinding || !Application.isFocused || CollaborationSession.BlocksUIInput ||
+                (!active && MouseInput.overUI) || !Protobot.Tools.KeyboardTransformTool.AllowsNoclipCamera(activationInput) ||
+                Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
                 return false;
 
-            var selected = EventSystem.current != null
-                ? EventSystem.current.currentSelectedGameObject
-                : null;
-
-            return selected == null || selected.GetComponent<InputField>() == null;
+            return !Protobot.Tools.KeyboardTransformTool.IsEditingText();
         }
 
         private void BeginNoclip() {

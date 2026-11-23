@@ -192,12 +192,16 @@ namespace ProtobotEditorTools {
                 Require(rule.TryGetDisplacement(shortcutData, out var shortcutPose), "G/H lost the Move stack target.");
                 Near(shortcutPose.translation.Position, expected.position, "G/H used a different stack target than Move.");
                 placement.CancelPlacement(); manager.ClearCurrent(false, true, true);
-                multi = new MultiSelection(null, new List<GameObject> { first.holeData.part, middle.holeData.part }) { individual = true };
+                multi = new MultiSelection(null, new List<GameObject> { source.holeData.part, middle.holeData.part }) {
+                    individual = true,
+                    placementHole = SelectedHoleAnchor.From(sourceSelection)
+                };
                 manager.SetCurrent(multi, true, true);
                 Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
                 shortcutData = Get<PlacementData>(placement, "currentPlacementData") as GameObjectPlacementData;
-                Require(placement.placing && shortcutData?.GetGameObject() == multi.gameObject && shortcutData.individual,
-                    "G/H did not retain the original multi-selection and grouping scope.");
+                Require(placement.placing && shortcutData?.GetGameObject() == multi.gameObject && shortcutData.individual &&
+                    shortcutData.sourceHole?.Hole == source.holeData,
+                    "G/H did not retain the additive selection's concrete source hole and grouping scope.");
 
             }
             finally {

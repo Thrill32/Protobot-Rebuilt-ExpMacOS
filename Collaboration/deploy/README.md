@@ -1,0 +1,252 @@
+# Dedicated Debian hosting
+
+This documents single-room and bounded multi-room deployment for connecting from another network. The CLI runs independently; remote players connect to its public HTTPS hostname. No Unity runtime runs on Debian. Bounded custom geometry, confirmed live mounting layouts and sprocket chains are accepted room content. Bounded geometry uses authenticated transfer endpoints and SQLite-v2 content storage; one dedicated listener can host up to eight isolated rooms. Offline per-room backup/restore and registration are supported.
+
+Choose the artifact matching `uname -m`: use `linux-x64` for `x86_64`, or `linux-arm64` for `aarch64`/`arm64` systems such as a 64-bit Raspberry Pi 4. These self-contained .NET 10 publishes include the managed runtime, but still require the distribution's native runtime dependencies. Use Microsoft's [Debian/runtime prerequisites](https://learn.microsoft.com/en-us/dotnet/core/install/linux-debian) if a native dependency is missing. A 32-bit `armv7l` operating system is not supported by the supplied artifacts.
+
+Remote operators behind an outbound proxy can configure Unity or `doctor`, diagnostics and protected CLI operations using the [outbound network guide](../NETWORK.md). This is per-client System/Direct/HTTP-proxy routing with separate private Basic input; it does not change the inbound listener, Caddy, systemd, OS proxy or certificate trust. Keep proxy files separate from room/owner/admin credentials. Test trusted HTTPS and all chosen transports from the actual operator/participant network; local proxy fixtures do not establish school/public-network acceptance.
+
+Admission/connection guidance is bounded and advisory: 60 join/resume requests per room per minute, 10 active / 1,000 retained memberships, existing room/process request and transfer limits. Saturation returns fixed codes and optional `Retry-After`; no forwarded-address trust or IP bans are introduced. [Safe read/immutable-transfer retries](../NETWORK.md#admission-feedback-and-bounded-safe-retries) use at most three sends and fixed deadlines. Rejected/lost join or administration mutation replies are never automatically resent. Inspect room lists/receipts and retry explicitly after cooldown; a full retained-membership budget requires operator planning, not a promise that ten seconds will free it. No deployment or target-network acceptance is inferred from local validation.
+
+## Prepare the matching release
+
+On the development computer, publish with the pinned SDK:
+
+```sh
+cd Collaboration
+bash publish.sh linux-x64   # x86_64
+bash publish.sh linux-arm64 # aarch64 / arm64
+```
+
+Copy the **entire** matching `artifacts/linux-<architecture>` directory to the Debian computer. Copy `catalog.json` from the exact player release that everyone will use (on macOS: `Protobot.app/Contents/Helpers/Collaboration/catalog.json`). To seed an existing catalog build, use **Collaboration → Export current build for CLI...** and copy that JSON too. It contains accepted parts/chains and the matching catalog, without passwords, local file paths or history. For an empty room, the catalog alone is enough. Never send a legacy `.pbb` file to the CLI.
+
+On Debian, from the directory containing the copied artifact directory and catalog:
+
+```sh
+sudo useradd --system --user-group --home-dir /var/lib/protobot-collab --shell /usr/sbin/nologin protobot
+sudo install -d -m 0755 /opt/protobot-collab
+sudo cp -a linux-arm64/. /opt/protobot-collab/ # use linux-x64 on x86_64
+sudo chmod 0755 /opt/protobot-collab/protobot-collab
+sudo install -m 0644 catalog.json /opt/protobot-collab/catalog.json
+sudo install -d -m 0700 -o protobot -g protobot /var/lib/protobot-collab
+```
+
+Create a new room (the `team` directory must not exist yet):
+
+```sh
+sudo -u protobot /opt/protobot-collab/protobot-collab init \
+  --data-dir /var/lib/protobot-collab/team --room team \
+  --catalog /opt/protobot-collab/catalog.json --password-prompt
+```
+
+For an existing build, replace `--catalog ...` with `--snapshot /path/readable/by/protobot/room-export.json`. `init` starts a fresh document generation and personal history from the exported accepted parts and chains. This is content transfer, not a recovery backup. It writes the password verifier and a private `owner.json` capability inside the room directory, and never prints their values. Keep the owner file private; it is separate from the join password. Blank password permits joining without a password. For noninteractive initialization, use `--password-file /protected/path` instead; do not put a password in command arguments.
+
+## Run the service
+
+Copy this repository's `protobot-collab.service` to Debian, then:
+
+```sh
+sudo install -m 0644 protobot-collab.service /etc/systemd/system/protobot-collab.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now protobot-collab
+sudo systemctl status protobot-collab
+sudo journalctl -u protobot-collab -n 30 --no-pager
+```
+
+The unit runs an unprivileged process, restarts failures and uses the same SQLite room on restart. The readiness JSON's `url` is its **loopback listener**, not an internet invite. Standalone `serve` also accepts `--public-url https://cad.example.org` to label an advertised origin in readiness; this does not test reachability. The service lifecycle follows the normal [ASP.NET Core systemd hosting model](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/linux-nginx?view=aspnetcore-10.0).
+
+## Serve multiple rooms through one listener
+
+Use the same artifact, service account, HTTPS origin and Caddy configuration. Keep the single-room unit for existing installations, or install `protobot-collab-multi.service` for a registry at `/var/lib/protobot-collab/server`:
+
+```sh
+sudo -u protobot /opt/protobot-collab/protobot-collab server-init \
+  --data-dir /var/lib/protobot-collab/server
+sudo install -m 0644 protobot-collab-multi.service /etc/systemd/system/protobot-collab.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now protobot-collab
+sudo -u protobot /opt/protobot-collab/protobot-collab room create \
+  --url http://127.0.0.1:8787 --admin-file /var/lib/protobot-collab/server/admin.json \
+  --room team --catalog /opt/protobot-collab/catalog.json --password-prompt \
+  --owner-output /var/lib/protobot-collab/team-owner.json
+sudo -u protobot /opt/protobot-collab/protobot-collab room list \
+  --url http://127.0.0.1:8787 --admin-file /var/lib/protobot-collab/server/admin.json
+```
+
+For another room, choose another room ID and a new owner-output file, plus that room's matching catalog or portable snapshot. Share the same public HTTPS origin with its exact room ID. Players use the existing Join room field; `doctor` must receive `--room <id>` for authenticated checks. Room owners manage only their room using `server/rooms/<id>/owner.json` (or the private owner-output copy); server `admin.json` is separate and grants no membership. Keep these files out of service arguments, invites and logs. The CLI retains its owner-output file after a refused/interrupted create; list rooms before retrying.
+
+The service reopens all registered rooms after restart. Check both listener `/health` and each `/rooms/<id>/health`; listener readiness does not claim every room recovered. Protected `room list` reports actionable per-room failures. Never run `init` over unavailable room data. Stop the service before backup/restore:
+
+```sh
+sudo systemctl stop protobot-collab
+sudo -u protobot /opt/protobot-collab/protobot-collab backup \
+  --data-dir /var/lib/protobot-collab/server/rooms/team \
+  --output /var/lib/protobot-collab/backups/team-new.zip
+sudo -u protobot /opt/protobot-collab/protobot-collab room restore \
+  --config /var/lib/protobot-collab/new-server/server.json \
+  --admin-file /var/lib/protobot-collab/new-server/admin.json \
+  --input /var/lib/protobot-collab/backups/team-new.zip
+```
+
+Initialize the new registry first with `server-init`. Restore registers the archived room ID/generation/catalog/credentials/history atomically, without making a new membership or resetting content. Existing IDs/duplicate identities are refused, even for failed rooms. To restore a damaged room in the current stopped registry, preserve/quarantine its entire `rooms/<id>` directory outside `rooms/` first, then use `room restore` with the current config/admin file. Keep every original/quarantined copy stopped. Update the unit config path when moving registries, preserve the public endpoint and matching catalog, then start and run authenticated sustained doctor and player recovery checks for each room. Single-room stores can move into a registry by stopped backup followed by `room restore`; direct filesystem-path registration is not an HTTP operation.
+
+See [multi-room contracts and process limits](../README.md#dedicated-multi-room-hosting). In brief: eight rooms, loaded geometry budgets of 128 MiB encoded / 256 MiB decoded cost / 256 MiB live-instance cost, two transfers total, 64 requests and 32 event streams. Each room keeps its original quotas. Corrupt/locked/over-budget rooms remain unavailable while healthy rooms continue. Room count, identity and catalog are never changed automatically. Debian/Pi execution, systemd restoration, Windows/Linux permission/rename behavior, cross-OS archives and trusted public HTTPS/proxy transfers remain field/CI acceptance checks.
+
+## Choose the listening ports
+
+The public HTTPS port and private backend port are independent. The CLI `--listen` option accepts any valid port, including `0` to allocate a free backend port; in-app Host has the same numeric choice. Ports below 1024 require suitable OS permissions on Linux. A port already owned by another process cannot be reused by a second listener on the same address.
+
+For example, keep the application backend private on 8787 and expose only public HTTPS on 80, 443, 8443 or another available port through Caddy. If you change the backend, edit the systemd unit's `--listen http://127.0.0.1:<port>` and use the same upstream in Caddy. Share `https://cad.example.org:<public-port>` with participants; an omitted HTTPS port means 443. `doctor`, Join, clipboard invites and the WebSocket/request transports retain explicit ports.
+
+Direct Kestrel TLS also accepts `--listen https://0.0.0.0:<port>` when its certificate is supplied through the normal protected Kestrel configuration. Port selection alone does not create a certificate.
+
+## Expose HTTPS with automatic certificates
+
+Use a public hostname whose DNS A/AAAA records point to the server's reachable public addresses. For the default `Caddyfile`, forward inbound TCP 80 and 443 to the Debian computer (or permit inbound IPv6 traffic). Keep the backend private. A public IPv4 behind carrier-grade NAT cannot be reached by ordinary router port forwarding; resolve that with the ISP or use an existing reachable server. Do not publish an unusable AAAA record. Test from a different network, since a router's loopback behavior can differ.
+
+Install Caddy using its [official Debian instructions](https://caddyserver.com/docs/install#debian-ubuntu-raspbian). Put the supplied Caddyfile block in `/etc/caddy/Caddyfile`, replacing `cad.example.org` with your real hostname. If Caddy already serves other sites, add this site block to that configuration.
+
+```sh
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+sudo journalctl -u caddy -n 30 --no-pager
+```
+
+Caddy obtains/renews a public certificate when the hostname and inbound reachability are configured. Its default [automatic HTTPS requirements](https://caddyserver.com/docs/automatic-https) include DNS and access to ports 80/443. The [reverse proxy supports WebSocket upgrades](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy); ordinary held HTTP requests use the same origin. Use the **HTTPS** hostname in clients, not the backend address or an HTTP redirect. No certificate-validation bypass or general tunnel is needed.
+
+## HTTPS on 80, 443 or a custom public port
+
+An operator with an existing PFX can instead bind Kestrel directly using the private [protobot-tls schema-1 configuration](../TLS.md). Keep the supplied Caddy units as the default, or replace only the chosen service's `ExecStart` with `serve --data-dir /var/lib/protobot-collab/team --listen https://0.0.0.0:8443 --tls-file /var/lib/protobot-collab/private/tls.json --public-url https://cad.example.org:8443` (for multi-room use its existing `--multi-room --config ...` instead of `--data-dir`). A systemd drop-in replacing `ExecStart` needs an empty `ExecStart=` line first. Keep both the TLS JSON and PFX private/readable by `protobot`, outside room backup/registry directories; no password belongs in the unit/environment. Direct mode has one HTTPS listener, so local administration also uses the trusted hostname/HTTPS origin. Restart after replacing a renewed PFX. Readiness does not establish public reachability/trust; Debian/Pi and public-network execution remain pending acceptance.
+
+Use `Caddyfile.custom-port` when an existing service occupies 443 or when you want a specific HTTPS port. It loads PEM certificate/key files, disables automatic certificate management/redirects, and exposes the selected HTTPS port without claiming 443 or opening a plaintext HTTP listener. The Caddy admin listener is disabled too, so it cannot collide with a selected port such as 2019. This is a complete alternative configuration; do not merge its global settings into a Caddy instance that already manages other sites.
+
+Obtain a certificate valid for your hostname, either from your existing certificate manager or via [DNS validation](https://caddyserver.com/docs/automatic-https#dns-challenge). DNS validation does not require an inbound validation listener. Certificates identify hostnames rather than port numbers, so the same valid hostname certificate can serve port 80, 443 or another port. Keep the key readable only by the certificate manager and Caddy. This template uses Caddy's [PEM certificate loading](https://caddyserver.com/docs/caddyfile/directives/tls); renewal stays with your certificate manager.
+
+For example, create `/etc/caddy/protobot.env` with non-secret paths/settings:
+
+```ini
+PROTOBOT_HOST=cad.example.org
+PROTOBOT_HTTPS_PORT=80
+PROTOBOT_TLS_CERT=/etc/protobot-collab/tls/fullchain.pem
+PROTOBOT_TLS_KEY=/etc/protobot-collab/tls/privkey.pem
+PROTOBOT_UPSTREAM=127.0.0.1:8787
+```
+
+Set `PROTOBOT_HTTPS_PORT` to any available port from 1 through 65535. In `sudo systemctl edit caddy`, add:
+
+```ini
+[Service]
+EnvironmentFile=/etc/caddy/protobot.env
+```
+
+Copy `Caddyfile.custom-port` to `/etc/caddy/Caddyfile`, then validate it with the same service environment and restart:
+
+```sh
+sudo sh -c 'set -a; . /etc/caddy/protobot.env; exec caddy validate --config /etc/caddy/Caddyfile'
+sudo systemctl daemon-reload
+sudo systemctl restart caddy
+```
+
+Use a restart rather than `caddy reload` in this mode because the admin listener is off. Restart Caddy after your certificate manager renews/replaces the PEM files. A DNS-based renewal job avoids competing for ports 80/443. Plain HTTP certificate validation on 80 cannot share that listener while it is serving TLS. If an existing certificate service is using 443, leave it running and configure the new Caddy instance only for the chosen free port.
+
+Forward/allow the chosen public TCP port and connect with the explicit scheme and port:
+
+```sh
+protobot-collab doctor --url https://cad.example.org:80 \
+  --catalog catalog.json --room team --password-prompt --transport all
+```
+
+Use the same `https://cad.example.org:80` in the player's Join page, with LAN HTTP off. Use `:8443` or another selected value in the same way. A network may restrict traffic by protocol as well as port; choosing 80 does not guarantee that a network accepts TLS on 80. Validate from the actual client network.
+
+The CLI, WebSocket upgrades, commits and held requests all use that single public HTTPS origin. Only Caddy talks to the private application backend. If Caddy already manages the service on 443, use an additional site on its existing instance where appropriate, rather than launching competing listeners or stopping the existing service.
+
+With Caddy, Python 3 and OpenSSL installed, validate this template locally without changing OS trust or services:
+
+```sh
+python3 validate-https-config.py --caddy /path/to/caddy
+```
+
+The check provisions the exact template for ports 1, 80, 443, 2019, 8443 and 65535 without binding those ports, then verifies HTTPS proxy traffic using a temporary loopback listener and certificate trusted only inside the test.
+
+## Manage room memberships
+
+Run the matching helper as the service account (or use a private operator copy of `owner.json`). The service stays running:
+
+```sh
+sudo -u protobot /opt/protobot-collab/protobot-collab participants \
+  --url http://127.0.0.1:8787 --owner-file /var/lib/protobot-collab/team/owner.json
+sudo -u protobot /opt/protobot-collab/protobot-collab remove-participant \
+  --url http://127.0.0.1:8787 --owner-file /var/lib/protobot-collab/team/owner.json --participant <stable-id>
+```
+
+Use your configured service user/data path if different. List first, then select the exact participant ID; names can repeat. The list includes inactive and revoked memberships. A duplicate removal succeeds with `alreadyRevoked: true`; owners are protected. The owner file is separate from the room password, must be private (0600 on Unix; operator-only ACLs on Windows) and must not be a symlink. The CLI refuses broad permissions and redirects, and never logs the capability. If an older Windows initialization inherited a broader owner-file ACL, restrict it under the intended operator account before using management; no database migration is needed. HTTPS administration through the public origin uses the same commands. Do not put credentials in URLs, command arguments or service logs.
+
+Removal is durable before success, closes that membership's active event connections and saved resume access, and preserves accepted content and histories. It revokes a membership, not a person: anyone with the room password can create a fresh membership. See [owner management contracts](../README.md#owner-participant-management), including pending outcomes and 0.7 backup compatibility. Debian/Pi service and cross-platform execution of this path remain acceptance checks.
+
+## Check from a client network, then join
+
+First check the backend on Debian:
+
+```sh
+/opt/protobot-collab/protobot-collab doctor --url http://127.0.0.1:8787
+```
+
+From the network where players will connect, use the matching CLI and catalog:
+
+```sh
+protobot-collab doctor --url https://cad.example.org \
+  --catalog catalog.json --room team --password-prompt \
+  --transport all --output connection-report.json
+```
+
+Without `--catalog`, doctor checks capabilities/health and explicitly skips authenticated transports. With a catalog, it joins a read-only test member, checks the real shared client's initial and sustained event delivery, then leaves. Default `all` tests WebSocket and requests separately, so it can report WebSocket failure alongside working requests. Each sustained test takes at least 21 seconds; `--quick` skips that check and labels it skipped. Each transport probe consumes one retained membership record (the alpha room limit is 1,000 total); it never creates edits or personal undo history. Reports contain stable diagnostic codes, version/catalog/room and timing, without passwords/tokens. Exit codes: 0 selected checks passed, 2 a check failed, 1 invalid configuration. Skipped checks do not establish transport acceptance.
+
+If WebSocket fails but requests pass, run `--transport requests` to verify that mode alone, then select **HTTPS / HTTP requests only** in the player's Join page. **Test server connection** performs the corresponding read-only test inside the actual Unity runtime before joining. Leave LAN HTTP off for this public HTTPS connection. Share only the HTTPS origin and room ID; enter the password separately. Match builds/catalogs across all participants.
+
+| Result | Next check |
+| --- | --- |
+| `dns-failed` | Hostname and A/AAAA records |
+| `connection-refused`, `network-unreachable`, `request-timeout` | Service, router forwarding, firewall, address family and reachability from another network |
+| `tls-trust-or-name-failed` | Public certificate hostname/chain and the computer's normal trust configuration |
+| `http-407` | The network's required proxy authentication/configuration |
+| `http-301` / `http-302` / `http-307` / `http-308` | Enter the final HTTPS origin directly; doctor does not follow redirects |
+| `server-version-mismatch`, `catalog-or-room-mismatch` | Same helper/player release, exported catalog and room ID |
+| `wrong-password` | Room password entered separately |
+| WebSocket failure with requests passing | Use requests mode; verify sustained delivery on that actual network |
+| `event-stream-timeout` / `event-stream-disconnected` | Proxy buffering, held-request/upgrade restrictions, idle timeouts, or a stopped server |
+
+Local automated checks establish CLI/protocol behavior, not approval or compatibility on a particular deployment network. Record that actual result after testing. The CLI runs on .NET and the players on Unity's runtime; a CLI success complements the player connection check.
+
+## Stop and preserve the room
+
+Service SIGTERM/Ctrl+C starts a 1,500 ms best-effort participant notice within a five-second host shutdown budget, then closes the listener. Connected clients may show `server-stopping`; proxies/crashes can still produce generic transport loss. New work is fenced, already admitted atomic work may settle, and room memberships/history/geometry/accepted receipts remain recoverable. After restarting the same room/origin/catalog, use explicit **Reconnect** to resolve pending outcomes without replay. Stopping a service does not save participant `.pbb` files or revoke memberships. This does not add a remote stop endpoint. Actual Debian/Pi signal/storage behavior remains field acceptance.
+
+```sh
+sudo systemctl stop protobot-collab
+```
+
+SQLite recovery is independent of every participant's local `.pbb` saves. Use offline backup as the service account while systemd is stopped. Create a private backup parent once, then choose a new archive and destination each time:
+
+```sh
+sudo install -d -o protobot -g protobot -m 0700 /var/lib/protobot-collab/backups
+sudo -u protobot /opt/protobot-collab/protobot-collab backup \
+  --data-dir /var/lib/protobot-collab/team \
+  --output /var/lib/protobot-collab/backups/team-backup.zip
+sudo -u protobot /opt/protobot-collab/protobot-collab restore \
+  --input /var/lib/protobot-collab/backups/team-backup.zip \
+  --data-dir /var/lib/protobot-collab/restored-team
+```
+
+Adjust paths to the installed helper and room. Backup refuses a running/locked room and never overwrites an archive. Restore refuses every existing destination, including an empty directory, validates in private staging, then publishes atomically. Do not copy individual SQLite/WAL files or remove `room.lock` to bypass ownership. Archive v2 contains a consistent standalone SQLite snapshot, versioned integrity manifest and matching `owner.json`; it preserves room identity, password verification, memberships/revocations, receipts, assets, mounts, explicit chains and undo/redo history. Keep the matching helper/catalog release with the archive. Archives contain credentials and remain unencrypted, with 0600 files and 0700 restored directories on Unix. Back up service configuration and TLS material separately.
+
+To use the restore, update the systemd unit's `--data-dir` to `/var/lib/protobot-collab/restored-team`, run `sudo systemctl daemon-reload`, then `sudo systemctl start protobot-collab`. Keep the original stopped; never serve both copies. Verify authenticated sustained `doctor` checks and both participants' identity/history recovery through the original endpoint. Do not run `init` over recovered data. See [format, bounds and compatibility](../README.md#offline-backup-and-restore); online backup and arbitrary catalog migration remain future work; the README documents the atomic 0.7/v1 upgrade and original-catalog client option.
+
+## Read-only operator diagnostics
+
+Use `protobot-collab diagnostics --url <origin> --admin-file <private-admin.json> --output <new-report.json>` for a bounded v1 server report, or `--owner-file <private-owner.json>` for one room. Single-room servers support the owner form. Existing `room list` now includes room and process usage against limits. Admin authority does not grant membership or room editing; owner authority does not grant process/other-room metrics. No secrets or raw proxy/log/error bodies enter the export. Protect credential files as before; reports contain room/catalog/generation identifiers.
+
+Unavailable rooms retain fixed actionable status with null metrics; inspecting does not open, migrate or repair databases. Stop competing processes for locks; keep damaged originals stopped/private before restore. Logical encoded/decoded/live-instance geometry costs differ from measured process managed/working-set bytes. Request/event/transfer/connection gauges are sampled and may change during collection. Local loopback checks do not establish Debian/Pi memory/service or public HTTPS/proxy behavior; those field checks remain pending. See the main collaboration README for schema, limits and recovery instructions.
+
+## Proxies that reject held event requests
+
+On a capable matching helper (`shortPollingVersion: 1`), choose **Short polling (proxy compatibility)** in Unity or `--collab-transport short-polling`; probe it with `protobot-collab doctor --url <origin> --room <id> --catalog <matching.json> --transport short-polling`. Immediate authenticated `events?...&wait=0` reads retain normal TLS trust, room scoping and event/geometry limits. Supplied clients make at most one idle event read/s, or four one-event catch-up batches/s, with one request in flight. Expect increased idle HTTP traffic and slower preview/event delivery. Leave/cancellation interrupts requests and pacing delays. Existing Auto still tries WebSocket then held requests; explicit proxy configuration and actual target-network/service performance acceptance remain separate. Do not disable certificate validation to address a proxy failure.

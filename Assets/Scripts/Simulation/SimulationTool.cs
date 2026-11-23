@@ -5,6 +5,7 @@ using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.StateSystems;
 using Protobot.Tools;
+using Protobot.Collaboration;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -29,15 +30,21 @@ namespace Protobot.Simulation {
         private readonly TransformNumericInput numericInput = new();
         private MechanismSimulation simulation;
         private SimulationPanel panel;
+        public ChainRoutingPanel RouteEditor { get; private set; }
         private bool active, animation, playing;
         private int beganFrame;
         private Vector2 lastPointer;
         private float speed = 1;
         private string status;
+        private long previewRevision;
+        private VersionRef[] previewVersions;
+        private int previewGeneration;
+        private bool committing;
 
         public static bool IsActive => instance != null && instance.active;
         public static bool HasPreview => instance != null && instance.simulation != null;
-        public static bool CapturesSelection => IsActive || consumedFrame == Time.frameCount;
+        public static bool IsRouting => instance?.RouteEditor != null;
+        public static bool CapturesSelection => IsRouting || IsActive || consumedFrame == Time.frameCount;
         public static bool BlocksCamera => consumedFrame == Time.frameCount || IsActive && instance.simulation != null &&
             (!instance.animation || instance.IsTypingRotation || instance.simulation.DriverRotates && MoveRotation.SlashPressed(Keyboard.current));
         public static bool OverPanel => instance != null && instance.panel != null && instance.panel.ContainsPointer;
@@ -45,6 +52,8 @@ namespace Protobot.Simulation {
         public bool IsPlaying => playing;
         public bool AnimationVisible => animation;
         public bool IsTypingRotation => numericInput.IsOpen;
+        public bool IsCommitting => committing;
+        public bool CanSetPose => simulation != null && !IsTypingRotation && !committing && CollaborationSession.CanEdit;
         public float Speed => speed;
 
         private void Awake() {
@@ -71,15 +80,59 @@ namespace Protobot.Simulation {
 
         public void ChainSelected() {
             if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() || placement.placing || InputEvent.IsNoclipMovementCaptured) return;
-            var selection = selectionManager.current;
-            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
-            var sprockets = selected.Where(b => b != null).SelectMany(b => b.GetComponentsInChildren<SimulationPart>())
-                .Where(p => p.kind == DriveKind.Sprocket).Distinct().ToList();
+            if (RouteEditor != null) return;
+            var keyboard = Keyboard.current;
+            // Keep an existing Shift-containing Chain binding a quick-chain
+            // command. The panel button remains available for route editing.
+            if (keyboard?.shiftKey.isPressed == true && !chainInput.UsesControl(keyboard.leftShiftKey) && !chainInput.UsesControl(keyboard.rightShiftKey)) {
+                if (SelectedSprockets().Count == 0 &&
+                    RouteSelection().Any(body => body.GetComponent<SavedObject>()?.id == Builds.RopeRouteData.DrumId))
+                    EditRopeRoute();
+                else EditChainRoute();
+                return;
+            }
+            var sprockets = SelectedSprockets();
             ExitForEdit();
+            if (CollaborationSession.IsShared) { CollaborationSession.ToggleChain(sprockets); return; }
             ChainLoop.Toggle(sprockets, out var message);
             Protobot.UI.InteractionFeedback.Notify(message);
         }
 
+        public void EditChainRoute() {
+            if (!CanEditRoute()) return;
+            var sprockets = SelectedSprockets();
+            ExitForEdit();
+            if (!ChainRouteGeometry.CompatiblePlane(sprockets, out var reason)) { Protobot.UI.InteractionFeedback.Notify(reason); return; }
+            RouteEditor = new ChainRoutingPanel(sprockets, RouteClosed);
+        }
+
+        public void EditRopeRoute() {
+            if (!CanEditRoute()) return;
+            var selected = RouteSelection().Select(body => body.GetComponent<SavedObject>()).Where(body => body != null).Distinct().ToArray();
+            var drums = selected.Where(body => body.id == Builds.RopeRouteData.DrumId).ToArray();
+            if (drums.Length != 1) { UI.InteractionFeedback.Notify("Select one Winch Drum to route a rope."); return; }
+            ExitForEdit();
+            RouteEditor = new ChainRoutingPanel(new RopeRoutingDraft(drums[0], selected.Where(body => body.id == Builds.RopeRouteData.PulleyId)), RouteClosed);
+        }
+
+        private bool CanEditRoute() => RouteEditor == null && CollaborationSession.CanEdit && !CollaborationSession.HasReservation &&
+            !IsTypingRotation && !RebindAction.Rebinding && !KeyboardTransformTool.IsCapturingInput && !KeyboardTransformTool.IsEditingText() && !placement.placing;
+
+        private IEnumerable<GameObject> RouteSelection() {
+            var selection = selectionManager.current;
+            var selected = selection is MultiSelection multi ? multi.objs : new List<GameObject> { selection is HoleSelection hole ? hole.holeData?.part : selection?.gameObject };
+            return selected.Where(body => body != null);
+        }
+
+        private List<SimulationPart> SelectedSprockets() => RouteSelection().SelectMany(body => body.GetComponentsInChildren<SimulationPart>())
+            .Where(part => part.kind == DriveKind.Sprocket).Distinct().ToList();
+
+        private void RouteClosed() { RouteEditor = null; consumedFrame = Time.frameCount; }
+
+        public static bool CancelRouting() {
+            if (!IsRouting) return false;
+            instance.RouteEditor.Dispose(); return true;
+        }
         public void Activate() {
             if (IsTypingRotation || RebindAction.Rebinding || KeyboardTransformTool.IsCapturingInput || KeyboardTransformTool.IsEditingText() ||
                 placement.placing || InputEvent.IsNoclipMovementCaptured) return;
@@ -88,6 +141,9 @@ namespace Protobot.Simulation {
         }
 
         public void SetActive(bool value) {
+            if (value && (!CollaborationSession.CanPreview || CollaborationSession.HasReservation)) {
+                toolbarToggle.SetIsOnWithoutNotify(false); return;
+            }
             if (value) CustomModelTool.CancelActive();
             if (value && (placement.placing || KeyboardTransformTool.IsCapturingInput)) {
                 toolbarToggle.SetIsOnWithoutNotify(false);
@@ -112,13 +168,20 @@ namespace Protobot.Simulation {
         }
 
         public bool Begin(GameObject driver) {
+            if (committing || !CollaborationSession.CanPreview || CollaborationSession.HasReservation) return false;
             if (!MechanismSimulation.IsDriver(driver)) return false;
             RestorePreview();
             var candidate = MechanismSimulation.Create(driver);
             if (candidate == null) return false;
             if (candidate.HasConflict) { status = "This gear loop has conflicting ratios"; return false; }
-            if (!candidate.HasMotion) { status = "Attach a shaft to this motor to preview its output"; return false; }
+            if (!candidate.HasMotion) {
+                status = candidate.WinchStatus ?? "Attach a shaft to this motor to preview its output";
+                panel?.Refresh();
+                return false;
+            }
             simulation = candidate;
+            previewRevision = CollaborationSession.CommittedRevision;
+            previewVersions = CollaborationSession.Versions(candidate.tracks.Select(t => t.body.GetComponent<SavedObject>().ConnectionId));
             playing = false;
             beganFrame = Time.frameCount;
             lastPointer = Mouse.current != null ? Mouse.current.position.ReadValue() : default;
@@ -128,7 +191,7 @@ namespace Protobot.Simulation {
         }
 
         public void ToggleAnimation() {
-            if (!active || IsTypingRotation) return;
+            if (!active || IsTypingRotation || committing) return;
             animation = !animation;
             playing = false;
             lastPointer = Mouse.current != null ? Mouse.current.position.ReadValue() : default;
@@ -137,22 +200,35 @@ namespace Protobot.Simulation {
         }
 
         public void TogglePlayback() {
-            if (!active || simulation == null || IsTypingRotation) return;
+            if (!active || simulation == null || IsTypingRotation || committing) return;
             animation = true;
             playing = !playing;
             panel.Refresh();
         }
 
-        public void SetSpeed(float value) { if (IsTypingRotation) return; speed = Mathf.Clamp(value, .1f, 4); panel?.Refresh(); }
-        public void Seek(double seconds) { if (simulation == null || IsTypingRotation) return; playing = false; simulation.Evaluate(seconds); panel?.Refresh(); }
+        public void SetSpeed(float value) { if (IsTypingRotation || committing) return; speed = Mathf.Clamp(value, .1f, 4); panel?.Refresh(); }
+        public void Seek(double seconds) { if (simulation == null || IsTypingRotation || committing) return; playing = false; simulation.Evaluate(seconds); panel?.Refresh(); }
         public void ResetMotion() { if (!active) return; Seek(0); }
+        public void TogglePawl() {
+            if (simulation?.HasWinchPawl != true || IsTypingRotation || committing) return;
+            playing = false;
+            simulation.SetPawlEngaged(!simulation.PawlEngaged);
+            panel?.RebuildTracks();
+        }
 
         public void Commit() {
-            if (simulation == null || IsTypingRotation) return;
+            if (simulation == null || IsTypingRotation || committing) return;
+            if (CollaborationSession.IsShared && !CanSetPose) { status = "Cannot set pose while shared editing is unavailable"; panel?.Refresh(); return; }
             playing = false;
             var changed = simulation.tracks.Where(t => t.rotates && t.body != null &&
                 (Vector3.Distance(t.body.transform.position, t.start.position) > .00001f || Quaternion.Angle(t.body.transform.rotation, t.start.rotation) > .0001f)).ToList();
             if (changed.Count > 0) {
+                if (CollaborationSession.IsShared) {
+                    // Capture actual evaluated transforms; ordinary capture/save deliberately returns the starting poses.
+                    var writes = changed.Select(t => CollaborationScene.CaptureLive(t.body)).ToArray();
+                    CommitShared(writes, previewVersions, previewRevision);
+                    return;
+                }
                 foreach (var track in changed)
                     StateSystem.AddElement(new ObjectElement(track.body) { position = track.start.position, rotation = track.start.rotation });
                 StateSystem.AddEmptyState();
@@ -165,7 +241,33 @@ namespace Protobot.Simulation {
             panel?.RebuildTracks();
         }
 
+        private async void CommitShared(Part[] writes, VersionRef[] dependencies, long revision) {
+            int request = previewGeneration;
+            committing = true;
+            status = "Setting pose…";
+            panel?.Refresh();
+            bool accepted = await CollaborationSession.CommitResolvedPosesAsync(writes, dependencies, revision);
+            if (request != previewGeneration) return;
+            RestorePreview();
+            consumedFrame = Time.frameCount;
+            status = accepted ? "Pose set · select another motor, gear or shaft" : "Pose was not set · preview reverted";
+            panel?.Refresh();
+        }
+
+        // Mechanism discovery depends on the complete shared scene. Restore before applying a new
+        // revision so an old preview can never restore over another participant's accepted transforms.
+        public static void BeforeSharedEdit(bool ownEdit) {
+            CancelRouting();
+            if (instance == null || instance.simulation == null) return;
+            bool confirmed = ownEdit && instance.committing;
+            instance.RestorePreview();
+            consumedFrame = Time.frameCount;
+            instance.status = confirmed ? "Pose set · select another motor, gear or shaft" : "Shared build changed · preview reset";
+            instance.panel?.Refresh();
+        }
+
         public void Cancel() {
+            if (committing) return; // Confirmation has already submitted a reliable edit.
             RestorePreview();
             consumedFrame = Time.frameCount;
             status = "Preview reverted · select a motor, gear or shaft";
@@ -173,6 +275,8 @@ namespace Protobot.Simulation {
         }
 
         private void RestorePreview() {
+            previewGeneration++;
+            committing = false;
             numericInput.Close();
             playing = false;
             if (simulation == null) return;
@@ -188,6 +292,7 @@ namespace Protobot.Simulation {
         }
 
         public static void ExitForEdit() {
+            CancelRouting();
             if (instance == null || !instance.active) return;
             instance.toolbarToggle.isOn = false;
         }
@@ -197,6 +302,7 @@ namespace Protobot.Simulation {
 
         // Resolve ownership before the existing InputEvent dispatch. Tool changes and edits restore first.
         public static bool AllowsInput(InputEvent input) {
+            if (IsRouting) return input.name == "Orbit" || input.name == "Pan" || input.name == "Noclip Camera";
             if (consumedFrame == Time.frameCount) return false;
             if (!IsActive) return true;
             if (instance.IsTypingRotation || instance.simulation?.DriverRotates == true && MoveRotation.SlashPressed(Keyboard.current)) return false;
@@ -212,8 +318,13 @@ namespace Protobot.Simulation {
         }
 
         private void LateUpdate() {
+            if (RouteEditor != null) {
+                if (!Application.isFocused) CancelRouting(); else RouteEditor.Refresh();
+                return;
+            }
             if (!active) return;
             if (simulation != null && !simulation.IsValid) Cancel();
+            if (committing || CollaborationSession.BlocksUIInput || !CollaborationSession.CanPreview) return;
             var mouse = Mouse.current;
             var keyboard = Keyboard.current;
             if (RebindAction.Rebinding || KeyboardTransformTool.IsEditingText() || !Application.isFocused || mouse == null) return;
@@ -221,6 +332,7 @@ namespace Protobot.Simulation {
         }
 
         private void ReadInput(Mouse mouse, Keyboard keyboard) {
+            if (committing || CollaborationSession.BlocksUIInput || !CollaborationSession.CanPreview) return;
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) {
                 if (!EscapeDeselect.TryHandleEscape()) Cancel();
                 return;
@@ -241,8 +353,8 @@ namespace Protobot.Simulation {
                 }
                 return;
             }
-            if (playing && simulation != null) simulation.Evaluate(simulation.Time + UnityEngine.Time.unscaledDeltaTime * speed);
-            bool overUI = OverPanel || (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject());
+            if (playing && simulation != null) playing = simulation.Advance(UnityEngine.Time.unscaledDeltaTime * speed);
+            bool overUI = OverPanel || MouseInput.overUI;
             if (simulation != null && !animation && Time.frameCount != beganFrame) {
                 if (!OverPanel) {
                     simulation.Evaluate(simulation.Time + (pointer.x - lastPointer.x) / 90.0);
@@ -298,8 +410,9 @@ namespace Protobot.Simulation {
             : $"Drag left/right · Click: set pose{RotationHint} · Esc: revert · {activateInput.GetCurrentKeybind()}: animation";
         private void OnApplicationFocus(bool focused) { if (!focused && active) Cancel(); }
         private void OnApplicationPause(bool paused) { if (paused && active) Cancel(); }
-        private void OnDisable() { if (active) SetActive(false); }
+        private void OnDisable() { RouteEditor?.Dispose(); if (active) SetActive(false); }
         private void OnDestroy() {
+            RouteEditor?.Dispose();
             RestorePreview();
             foreach (var subscription in subscriptions) subscription.input.performed -= subscription.action;
             if (toolbarToggle != null) toolbarToggle.onValueChanged.RemoveListener(SetActive);

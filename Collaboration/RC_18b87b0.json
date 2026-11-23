@@ -1,0 +1,199 @@
+{
+  "format": "protobot-collaboration-rc-evidence",
+  "schema": 1,
+  "date": "2026-11-17",
+  "sourceCommit": "18b87b05c998fda01264e02498760018c347f370",
+  "branch": "network-collab-support",
+  "initialWorktreeClean": true,
+  "releaseAcceptance": "pending external two-person and target-environment gates",
+  "catalog": "453a571c859f7f347abee11a12d4b81b489e47d0d98a46a562e19459c3d4b9ad",
+  "helpers": {
+    "osx-arm64": {
+      "manifestSha256": "c9b5b8dd3b8fcb86db72d855ca39c374dadf7e6b231622218dafb33534029c9e",
+      "build": "5f50dd19576adef15c6e7b312d5eea3a95cd84299bc9220533aadbc55ea05fe7",
+      "assemblies": {
+        "protobot-collab.dll": "02c87791a1af620f59b031a92e5bd0246080eb1c4de024247bf8a9f332b10cbe",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 363
+    },
+    "win-x64": {
+      "manifestSha256": "8a6b17a0c2c6326e8f524e52d7f623b2e406b15699f23e0bf9f3bbb9a3d43306",
+      "build": "26b6981f4b0a7d7aff5cddfec2191e860c4be147d20d4a872d141f60e749f203",
+      "assemblies": {
+        "protobot-collab.dll": "1feac6d328d79fb7c8413715679fa6d12a9ace157d8438e0dd8b83fe37c55e50",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 366
+    },
+    "linux-x64": {
+      "manifestSha256": "8b8f0be632d738bda360f96dd9440b11a317258d373d5f962910422d20b3a634",
+      "build": "5cd6ea561db8ec0c44f4578ce171fbf6daffa44b3eb0ff2fc695e09857d700ac",
+      "assemblies": {
+        "protobot-collab.dll": "0ba717b2314af1b4d585c7ea6a63d6d8912ebf453de1a1af26af4634d26b284c",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 364
+    },
+    "linux-arm64": {
+      "manifestSha256": "4f551c54aec43d2ad9434b5f33736ee4d11f7992eed49f903a7cf98b96927cd7",
+      "build": "d7ba06a91ca402db1b39e4ab1e0ac8c8a2ed705d99a62b9dcc00b15be35b8c4b",
+      "assemblies": {
+        "protobot-collab.dll": "effad269a3d8f7d2a47b6f46c7bf45d3efd332d0c72ed42004fb76166851065a",
+        "Server.dll": "990d1af26c8b8c2d37ec9be16a633e5e6df64b9be671587206e4bf82231ee961",
+        "Shared.dll": "bb1ca12f2256fe3dd5422a8ab2612f98d3b4b214a502f9da548010cd297a0d2f"
+      },
+      "files": 364
+    }
+  },
+  "archives": {
+    "protobot-collab-osx-arm64.tar.gz": {
+      "sha256": "38c226141142ff4a65c7e640189fc20bfc7cd132df7772426d51faedf3d27dc5",
+      "bytes": 45428160
+    },
+    "protobot-collab-win-x64.tar.gz": {
+      "sha256": "83bcec7ccda096fd4b9e77ce96489415d048ff2d97c26ed1db634c6fc9f2e6b8",
+      "bytes": 49570570
+    },
+    "protobot-collab-linux-x64.tar.gz": {
+      "sha256": "11fdf3f0f7d625589aceffa926ee683ad30eb446de0b42515867d328208f0604",
+      "bytes": 48907438
+    },
+    "protobot-collab-linux-arm64.tar.gz": {
+      "sha256": "75b75b74efde54a7625711379d3cdaae790e1439661a16ab5fe987f020cd45d1",
+      "bytes": 46359227
+    },
+    "Protobot-Mac-collaboration.zip": {
+      "sha256": "d8b52d541cf19c2fd069dd8c0fb61d55340f82ae831964b89534c4230dd7af18",
+      "bytes": 212337111
+    },
+    "Protobot-Windows-collaboration.zip": {
+      "sha256": "a06bb005f26afa7e7899bc944dd58686c85c296abbe5922b47aa398b7bc79367",
+      "bytes": 227983710
+    }
+  },
+  "localChecks": {
+    "host": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "sdk": "10.0.403",
+    "unityPlayerVersion": "6000.6.6f1",
+    "cliAndLabBuilds": {
+      "passed": true,
+      "warnings": 0,
+      "errors": 0,
+      "cachedPackages": true,
+      "onlineNuGetAudit": false
+    },
+    "retainedPackages": {
+      "passed": true,
+      "archives": 6,
+      "helpers": 4,
+      "players": 2,
+      "everyArchivePayloadCompared": true,
+      "macSignaturesIncludingExtractedArchives": true,
+      "elapsedSeconds": 13.07,
+      "checkerSha256": "2cfad1f68ecd11cf5681d044a6788d97eb8763d42fc9087cb27120502deef92e"
+    },
+    "badDigestRefusal": {
+      "passed": true,
+      "invalidDigestRefused": true,
+      "evidenceNotPublished": true,
+      "exitCode": 1
+    },
+    "fullLab": {
+      "passed": true,
+      "bots": 10,
+      "assertions": 1671,
+      "elapsedSeconds": 308.39,
+      "includesInstallation": true,
+      "includesOriginalCompatibilityFixtures": true,
+      "includesArchiveExtractedMacPlayerAssertions": 8,
+      "archiveExtractedMacPlayerProcesses": 4
+    },
+    "renderedMacPlayerUI": {
+      "participants": 2,
+      "passed": true,
+      "role": "owner",
+      "transport": "websocket",
+      "elapsedSeconds": 22.07
+    },
+    "sourceInputs": {
+      "allRecordedProductionChecksumsMatch": true,
+      "helperProductionFiles": 44,
+      "eachPlayerMainAssemblyProductionFiles": 261,
+      "eachPlayerSharedAssemblyProductionFiles": 20
+    },
+    "sourceRebuild": {
+      "passed": true,
+      "bitForBitReproducibilityEstablished": false,
+      "differingBytesPerHelperAssembly": 72,
+      "comparedMethodDefinitions": 1308,
+      "methodNamesSignaturesAndILMatch": true,
+      "packagedInformationalVersionSourceRevision": "fb9f6de614a1810eef0b7bf111b63daba71f71b4",
+      "note": "Retained packages were built before the candidate commit. All recorded production-source checksums match this checkout; the fresh cached Release build has matching method names/signatures/IL. Do not treat this as a fully reproducible-build attestation."
+    },
+    "mainSceneGitBlob": "f87eab03ef569378afd6a3038c3fb11993fbba2d",
+    "mainSceneUnchanged": true,
+    "productionCodeChanged": false,
+    "confirmedProductDefects": 0
+  },
+  "fieldGates": [
+    "Human two-person/two-machine acceptance including Mac-to-Windows and swapped roles",
+    "Windows x64 helper/player execution, cmd launcher quoting, ACLs and OS download behavior",
+    "Linux x64 and Linux arm64 execution; Debian/Pi systemd/resource/reboot/restore/update",
+    "Native dialogs, keyboard/focus/cancellation and independent save behavior on actual desktop OSes",
+    "Cross-OS room backup archives, including replaced-v3 data",
+    "Trusted public HTTPS, intended ports, real proxy/Basic/CONNECT and school networks",
+    "Mac notarization/Gatekeeper downloaded-quarantine acceptance; signatures checked only for local integrity"
+  ],
+  "retainedFailedAttempts": [
+    "Sandboxed full lab made no progress and was stopped after 140.36 seconds; rerun with local listener/process access.",
+    "First unrestricted lab used a post-creation helper for the pre-creation-refusal fixture and timed out at InstallationChecks:140. Corrected to the preserved post-shutdown/pre-creation helper; final full lab passed.",
+    "Source publish with --no-restore lacked the osx-arm64 assets target. Restore from an empty local feed/cache and publish passed; no online audit.",
+    "Initial rendered UI runner used the wrong executable name and did not launch. Resolved actual package executable.",
+    "Batch-mode UI probe could not capture its required screenshot and timed out. Rendered two-window rerun passed in 22.07 seconds."
+  ],
+  "evidenceRoot": "Collaboration/artifacts/rc-18b87b0 (ignored local raw logs/screenshots; may contain private test data in separately referenced temporary directories)",
+  "evidenceFiles": [
+    "build-cli.log",
+    "build-lab.log",
+    "packages-reviewed.json",
+    "packages-reviewed.log",
+    "verifier-refusal.json",
+    "full-lab-command-final.json",
+    "full-lab-final.log",
+    "full-lab-final-result.json",
+    "source-inputs-summary.json",
+    "metadata.jsonl",
+    "metadata-additional.jsonl",
+    "metadata-windows-player.jsonl",
+    "source-build-cached.log",
+    "source-assemblies.json",
+    "source-methods.json",
+    "player-ui-rendered-run.json",
+    "player-ui-rendered.json.child.json",
+    "player-ui-rendered.json.connected.png",
+    "player-ui-rendered.json.child.json.connected.png"
+  ],
+  "authorization": {
+    "committed": false,
+    "published": false,
+    "deployed": false,
+    "serviceInstalled": false,
+    "productionInstallationModified": false,
+    "retainedArchivesRepackedOrSigned": false
+  },
+  "repositoryChecks": {
+    "diffCheckPassed": true,
+    "applicationSceneSettingsAndLabUnchangedFromCandidate": true,
+    "reviewChanges": [
+      "Collaboration/ACCEPTANCE.md",
+      "Collaboration/RC_18b87b0.json",
+      "Collaboration/RELEASE_CHECKLIST.md",
+      "Collaboration/tools/validate-release-artifacts.py",
+      "VALIDATION.md"
+    ]
+  }
+}

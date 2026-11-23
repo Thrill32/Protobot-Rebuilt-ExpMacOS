@@ -67,10 +67,10 @@ namespace ProtobotEditorTools {
             wrapperField.SetValue(null, dialogs);
             var directory = Path.Combine(Path.GetTempPath(), "Protobot file validation " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
-            bool hadDirectory = PlayerPrefs.HasKey("buildFileDirectory");
-            var previousDirectory = PlayerPrefs.GetString("buildFileDirectory");
-            bool hadRecent = PlayerPrefs.HasKey("recentBuilds");
-            var previousRecent = PlayerPrefs.GetString("recentBuilds");
+            bool hadDirectory = LocalPreferences.HasKey("buildFileDirectory");
+            var previousDirectory = LocalPreferences.GetString("buildFileDirectory");
+            bool hadRecent = LocalPreferences.HasKey("recentBuilds");
+            var previousRecent = LocalPreferences.GetString("recentBuilds");
             int unityThread = Thread.CurrentThread.ManagedThreadId;
             int saves = 0, loads = 0;
             GameObject concurrentEdit = null;
@@ -87,14 +87,14 @@ namespace ProtobotEditorTools {
                 Require(recentList != null, "Missing recent-build UI.");
                 var unavailable = new[] { "/Volumes/Offline server/Robot.pbb", "/Users/Offline/Library/CloudStorage/Robot.pbb" };
                 string history = unavailable[0] + "\n\n" + unavailable[1] + "\n" + unavailable[0] + "\n ";
-                PlayerPrefs.SetString("recentBuilds", history);
+                LocalPreferences.SetString("recentBuilds", history);
                 var recent = recentList.GetPaths();
                 Require(recent.Count == 2 && recent[0] == unavailable[0] && recent[1] == unavailable[1],
                     "Recent-file UI probed/pruned unavailable paths instead of displaying saved history.");
                 recentList.AddPath("");
-                Require(PlayerPrefs.GetString("recentBuilds") == history, "UI refresh changed unavailable-file history.");
-                if (hadRecent) PlayerPrefs.SetString("recentBuilds", previousRecent);
-                else PlayerPrefs.DeleteKey("recentBuilds");
+                Require(LocalPreferences.GetString("recentBuilds") == history, "UI refresh changed unavailable-file history.");
+                if (hadRecent) LocalPreferences.SetString("recentBuilds", previousRecent);
+                else LocalPreferences.DeleteKey("recentBuilds");
 
                 // A callback on Cocoa's event stack must not execute Unity work inline.
                 var callbackTask = NativeFileDialogs.OpenFileAsync("Test", "", "pbb");
@@ -200,10 +200,10 @@ namespace ProtobotEditorTools {
             finally {
                 wrapperField.SetValue(null, previousWrapper);
                 if (concurrentEdit != null) Object.DestroyImmediate(concurrentEdit);
-                if (hadDirectory) PlayerPrefs.SetString("buildFileDirectory", previousDirectory);
-                else PlayerPrefs.DeleteKey("buildFileDirectory");
-                if (hadRecent) PlayerPrefs.SetString("recentBuilds", previousRecent);
-                else PlayerPrefs.DeleteKey("recentBuilds");
+                if (hadDirectory) LocalPreferences.SetString("buildFileDirectory", previousDirectory);
+                else LocalPreferences.DeleteKey("buildFileDirectory");
+                if (hadRecent) LocalPreferences.SetString("recentBuilds", previousRecent);
+                else LocalPreferences.DeleteKey("recentBuilds");
                 Directory.Delete(directory, true);
             }
         }

@@ -1,5 +1,6 @@
 using System.Linq;
 using Protobot.UI;
+using Protobot.InputEvents;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -16,11 +17,11 @@ namespace Protobot {
         }
 
         private static readonly Definition[] Definitions = {
-            new("Orbit Sensitivity", "Orbit sensitivity", NumericPreferenceField.CameraValue.OrbitSensitivity, .1f, .001f, 5f),
-            new("Pan Sensitivity", "Pan sensitivity", NumericPreferenceField.CameraValue.PanSensitivity, .05f, .0001f, 2f),
-            new("Zoom Sensitivity", "Zoom sensitivity", NumericPreferenceField.CameraValue.ZoomSensitivity, 1f, .01f, 10f),
-            new("Free-fly Look Sensitivity", "Shift+mouse look sensitivity", NumericPreferenceField.CameraValue.MouseLookSensitivity, .1f, .001f, 5f),
-            new("Free-fly Movement Speed", "WASDQE movement speed", NumericPreferenceField.CameraValue.MovementSpeed, 15f, .1f, 500f)
+            new("Orbit Sensitivity", "Orbit", NumericPreferenceField.CameraValue.OrbitSensitivity, .1f, .001f, 5f),
+            new("Pan Sensitivity", "Pan", NumericPreferenceField.CameraValue.PanSensitivity, .05f, .0001f, 2f),
+            new("Zoom Sensitivity", "Zoom", NumericPreferenceField.CameraValue.ZoomSensitivity, 1f, .01f, 10f),
+            new("Free-fly Look Sensitivity", "Free-fly look", NumericPreferenceField.CameraValue.MouseLookSensitivity, .1f, .001f, 5f),
+            new("Free-fly Movement Speed", "Free-fly speed", NumericPreferenceField.CameraValue.MovementSpeed, 15f, .1f, 500f)
         };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -32,6 +33,8 @@ namespace Protobot {
             var mouse = camera.GetComponent<MousePivotCameraInput>();
             var noclip = camera.GetComponent<NoclipCameraInput>();
             var left = cameraMenu.GetComponentsInChildren<RectTransform>(true).Single(item => item.name == "Left Column");
+            var resetPrototype = Object.FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .FirstOrDefault(button => button.name == "Reset Rebinds Button");
 
             // Prevent saved legacy slider values from applying after these
             // fields have initialized. NumericPreferenceField migrates them.
@@ -39,15 +42,45 @@ namespace Protobot {
                 if (setting.name == "Orbit Sensitivity" || setting.name == "Pan Sensitivity" || setting.name == "Zoom Sensitivitiy")
                     setting.enabled = false;
 
-            for (int i = 0; i < Definitions.Length; i++) ConfigureField(left, Definitions[i], i, mouse, noclip);
+            for (int i = 0; i < Definitions.Length; i++) ConfigureField(left, Definitions[i], i, mouse, noclip, resetPrototype);
+            LayoutCategory((RectTransform)cameraMenu, left);
 
             var categories = (RectTransform)cameraMenu.parent;
             if (categories.GetComponent<RectMask2D>() == null) categories.gameObject.AddComponent<RectMask2D>();
             if (categories.GetComponent<PreferencesCategoryScroller>() == null) categories.gameObject.AddComponent<PreferencesCategoryScroller>();
         }
 
+        private static void LayoutCategory(RectTransform category, RectTransform left) {
+            // The authored columns were anchored to the viewport bottom while the
+            // keybinds were anchored to its top. Give the category a content height
+            // derived from its live rows, independent of the window/scroll viewport.
+            float top = 45f;
+            var rows = category.GetComponentsInChildren<RebindUI>(true)
+                .Where(row => row.gameObject.activeSelf)
+                .Select(row => (RectTransform)row.transform)
+                .OrderByDescending(row => row.anchoredPosition.y).ToArray();
+            foreach (var row in rows) {
+                row.SetInsetAndSizeFromParentEdge(RectTransform.Edge.Top, top, row.rect.height);
+                top += row.rect.height + 5f;
+            }
+            top += 5f;
+            float fieldHeight = 35f + (Definitions.Length - 1) * 29f + 25f;
+            foreach (var column in new[] { left, (RectTransform)category.Find("Right Column") }) {
+                column.anchorMin = new Vector2(0f, 1f);
+                column.anchorMax = Vector2.one;
+                column.pivot = new Vector2(.5f, 1f);
+                column.anchoredPosition = new Vector2(column.anchoredPosition.x, -top);
+                column.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, column == left ? fieldHeight : 120f);
+            }
+            category.anchorMin = new Vector2(0f, 1f);
+            category.anchorMax = Vector2.one;
+            category.pivot = new Vector2(.5f, 1f);
+            category.anchoredPosition = Vector2.zero;
+            category.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, top + fieldHeight + 12f);
+        }
+
         private static void ConfigureField(RectTransform parent, Definition definition, int index,
-            MousePivotCameraInput mouse, NoclipCameraInput noclip) {
+            MousePivotCameraInput mouse, NoclipCameraInput noclip, Button resetPrototype) {
             var row = parent.Cast<Transform>().FirstOrDefault(item => item.name == definition.name ||
                 definition.value == NumericPreferenceField.CameraValue.ZoomSensitivity && item.name == "Zoom Sensitivitiy") as RectTransform;
             if (row == null) {
@@ -56,7 +89,7 @@ namespace Protobot {
             }
             row.name = definition.name;
             row.anchorMin = row.anchorMax = new Vector2(.5f, 1f); row.pivot = new Vector2(.5f, 1f);
-            row.anchoredPosition = new Vector2(0f, -35f - index * 34f); row.sizeDelta = new Vector2(220f, 28f);
+            row.anchoredPosition = new Vector2(0f, -35f - index * 29f); row.sizeDelta = new Vector2(165f, 25f);
 
             foreach (var slider in row.GetComponentsInChildren<Slider>(true)) {
                 slider.interactable = false;
@@ -65,9 +98,10 @@ namespace Protobot {
             var title = row.Cast<Transform>().FirstOrDefault(item => item.name == "Title")?.GetComponent<Text>();
             if (title == null) title = CreateText(row, "Title", TextAnchor.MiddleLeft);
             title.text = definition.label;
+            title.resizeTextForBestFit = true; title.resizeTextMinSize = 9; title.resizeTextMaxSize = 13;
             var titleRect = (RectTransform)title.transform;
             titleRect.anchorMin = Vector2.zero; titleRect.anchorMax = Vector2.one;
-            titleRect.offsetMin = Vector2.zero; titleRect.offsetMax = new Vector2(-105f, 0f);
+            titleRect.offsetMin = Vector2.zero; titleRect.offsetMax = new Vector2(-90f, 0f);
 
             var fieldRect = row.Find("Numeric Field") as RectTransform;
             if (fieldRect == null) {
@@ -75,21 +109,47 @@ namespace Protobot {
                 obj.layer = row.gameObject.layer; fieldRect = obj.GetComponent<RectTransform>(); fieldRect.SetParent(row, false);
                 var text = CreateText(fieldRect, "Text", TextAnchor.MiddleRight);
                 var textRect = (RectTransform)text.transform; textRect.anchorMin = Vector2.zero; textRect.anchorMax = Vector2.one;
-                textRect.offsetMin = new Vector2(8f, 2f); textRect.offsetMax = new Vector2(-8f, -2f);
+                textRect.offsetMin = new Vector2(5f, 1f); textRect.offsetMax = new Vector2(-5f, -1f);
                 var placeholder = CreateText(fieldRect, "Placeholder", TextAnchor.MiddleRight);
                 placeholder.text = "value"; placeholder.color = new Color(1f, 1f, 1f, .35f);
                 var placeholderRect = (RectTransform)placeholder.transform;
                 placeholderRect.anchorMin = Vector2.zero; placeholderRect.anchorMax = Vector2.one;
-                placeholderRect.offsetMin = new Vector2(8f, 2f); placeholderRect.offsetMax = new Vector2(-8f, -2f);
+                placeholderRect.offsetMin = new Vector2(5f, 1f); placeholderRect.offsetMax = new Vector2(-5f, -1f);
                 var input = obj.GetComponent<InputField>(); input.textComponent = text; input.placeholder = placeholder;
                 input.targetGraphic = obj.GetComponent<Image>(); input.lineType = InputField.LineType.SingleLine;
             }
             fieldRect.anchorMin = fieldRect.anchorMax = new Vector2(1f, .5f); fieldRect.pivot = new Vector2(1f, .5f);
-            fieldRect.anchoredPosition = Vector2.zero; fieldRect.sizeDelta = new Vector2(100f, 26f);
+            fieldRect.anchoredPosition = new Vector2(-30f, 0f); fieldRect.sizeDelta = new Vector2(55f, 20f);
             fieldRect.GetComponent<Image>().color = new Color(.18f, .18f, .18f, 1f);
             var numeric = fieldRect.GetComponent<NumericPreferenceField>() ?? fieldRect.gameObject.AddComponent<NumericPreferenceField>();
             numeric.Configure(fieldRect.GetComponent<InputField>(), definition.value, mouse, noclip,
                 definition.fallback, definition.min, definition.max);
+
+            var defaultButton = ConfigureDefaultButton(row, resetPrototype);
+            numeric.SetDefaultButton(defaultButton);
+        }
+
+        private static Button ConfigureDefaultButton(RectTransform row, Button prototype) {
+            var rect = row.Find("Set Default Button") as RectTransform;
+            if (rect == null) {
+                var obj = new GameObject("Set Default Button", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+                obj.layer = row.gameObject.layer; rect = obj.GetComponent<RectTransform>(); rect.SetParent(row, false);
+            }
+            rect.anchorMin = rect.anchorMax = new Vector2(1f, .5f); rect.pivot = new Vector2(1f, .5f);
+            rect.anchoredPosition = new Vector2(-10f, 0f); rect.sizeDelta = new Vector2(15f, 15f);
+            var image = rect.GetComponent<Image>();
+            var button = rect.GetComponent<Button>();
+            if (prototype != null) {
+                var prototypeImage = prototype.targetGraphic as Image;
+                if (prototypeImage != null) {
+                    image.sprite = prototypeImage.sprite; image.type = prototypeImage.type;
+                    image.preserveAspect = prototypeImage.preserveAspect; image.color = prototypeImage.color;
+                }
+                button.transition = prototype.transition; button.colors = prototype.colors; button.spriteState = prototype.spriteState;
+            }
+            button.targetGraphic = image;
+            button.navigation = new Navigation { mode = Navigation.Mode.Automatic };
+            return button;
         }
 
         private static Text CreateText(Transform parent, string name, TextAnchor alignment) {

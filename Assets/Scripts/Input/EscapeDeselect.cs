@@ -47,7 +47,9 @@ namespace Protobot.InputEvents {
         private void DeselectOneLevel() {
             // Native panels and the rebind UI own their own Escape handling.
             if (NativeFileDialogs.IsOpen || RebindAction.Rebinding || RebindAction.CanceledThisFrame) return;
+            if (KeyboardTransformTool.CancelPendingMirror()) return;
             if (CancelFocusedUI()) return;
+            if (CollaborationSession.CancelWaitingReservation()) return;
             if (KeyboardTransformTool.CancelActive()) return;
             if (placement != null && placement.placing) { placement.CancelPlacement(); return; }
             foreach (var drag in FindObjectsByType<ClickDragTool>(FindObjectsSortMode.None))
@@ -57,6 +59,7 @@ namespace Protobot.InputEvents {
             foreach (var box in FindObjectsByType<BoxSelectUI>(FindObjectsSortMode.None))
                 if (box.CancelSelection()) return;
             if (CustomModelTool.TryCancelActive()) return;
+            if (SimulationTool.CancelRouting()) return;
             if (BuildTransferTool.IsBusy || FindFirstObjectByType<BuildsManager>()?.IsFileOperationInProgress == true) return;
             var simulation = FindFirstObjectByType<SimulationTool>();
             if (simulation != null && simulation.Current != null) { simulation.Cancel(); return; }
@@ -76,6 +79,7 @@ namespace Protobot.InputEvents {
         }
 
         private static bool CancelFocusedUI() {
+            if (CollaborationSession.CancelPanel()) return true;
             var events = EventSystem.current;
             var focused = events != null ? events.currentSelectedGameObject : null;
             if (focused != null) {

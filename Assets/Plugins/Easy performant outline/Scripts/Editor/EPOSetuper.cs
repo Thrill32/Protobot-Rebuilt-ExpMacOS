@@ -474,7 +474,7 @@ namespace EPOOutline
 
                     var rendererAsset = PipelineAssetUtility.CreateRenderData();
                     var asset = PipelineAssetUtility.CreateAsset(rendererAsset);
-                    GraphicsSettings.renderPipelineAsset = asset;
+                    GraphicsSettings.defaultRenderPipeline = asset;
                     AssetDatabase.CreateAsset(rendererAsset, pathNoExt + " renderer.asset");
                     AssetDatabase.CreateAsset(asset, path);
                 }

@@ -65,8 +65,11 @@ namespace Protobot.SelectionSystem {
         private Vector3? localFaceDirection;
         public void Select() {
             if (holeData.part != null) {
-                localFaceDirection ??= holeData.part.transform.InverseTransformDirection(faceDirection);
-                faceDirection = holeData.part.transform.TransformDirection(localFaceDirection.Value);
+                var body = holeData.part.GetComponent<SavedObject>();
+                var direction = holeData.part.transform.InverseTransformDirection(faceDirection);
+                localFaceDirection ??= body != null ? body.GeometryLocal(direction) : direction;
+                faceDirection = holeData.part.transform.TransformDirection(
+                    body != null ? body.GeometryLocal(localFaceDirection.Value) : localFaceDirection.Value);
             }
             holeFace.Set(holeData, faceDirection);
             holeFace.gameObject.SetActive(true);
@@ -82,12 +85,20 @@ namespace Protobot.SelectionSystem {
         public HoleData Hole { get; }
         private readonly Vector3 localDirection;
         private readonly HoleFace marker;
-        public Vector3 Direction => Hole.part.transform.TransformDirection(localDirection).normalized;
+        public Vector3 Direction {
+            get {
+                var body = Hole.part.GetComponent<SavedObject>();
+                return Hole.part.transform.TransformDirection(body != null ? body.GeometryLocal(localDirection) : localDirection).normalized;
+            }
+        }
         public Pose Face => MoveTargeting.HoleFace(Hole, Direction);
+        public bool IsValid => Hole?.part != null && Hole.part.activeInHierarchy && !Hole.part.IsDeleted() &&
+            Hole.source != null && Hole.source.gameObject.activeInHierarchy;
 
         private SelectedHoleAnchor(HoleData hole, Vector3 direction, HoleFace marker) {
             Hole = hole;
             localDirection = hole.part.transform.InverseTransformDirection(direction);
+            if (hole.part.TryGetComponent<SavedObject>(out var body)) localDirection = body.GeometryLocal(localDirection);
             this.marker = marker;
         }
 

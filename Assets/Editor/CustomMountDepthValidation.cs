@@ -240,7 +240,7 @@ namespace ProtobotEditorTools {
                 Near(points[0].Depth, beforePause, "Resuming a paused controller jumped the depth.");
 
                 var overToolbar = new Vector2(camera.pixelRect.center.x, Screen.height - 2);
-                InputSystem.QueueStateEvent(Mouse.current, new MouseState { position = overToolbar, buttons = 1 }); UpdateInput();
+                InputSystem.QueueStateEvent(Mouse.current, new MouseState { position = overToolbar, delta = overToolbar - Mouse.current.position.ReadValue(), buttons = 1 }); UpdateInput();
                 module.Process(); Require(MouseInput.overUI, "The click fixture missed Main's toolbar."); UpdateEditing();
                 Require(editor.IsEditing, "A UI click confirmed the depth gesture.");
                 Pointer((Vector2)MouseInput.Position); // Acknowledge the wrap before revisiting the toolbar.
@@ -278,7 +278,10 @@ namespace ProtobotEditorTools {
         };
         private static async Task NextFrame() { int frame = Time.frameCount; while (frame == Time.frameCount) await Task.Yield(); }
         private static void Keys(params Key[] keys) { InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(keys)); UpdateInput(); }
-        private static void Pointer(Vector2 position) { InputSystem.QueueStateEvent(Mouse.current, new MouseState { position = position }); UpdateInput(); }
+        private static void Pointer(Vector2 position) {
+            InputSystem.QueueStateEvent(Mouse.current, new MouseState { position = position, delta = position - Mouse.current.position.ReadValue() });
+            UpdateInput();
+        }
         private static void Text(string text) { foreach (char character in text) InputSystem.QueueTextEvent(Keyboard.current, character); UpdateInput(); }
         private static void UpdateInput() => typeof(InputSystem).GetMethod("Update", BindingFlags.NonPublic | BindingFlags.Static, null, new[] { typeof(InputUpdateType) }, null).Invoke(null, new object[] { InputUpdateType.Dynamic });
         private static T Get<T>(object obj, string name) => (T)obj.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(obj);

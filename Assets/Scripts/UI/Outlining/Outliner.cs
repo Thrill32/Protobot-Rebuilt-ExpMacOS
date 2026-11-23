@@ -30,6 +30,7 @@ namespace Protobot.Outlining {
         }
 
         public static void DisableOutline(this GameObject obj) {
+            if (obj == null) return;
             Outlinable outline = obj.GetComponent<Outlinable>();
 
             if (outline != null) {

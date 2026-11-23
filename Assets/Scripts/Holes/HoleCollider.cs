@@ -54,7 +54,7 @@ namespace Protobot {
         }
 
         public void RemoveDeletedDetectors() {
-            var deleteList = detectors.Where(detector => detector == null || detector.gameObject.IsDeleted()).ToList();
+            var deleteList = detectors.Where(detector => detector == null || !detector.CanDetect).ToList();
 
             foreach (var detector in deleteList) {
                 if (detector != null) detector.RemoveHole(this);
@@ -71,6 +71,8 @@ namespace Protobot {
         }
 
         public bool TryAddDetector(HoleDetector newDetector) {
+            if (this == null || !isActiveAndEnabled || !gameObject.activeInHierarchy || gameObject.IsDeleted() ||
+                newDetector == null || !newDetector.CanDetect) return false;
             if (IsOccupiedBy(newDetector)) return true;
             if (IsOccupied) return false;
             detectors.Add(newDetector);

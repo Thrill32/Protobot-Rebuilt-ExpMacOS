@@ -5,6 +5,7 @@ using UnityEngine;
 using Protobot.Outlining;
 using EPOOutline;
 using Protobot.Transformations;
+using Protobot.SelectionSystem;
 
 namespace Protobot {
     public class GameObjectPlacementData : PlacementData {
@@ -12,6 +13,7 @@ namespace Protobot {
 
         private GameObject gameObject;
         public bool individual { get; }
+        public SelectedHoleAnchor sourceHole { get; }
 
         public override string objectId {
             get {
@@ -22,10 +24,12 @@ namespace Protobot {
             }
         }
 
-        public GameObjectPlacementData(GameObject gameObject, Transform placementTransform, bool individual = false) {
+        public GameObjectPlacementData(GameObject gameObject, Transform placementTransform, bool individual = false,
+            SelectedHoleAnchor sourceHole = null) {
             this.gameObject = gameObject;
             this.placementTransform = placementTransform;
             this.individual = individual;
+            this.sourceHole = sourceHole;
         }
 
         public override Mesh GetDisplayMesh() {

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><AssemblyName>protobot-collab-lab</AssemblyName></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/Server/Server.csproj" /><Compile Include="../../../Assets/Editor/Collaboration/OutboundProxyFixture.cs" Link="OutboundProxyFixture.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../../Assets/Scripts/Part Management/CustomModelImporter.cs" Link="CustomModelImporter.cs" />
+    <Compile Include="../../../Assets/Scripts/Part Management/CustomModelPackage.cs" Link="CustomModelPackage.cs" />
+    <Compile Include="../../../Assets/Scripts/Part Management/CustomModelGlb.cs" Link="CustomModelGlb.cs" />
+    <Compile Include="../../../Assets/Scripts/Part Management/CustomModelData.cs" Link="CustomModelData.cs" />
+  </ItemGroup>
+</Project>

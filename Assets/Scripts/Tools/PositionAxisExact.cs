@@ -19,6 +19,7 @@ namespace Protobot.Tools {
         public void SetPosition(float distance) {
             Vector3 axisOffset = Vector3.Project(Vector3.one * distance, positionAxis.normal.Vector);
             Vector3 newPos = positionAxis.initObjPos + axisOffset;
+            if (CollaborationSession.IsShared) { positionAxis.movementManager.MoveTo(newPos); return; }
 
             Transform refTransform = positionAxis.refObj.transform;
             refTransform.DOMove(newPos, 0.25f);

@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System;
@@ -13,6 +13,7 @@ namespace Protobot.Builds {
         public ObjectData[] parts = Array.Empty<ObjectData>();
         public CameraData camera;
         [System.Runtime.Serialization.OptionalField] public ChainData[] chains;
+        [System.Runtime.Serialization.OptionalField] public RopeRouteData[] ropes;
         [System.Runtime.Serialization.OptionalField] public PlacementAnchorData placementAnchor;
 
         public string lastWriteTime;
@@ -36,18 +37,29 @@ namespace Protobot.Builds {
                     return false;
             }
 
-            return ChainKeys(chains).SequenceEqual(ChainKeys(data.chains));
+            var firstRopes = (ropes ?? Array.Empty<RopeRouteData>()).OrderBy(rope => rope.id, StringComparer.Ordinal).ToArray();
+            var secondRopes = (data.ropes ?? Array.Empty<RopeRouteData>()).OrderBy(rope => rope.id, StringComparer.Ordinal).ToArray();
+            return ChainKeys(chains).SequenceEqual(ChainKeys(data.chains)) && firstRopes.Length == secondRopes.Length &&
+                firstRopes.Zip(secondRopes, (first, second) => first.id == second.id && first.SamePath(second)).All(equal => equal);
         }
 
         private static IEnumerable<string> ChainKeys(ChainData[] values) => (values ?? Array.Empty<ChainData>())
             .Where(c => c?.members != null)
-            .Select(c => string.Join("|", (c.members ?? Array.Empty<string>()).OrderBy(id => id, StringComparer.Ordinal)))
+            .Select(c => Protobot.Collaboration.DocumentModel.RouteKey(c.members, c.routeVersion, c.wraps))
             .OrderBy(key => key, StringComparer.Ordinal);
     }
 
     [Serializable]
     public class ChainData {
         public string[] members;
+        // Version 0 is the legacy unordered outer hull. Version 1 stores a cyclic
+        // route and an explicit wrap for each member: 0 = outer, 1 = inner.
+        [System.Runtime.Serialization.OptionalField] public int routeVersion;
+        [System.Runtime.Serialization.OptionalField] public int[] wraps;
+        [System.Runtime.Serialization.OptionalField] public string id;
+        public ChainData Remap(Func<string, string> map) => new() {
+            members = members.Select(map).ToArray(), routeVersion = routeVersion, wraps = wraps?.ToArray()
+        };
     }
 
     [Serializable]

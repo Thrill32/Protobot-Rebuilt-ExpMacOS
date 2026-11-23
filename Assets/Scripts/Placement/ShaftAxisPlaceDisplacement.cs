@@ -43,6 +43,7 @@ namespace Protobot {
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             if (HoverObj != null && (placementData.objectId.Contains("Hole") || GetOffset(placementData) > 0)) {
                 if (HoverObj.tag.Contains("Shaft")) {
+                    CollaborationScene.Read(HoverObj);
                     ConnectingPart connectingPart = HoverObj.GetComponent<ConnectingPart>();
                     Transform shaftTransform = HoverObj.transform;
 
@@ -61,6 +62,8 @@ namespace Protobot {
 
                     if (forwardCast) forwardDistance = Vector3.Distance(forwardHit.point, shaftMousePos);
                     if (backwardCast) backwardDistance = Vector3.Distance(backwardHit.point, shaftMousePos);
+                    if (forwardCast) CollaborationScene.Read(forwardHit.collider.gameObject);
+                    if (backwardCast) CollaborationScene.Read(backwardHit.collider.gameObject);
 
                     Vector3 offset = shaftTransform.forward * (GetOffset(placementData) + GetInsertsOffset(placementData, HoverObj));
 

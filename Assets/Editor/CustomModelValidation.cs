@@ -246,8 +246,33 @@ namespace ProtobotEditorTools {
                 CustomModelTool.CancelActive();
                 SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
                 Require(PartsManager.FindLoadedObjects().Count == 0, "A legacy/default build failed to clear custom models.");
+                string[] arguments = Environment.GetCommandLineArgs();
+                for (int i = 0; i + 1 < arguments.Length; i++) {
+                    if (arguments[i] != "-customModelFixture") continue;
+                    await NextFrame();
+                    await CheckAppearanceFixture(tool, arguments[++i]);
+                    SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
+                }
             }
             finally { if (File.Exists(path)) File.Delete(path); CustomModelTool.CancelActive(); }
+        }
+
+        private static async Task CheckAppearanceFixture(CustomModelTool tool, string path) {
+            var body = await tool.ImportPathAsync(path, 1);
+            Require(body != null, "The fixture was not materialized through the runtime importer: " + path);
+            var appearance = body.GetComponent<CustomModel>().Snapshot().appearance;
+            var materials = body.GetComponent<MeshRenderer>().sharedMaterials;
+            var textures = materials.Select(material => material.mainTexture).ToArray();
+            Require(appearance != null && textures.Any(texture => texture != null) &&
+                materials.All(material => material.shader.name == "Protobot/Imported Diffuse"), "The runtime fixture lost its diffuse materials.");
+            var snapshot = SceneBuild.ToBuildData();
+            var clipboard = BuildTransfer.FromClipboard(BuildTransfer.ToClipboard(snapshot));
+            Require(clipboard.CompareData(snapshot), "The fixture's embedded appearance changed in a clipboard round trip.");
+            PartColors.ApplyPaint(body, Color.cyan);
+            Require(materials.All(material => material.mainTexture == null), "Paint left a diffuse texture active.");
+            PartColors.RestoreDefaults(body);
+            Require(materials.Select(material => material.mainTexture).SequenceEqual(textures), "Default did not restore the fixture's imported textures.");
+            Debug.Log("Runtime import, embedded clipboard, and Paint/Default passed for " + Path.GetFileName(path));
         }
 
         private static async Task NextFrame() { int frame = Time.frameCount; while (Time.frameCount == frame) await Task.Yield(); }

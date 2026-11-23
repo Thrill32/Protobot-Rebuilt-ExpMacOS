@@ -806,7 +806,7 @@ PlayerSettings:
     tvOS: UNITY_POST_PROCESSING_STACK_V2
   additionalCompilerArguments: {}
   platformArchitecture:
-    Standalone: 0
+    Standalone: 1
   scriptingBackend:
     Android: 0
   il2cppCompilerConfiguration: {}

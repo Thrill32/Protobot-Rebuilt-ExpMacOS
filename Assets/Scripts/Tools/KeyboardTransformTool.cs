@@ -12,7 +12,7 @@ using UnityEngine.UI;
 
 namespace Protobot.Tools {
     /// <summary>Blender-style modal grab/rotation of the current rigid selection.</summary>
-    public sealed class KeyboardTransformTool : MonoBehaviour {
+    public sealed partial class KeyboardTransformTool : MonoBehaviour {
         [SerializeField] private SelectionManager selectionManager;
         [SerializeField] private Placement placement;
         [SerializeField] private Camera refCamera;
@@ -40,6 +40,7 @@ namespace Protobot.Tools {
         private readonly List<Quaternion> rotations = new();
         private List<GameObject> bodies;
         private List<IElement> before;
+        private bool duplicateForGesture;
         private readonly List<GameObject> duplicates = new();
         private ISelection selection;
         private Vector3 origin;
@@ -48,19 +49,26 @@ namespace Protobot.Tools {
         private bool rotating;
         private bool settling;
         private bool cameraPaused;
+        private bool hasFocus;
         private Tween smoothingTween;
         private Vector3 displayedOffset;
         private Quaternion displayedRotation = Quaternion.identity;
         private Vector3 targetOffset;
         private Quaternion targetRotation = Quaternion.identity;
+        private ISelection moveHandoffSelection;
+        private bool moveHandoffWaiting;
         private const float SmoothingDuration = 0.25f; // Same duration as standard axis dragging.
 
-        public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled && (instance.active || instance.placement?.IsTypingRotation == true)) ||
+        public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled &&
+            (instance.active || instance.mirrorSelection != null || instance.placement?.IsTypingRotation == true)) ||
             finishedFrame == Time.frameCount;
+        public static bool IsBorrowingMove => instance != null && instance.isActiveAndEnabled &&
+            instance.moveHandoffSelection != null && (instance.moveHandoffWaiting || instance.placement?.placing == true);
 
         internal static void CaptureCurrentFrame() => finishedFrame = Time.frameCount;
 
         internal static bool CancelActive() {
+            if (CancelPendingMirror()) return true;
             if (instance == null || !instance.active) return false;
             instance.Finish(false);
             return true;
@@ -92,8 +100,10 @@ namespace Protobot.Tools {
         // Keep modifiers available, but consume selection, undo/redo, tool changes,
         // and camera clicks until the confirmation/cancellation frame has ended.
         public static bool AllowsInput(InputEvent input) {
+            if (instance != null && instance.HoldsMirrorAxis(input)) return false;
             if (!IsCapturingInput || instance == null)
                 return true;
+            if (instance.mirrorSelection != null) return false;
             if (instance.numericInput.IsOpen || instance.placement?.IsTypingRotation == true)
                 return false;
             // Raw modal axis keys win even over allowed actions rebound to X/Y/Z.
@@ -137,9 +147,11 @@ namespace Protobot.Tools {
 
         private void Awake() {
             instance = this;
+            hasFocus = Application.isFocused;
             grabInput.performed += Grab;
             rotateInput.performed += Rotate;
             if (holeSnapInput != null) holeSnapInput.performed += MoveFromGrab;
+            if (mirrorInput != null) mirrorInput.performed += BeginMirror;
         }
 
         private void Grab() => Begin(false);
@@ -147,14 +159,18 @@ namespace Protobot.Tools {
 
         private void Begin(bool rotate) {
             if (!isActiveAndEnabled || placement.placing || ConnectTool.IsCapturingPoints || CustomModelTool.IsCapturingInput ||
-                RebindAction.Rebinding || InputEvent.IsNoclipMovementCaptured || !Application.isFocused ||
+                RebindAction.Rebinding || InputEvent.IsNoclipMovementCaptured || !hasFocus ||
                 Mouse.current == null || MouseInput.overUI || IsEditingText())
                 return;
 
             BeginSelection(rotate);
         }
 
-        private void BeginSelection(bool rotate) {
+        private void BeginSelection(bool rotate) => BeginReservedSelection(rotate, false);
+
+        private void BeginReservedSelection(bool rotate, bool reservedForCollaboration) {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit && !reservedForCollaboration) return;
+            if (!reservedForCollaboration) duplicateForGesture = duplicator != null && duplicator.IsDuplicateHeld;
             if (active) {
                 if (settling || rotating == rotate)
                     return;
@@ -196,6 +212,18 @@ namespace Protobot.Tools {
             if (bodies.Count == 0)
                 return;
 
+            if (CollaborationSession.IsShared) {
+                if (!reservedForCollaboration) {
+                    var requestedSelection = selection;
+                    CollaborationSession.ReservePose(bodies, () => {
+                        if (selectionManager.current == requestedSelection) BeginReservedSelection(rotate, true);
+                        else CollaborationSession.CancelPose();
+                    });
+                    return;
+                }
+                if (!CollaborationSession.HasPoseReservation(bodies)) { CollaborationSession.CancelPose(); return; }
+            }
+
             // A MultiPivot is already a movement root. Never parent it under a
             // temporary pivot or transform its children a second time.
             foreach (var root in roots) {
@@ -228,13 +256,20 @@ namespace Protobot.Tools {
             if (!active || rotating || settling || numericInput.IsOpen ||
                 moveTool == null || moveToolManager == null) return;
 
+            var requestedSelection = selection;
+            bool hasSourceHole = MoveToolManager.HasConcreteSourceHole(requestedSelection);
             // Discard the uncommitted grab (including Alt copies) before using
-            // the same selection, toolbar and placement path as tool 2.
-            Finish(false);
+            // the same placement path as tool 2. The toolbar is intentionally
+            // untouched, so the user's prior tool remains selected.
+            FinishInternal(false, hasSourceHole);
             finishedFrame = -1;
             try {
-                moveTool.Toggle(true);
-                moveToolManager.StartMoving();
+                if (!hasSourceHole) return;
+                moveHandoffSelection = requestedSelection;
+                moveHandoffWaiting = true;
+                if (!moveToolManager.StartHoleMove(requestedSelection,
+                    () => moveHandoffWaiting = false, EndMoveHandoff))
+                    EndMoveHandoff();
             }
             finally {
                 // The shortcut still owns this frame: H must not toggle the grid,
@@ -244,7 +279,7 @@ namespace Protobot.Tools {
         }
 
         private void BeginDuplication() {
-            if (duplicator == null || !duplicator.IsDuplicateHeld)
+            if (duplicator == null || !(CollaborationSession.IsShared ? duplicateForGesture : duplicator.IsDuplicateHeld))
                 return;
             duplicates.AddRange(duplicator.CreateCopies(bodies));
             foreach (var copy in duplicates)
@@ -271,12 +306,14 @@ namespace Protobot.Tools {
         }
 
         private void LateUpdate() {
+            MaintainMoveHandoff();
+            if (mirrorSelection != null) { UpdateMirror(); return; }
             if (!active)
                 return;
 
             var keyboard = Keyboard.current;
             var mouse = Mouse.current;
-            if (RebindAction.Rebinding || !Application.isFocused || keyboard == null || mouse == null ||
+            if (RebindAction.Rebinding || !hasFocus || keyboard == null || mouse == null ||
                 selectionManager.current != selection || roots.Any(root => root == null) || placement.placing) {
                 Finish(false);
                 return;
@@ -402,7 +439,9 @@ namespace Protobot.Tools {
             }
         }
 
-        private void Finish(bool confirm) {
+        private void Finish(bool confirm) => FinishInternal(confirm, false);
+
+        private void FinishInternal(bool confirm, bool preservePoseReservation) {
             numericInput.Close();
             if (!active)
                 return;
@@ -425,6 +464,7 @@ namespace Protobot.Tools {
                         roots[i].SetPositionAndRotation(positions[i], rotations[i]);
                 }
                 ObjectDuplicator.DiscardCopies(duplicates);
+                if (!preservePoseReservation) CollaborationSession.CancelPose();
             }
             active = false;
             settling = false;
@@ -433,6 +473,8 @@ namespace Protobot.Tools {
         }
 
         private void CompleteConfirmation() {
+            smoothingTween?.Kill();
+            smoothingTween = null;
             displayedOffset = targetOffset;
             displayedRotation = targetRotation;
             ApplyDisplayedTransform();
@@ -440,12 +482,16 @@ namespace Protobot.Tools {
                 (Vector3.Distance(root.position, positions[i]) > 0.00001f ||
                  Quaternion.Angle(root.rotation, rotations[i]) > 0.0001f)).Any();
             if (changed) {
-                StateSystem.AddElements(before);
-                StateSystem.AddEmptyState();
-                StateSystem.AddElements(CaptureState());
+                if (CollaborationSession.IsShared) CollaborationSession.ConfirmPose(bodies, duplicates);
+                else {
+                    StateSystem.AddElements(before);
+                    StateSystem.AddEmptyState();
+                    StateSystem.AddElements(CaptureState());
+                }
             }
             else {
                 ObjectDuplicator.DiscardCopies(duplicates);
+                CollaborationSession.CancelPose();
             }
             duplicates.Clear();
             smoothingTween = null;
@@ -488,19 +534,42 @@ namespace Protobot.Tools {
             }
         }
 
-        private void OnDisable() => Finish(false);
+        private void MaintainMoveHandoff() {
+            if (moveHandoffSelection == null) return;
+            bool valid = selectionManager.current == moveHandoffSelection &&
+                MoveToolManager.HasConcreteSourceHole(moveHandoffSelection);
+            if (!valid) {
+                if (placement.placing) placement.CancelPlacement();
+                EndMoveHandoff();
+            }
+            else if (!moveHandoffWaiting && !placement.placing) EndMoveHandoff();
+        }
+
+        private void EndMoveHandoff() {
+            if (moveHandoffWaiting) CollaborationSession.CancelPose();
+            moveHandoffWaiting = false;
+            moveHandoffSelection = null;
+        }
+
+        private void OnDisable() {
+            CancelMirror();
+            Finish(false);
+            if (moveHandoffSelection != null && placement.placing) placement.CancelPlacement();
+            EndMoveHandoff();
+        }
 
         private string ConstraintLabel => axis == Vector3.right ? "X" :
             axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
 
-        public static string ControlsText => instance != null && instance.isActiveAndEnabled && instance.active
-            ? instance.GetControlsText() : null;
+        public static string ControlsText => instance == null || !instance.isActiveAndEnabled ? null :
+            instance.mirrorSelection != null && !instance.mirrorReserving ? MirrorPrompt :
+            instance.active ? instance.GetControlsText() : null;
 
         private string GetControlsText() {
             string snap = numericInput.IsOpen ? "Exact entry" : TransformSnapping.Active ? "Snap on" : "Snap off";
             string holeKey = holeSnapInput != null ? holeSnapInput.GetCurrentKeybind() : "H";
             string help = "X/Y/Z: axis    /: type value";
-            if (!rotating) help += $"    {holeKey}: Move tool";
+            if (!rotating && MoveToolManager.HasConcreteSourceHole(selection)) help += $"    {holeKey}: Move selected hole";
             return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
                 help + "\nClick / Enter: confirm    Esc / Right click: cancel";
         }
@@ -525,6 +594,7 @@ namespace Protobot.Tools {
             grabInput.performed -= Grab;
             rotateInput.performed -= Rotate;
             if (holeSnapInput != null) holeSnapInput.performed -= MoveFromGrab;
+            if (mirrorInput != null) mirrorInput.performed -= BeginMirror;
             if (instance == this)
                 instance = null;
         }

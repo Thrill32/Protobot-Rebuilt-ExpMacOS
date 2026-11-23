@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Protobot.Builds;
+using Protobot.Collaboration;
 using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.StateSystems;
@@ -21,7 +23,7 @@ namespace Protobot {
         [SerializeField] private Camera refCamera;
         private static CustomModelTool instance;
         private static int finishedFrame = -1;
-        private bool options, busy, placingMounts;
+        private bool options, busy, placingMounts, publishing;
         private int generation, startFrame;
         private int units;
         private InputField diameterField, depthField;
@@ -65,33 +67,37 @@ namespace Protobot {
             FindFirstObjectByType<BuildsManager>()?.IsFileOperationInProgress != true;
 
         public void OpenImportSettings() {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return;
             if (!CanStart) return;
             CancelMode();
             Simulation.SimulationTool.ExitForEdit();
             options = true;
-            var panel = CreatePanel("Import Custom Model", true, 340);
-            AddLabel(panel, "OBJ and STL geometry is embedded in your build.\nChoose the source file's units before importing.", 50, 70);
-            units = Mathf.Clamp(PlayerPrefs.GetInt("customModelUnits", 0), 0, 2);
+            bool shared = CollaborationSession.IsShared;
+            var panel = CreatePanel("Import Custom Model", true, shared ? 390 : 340);
+            AddLabel(panel, "Choose the source units for OBJ and STL.\nGLB dimensions are read in meters.", 50, 70);
+            units = Mathf.Clamp(LocalPreferences.GetInt("customModelUnits", 0), 0, 2);
             Button unitButton = null;
             unitButton = AddButton(panel, "Source units: " + UnitNames[units], 140, () => {
                 units = (units + 1) % UnitNames.Length;
                 UpdateUnitLabel();
             });
             void UpdateUnitLabel() => unitButton.GetComponentInChildren<Text>().text = "Source units: " + UnitNames[units];
-            AddLabel(panel, "Models use one editable color. OBJ material and texture files are not imported.", 185, 55);
-            AddButton(panel, "Choose OBJ / STL file…", 250, ChooseFile);
-            AddButton(panel, "Cancel", 292, CancelMode);
+            AddLabel(panel, "Diffuse colors and supported textures are embedded in your build.", 185, 55);
+            if (shared) AddLabel(panel, $"This room allows {CollaborationSession.CustomGeometryByteLimit / (1024 * 1024)} MiB encoded geometry per model (file size can differ). " +
+                (CollaborationSession.CustomGeometryByteLimit < GeometryTransfer.MaxAssetBytes ? "Update the server for 64 MiB." : "64 MiB total per room."), 235, 55);
+            AddButton(panel, "Choose OBJ / STL / GLB file…", shared ? 300 : 250, ChooseFile);
+            AddButton(panel, "Cancel", shared ? 342 : 292, CancelMode);
         }
 
         private async void ChooseFile() {
             if (!options || busy || NativeFileDialogs.IsOpen) return;
             options = false;
-            PlayerPrefs.SetInt("customModelUnits", units);
+            LocalPreferences.SetInt("customModelUnits", units);
             int request = generation;
             busy = true;
             ClosePanel();
             try {
-                var paths = await NativeFileDialogs.OpenModelAsync(PlayerPrefs.GetString(DirectoryKey, ""));
+                var paths = await NativeFileDialogs.OpenModelAsync(LocalPreferences.GetString(DirectoryKey, ""));
                 if (this == null || request != generation || paths == null || paths.Length == 0 || string.IsNullOrEmpty(paths[0])) return;
                 await ReadAndCreate(paths[0], UnitScales[units], request);
             }
@@ -101,6 +107,7 @@ namespace Protobot {
 
         // Also used by validation and integrations that already have a file path.
         public async Task<GameObject> ImportPathAsync(string path, float inchesPerUnit) {
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) return null;
             if (!CanStart) return null;
             Simulation.SimulationTool.ExitForEdit();
             CancelMode();
@@ -115,26 +122,70 @@ namespace Protobot {
             var panel = CreatePanel("Importing model…", true, 175);
             AddLabel(panel, "Reading " + Path.GetFileName(path), 55, 50);
             AddButton(panel, "Cancel", 120, CancelMode);
-            var data = await Task.Run(() => CustomModelImporter.Read(path, inchesPerUnit));
+            bool shared = CollaborationSession.IsShared;
+            int maximum = CollaborationSession.CustomGeometryByteLimit;
+            int appearanceVersion = CollaborationSession.CustomAppearanceVersion;
+            var (data, images) = await Task.Run(() => {
+                var parsed = CustomModelImporter.ReadPackage(path, inchesPerUnit, out var sources);
+                GeometryTransfer.RequireAppearanceSupport(parsed.appearance != null, appearanceVersion);
+                if (sources.Count > 0) CollaborationScene.ValidatePendingTextures(parsed, maximum);
+                else if (shared || parsed.appearance != null) CollaborationScene.ValidateCustomImport(parsed, maximum);
+                return (parsed, sources);
+            });
             if (this == null || request != generation || !isActiveAndEnabled) return null;
+            if (shared != CollaborationSession.IsShared || maximum != CollaborationSession.CustomGeometryByteLimit ||
+                appearanceVersion != CollaborationSession.CustomAppearanceVersion)
+                throw new InvalidOperationException("The active room changed while reading the model. Import it again.");
+            long appearanceCost = CustomModel.AppearanceCost(data);
+            CustomModel.RequireAppearanceCapacity(appearanceCost);
+            if (shared && appearanceCost > 0) CollaborationSession.RequireRoomAppearanceCapacity(appearanceCost);
+            if (images.Count > 0) {
+                CustomModel.DecodeSourceImages(data.appearance, images);
+                await Task.Run(() => CollaborationScene.ValidateCustomImport(data, maximum));
+                if (this == null || request != generation || !isActiveAndEnabled) return null;
+                if (shared != CollaborationSession.IsShared || maximum != CollaborationSession.CustomGeometryByteLimit ||
+                    appearanceVersion != CollaborationSession.CustomAppearanceVersion)
+                    throw new InvalidOperationException("The active room changed while reading the model. Import it again.");
+            }
+            if (shared && appearanceCost > 0 && images.Count > 0) CollaborationSession.RequireRoomAppearanceCapacity(appearanceCost);
             var obj = CustomModel.Create(data, PivotCamera.Main.focusPosition, Quaternion.identity);
+            if (shared) {
+                publishing = true;
+                var confirmation = CreatePanel("Adding model to shared room…", true, 140);
+                AddLabel(confirmation, "Uploading the model and waiting for accepted placement. The room may already have received the edit; wait for its outcome.", 50, 75);
+                try {
+                    if (await CollaborationSession.PlaceCopiesAsync(new List<GameObject> { obj }, selectResult: selectionManager)) {
+                        LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
+                        InteractionFeedback.Notify($"Imported {data.name} into the shared room. G: move · {mountInput.GetCurrentKeybind()}: add mounting points.");
+                    }
+                }
+                finally { publishing = false; }
+                return null;
+            }
             StateSystem.AddElement(new ObjectElement(obj) { existing = false });
             selectionManager.ClearCurrent(false, true, true);
             selectionManager.SetCurrent(new ObjectSelection { gameObject = obj, individual = true }, true);
             StateSystem.AddState(new ObjectElement(obj));
-            PlayerPrefs.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
+            LocalPreferences.SetString(DirectoryKey, Path.GetDirectoryName(path) ?? "");
             FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
             InteractionFeedback.Notify($"Imported {data.name}. G: move · {mountInput.GetCurrentKeybind()}: add mounting points.");
             return obj;
         }
 
         private static void ReportFailure(Exception exception) {
+            if (exception is CollaborationException && CollaborationSession.IsShared) {
+                CollaborationSession.ReportCustomImportFailure(exception); return;
+            }
             Debug.LogWarning("Could not import model: " + exception.Message);
             InteractionFeedback.Notify("Could not import model: " + exception.Message);
         }
 
         public void ToggleMounts() {
             if (placingMounts) { CancelMode(); return; }
+            if (CollaborationSession.IsShared && !CollaborationSession.CanEdit) {
+                InteractionFeedback.Notify("Reconnect or join as an editor to change shared mounting points.");
+                return;
+            }
             if (!CanStart || options) return;
             Simulation.SimulationTool.ExitForEdit();
             selectionManager.ClearCurrent(false, true, true);
@@ -172,6 +223,7 @@ namespace Protobot {
         private void LateUpdate() {
             if (!options && !placingMounts && !busy) return;
             if (Keyboard.current?.escapeKey.wasPressedThisFrame == true && !NativeFileDialogs.IsOpen) {
+                if (publishing) return;
                 if (!EscapeDeselect.TryHandleEscape()) CancelMode();
                 return;
             }
@@ -185,7 +237,8 @@ namespace Protobot {
             bool pointerPaused = !mountEditor.IsEditing && Mouse.current != null && (MouseInput.overUI || !MouseInput.withinScreen);
             bool pause = RebindAction.Rebinding || Mouse.current == null || !focused ||
                 KeyboardTransformTool.IsEditingText() || pointerPaused || InputEvent.IsNoclipMovementCaptured ||
-                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed;
+                orbitInput.IsCurrentlyPressed || panInput.IsCurrentlyPressed || noclipInput.IsCurrentlyPressed ||
+                CollaborationSession.IsShared && !CollaborationSession.CanEdit;
             movePointButton.interactable = mountEditor.Selected != null && !mountEditor.IsEditing;
             movePointButton.GetComponentInChildren<Text>().text = mountEditor.SelectedPoints.Count > 1 ? "Move selected points" : "Move selected point";
             if (mountEditor.Tick(pause) || pause) return;
@@ -220,6 +273,24 @@ namespace Protobot {
                 return;
             }
             if (Time.frameCount == startFrame || !Mouse.current.leftButton.wasPressedThisFrame) return;
+            if (CollaborationSession.IsShared) {
+                if (!CollaborationSession.CanEdit || CollaborationSession.HasReservation) return;
+                var capturedModel = model; var capturedFace = face; bool capturedThreaded = threaded;
+                CollaborationSession.ReserveCustomMounts(new[] { capturedModel }, () => {
+                    if (!placingMounts || capturedModel == null || !capturedModel.gameObject.activeInHierarchy || capturedModel.gameObject.IsDeleted()) {
+                        CollaborationSession.CancelCustomMounts(); return;
+                    }
+                    var sharedPoint = capturedModel.AddMount(capturedFace, diameter, depth, capturedThreaded);
+                    if (sharedPoint == null) {
+                        CollaborationSession.CancelCustomMounts();
+                        InteractionFeedback.Notify("A mounting point already exists here.");
+                        return;
+                    }
+                    mountEditor.Select(sharedPoint);
+                    CollaborationSession.ConfirmCustomMounts(new[] { capturedModel });
+                });
+                return;
+            }
             var point = model.AddMount(face, diameter, depth, threaded);
             if (point != null) { point.RecordAdded(); mountEditor.Select(point); }
             else InteractionFeedback.Notify("A mounting point already exists here.");
@@ -233,6 +304,9 @@ namespace Protobot {
         }
         internal static bool TryCancelActive() {
             if (instance == null || !(instance.options || instance.busy || instance.placingMounts)) return false;
+            // Escape is routed here before LateUpdate. Once publication starts,
+            // consume it without implying that an already-sent edit was canceled.
+            if (instance.publishing) return true;
             if (instance.mountEditor?.CancelLevel() == true) return true;
             instance.CancelMode();
             return true;

@@ -46,6 +46,15 @@ namespace Protobot.Simulation {
         public bool IsLinear => kind == DriveKind.Rack;
         public bool CanMesh => kind != DriveKind.Attachment && kind != DriveKind.Sprocket;
 
+        internal void ReflectLocalGeometry() {
+            localCenter = PartReflection.Local(localCenter);
+            localAxis = PartReflection.Local(localAxis);
+            localTooth = PartReflection.Local(localTooth);
+            localContactCenter = PartReflection.Local(localContactCenter);
+            localFace = PartReflection.Local(localFace);
+            measuredMesh = null;
+        }
+
         // Used by setup to bake metadata into every gear variant, including regenerated/loaded parts.
         public void Configure(PartData data, DriveKind driveKind = DriveKind.Spur) {
             measuredMesh = null;

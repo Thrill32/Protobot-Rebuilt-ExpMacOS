@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using Protobot;
 using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.Tools;
@@ -14,6 +15,32 @@ using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
     public static class ModifierBindingsValidation {
+        private static void CheckWindowsMigration() {
+            string[] keys = { "Grouping Bypass", "Input.GroupingBypassWindowsDefaultVersion" };
+            var saved = keys.Select(key => (key, LocalPreferences.HasKey(key), LocalPreferences.GetString(key))).ToArray();
+            try {
+                foreach (var paths in new[] { new[] {"<Keyboard>/leftMeta"}, new[] {"<Keyboard>/rightMeta"}, new[] {"<Keyboard>/f8"}, new[] {"<Keyboard>/leftMeta","<Keyboard>/v"} }) {
+                    LocalPreferences.DeleteKey(keys[0]); LocalPreferences.DeleteKey(keys[1]);
+                    var rebind = new RebindAction(keys[0], true);
+                    try {
+                        rebind.action.Disable();
+                        for (int i = 0; i < paths.Length; i++) rebind.action.ApplyBindingOverride(3-i,paths[i]);
+                        rebind.SaveRebinds();
+                        string before = LocalPreferences.GetString(keys[0]);
+                        ModifierBindingDefaults.MigrateWindowsGroupingRebind(rebind,true);
+                        bool metaOnly = paths.All(path => path.EndsWith("Meta"));
+                        Require(rebind.IsEmpty == metaOnly, "Windows grouping migration removed a custom binding or retained the old Meta default.");
+                        if (!metaOnly) Require(LocalPreferences.GetString(keys[0]) == before, "Migration changed a custom grouping chord.");
+                        Require(LocalPreferences.GetInt(keys[1]) == 1, "Windows migration marker was not saved.");
+                    } finally { rebind.action.Dispose(); }
+                }
+            } finally {
+                foreach (var (key, had, value) in saved) {
+                    if (had) LocalPreferences.SetString(key,value); else LocalPreferences.DeleteKey(key);
+                }
+                LocalPreferences.Save();
+            }
+        }
         [MenuItem("Tools/Protobot/Validate Separate Modifier Bindings")]
         public static void Validate() {
             EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
@@ -43,6 +70,7 @@ namespace ProtobotEditorTools {
             Require(windowsDefault.bindings.Count == 1 && windowsDefault.bindings[0].path == ModifierBindingDefaults.WindowsGroupingPath,
                 "Windows grouping bypass must default to Z rather than the OS-reserved Meta key.");
             windowsDefault.Dispose();
+            CheckWindowsMigration();
 
             var manager = typeof(InputSystem).GetField("s_Manager", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
             var runInEdit = manager.GetType().GetProperty("runPlayerUpdatesInEditMode");

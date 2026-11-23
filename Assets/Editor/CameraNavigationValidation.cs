@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using DG.Tweening;
 using Protobot;
 using Protobot.InputEvents;
@@ -9,6 +10,7 @@ using Protobot.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -37,7 +39,8 @@ namespace ProtobotEditorTools {
             bool had = LocalPreferences.HasKey(key); string previous = LocalPreferences.GetString(key);
             try {
                 LocalPreferences.SetFloat(key, 0.123456789f); LocalPreferences.Save();
-                Require(LocalPreferences.GetString(key) == NumericPreferenceField.Format(0.123456789f), "Numeric preference lost its exact display value.");
+                Require(float.Parse(NumericPreferenceField.Format(0.123456789f), System.Globalization.CultureInfo.InvariantCulture) == LocalPreferences.GetFloat(key), "Numeric display lost float precision.");
+                Require(NumericPreferenceField.Format(.1f) == "0.1", "Default sensitivity exposes binary float noise.");
                 Near(LocalPreferences.GetFloat(key), 0.123456789f, "Numeric preference did not round-trip.");
             }
             finally {
@@ -69,14 +72,14 @@ namespace ProtobotEditorTools {
             if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
         }
 
-        private static void Tick() {
+        private static async void Tick() {
             if (!EditorApplication.isPlaying || EditorApplication.isCompiling || ++frames < 15) return;
             EditorApplication.update -= Tick; SessionState.SetBool(SmokeKey, false);
-            try { CheckRuntime(); EditorApplication.Exit(0); }
+            try { await CheckRuntime(); EditorApplication.Exit(0); }
             catch (Exception exception) { Debug.LogException(exception); EditorApplication.Exit(1); }
         }
 
-        private static void CheckRuntime() {
+        private static async Task CheckRuntime() {
             var fields = Object.FindObjectsByType<NumericPreferenceField>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             Require(fields.Length == 5, "Runtime camera Preferences did not install exactly five numeric fields.");
             Require(fields.Select(field => field.PreferenceKey).Distinct().Count() == 5, "Camera fields do not use distinct preference keys.");
@@ -84,9 +87,21 @@ namespace ProtobotEditorTools {
                 var input = field.GetComponent<InputField>();
                 Require(input != null && input.navigation.mode == Navigation.Mode.Automatic, "A camera field is not keyboard navigable.");
                 Require(input.text == NumericPreferenceField.Format(field.Current), "A camera field does not show its exact current value.");
+                var fieldRect = (RectTransform)field.transform;
+                Require(fieldRect.sizeDelta.x <= 55f && fieldRect.sizeDelta.y <= 20f,
+                    "A camera numeric field is larger than the compact Preferences layout.");
+                var row = (RectTransform)field.transform.parent;
+                Require(row.sizeDelta.x <= 165f && row.sizeDelta.y <= 25f,
+                    "A camera preference row exceeds the existing column scale.");
+                var defaultButton = row.Find("Set Default Button")?.GetComponent<Button>();
+                Require(defaultButton != null && defaultButton.navigation.mode == Navigation.Mode.Automatic,
+                    "A camera field is missing its keyboard-focusable set-to-default button.");
+                Require(((RectTransform)defaultButton.transform).sizeDelta == new Vector2(15f, 15f) && defaultButton.image?.sprite != null,
+                    "A camera default button does not match the keybind reset control scale/style.");
             }
             var categories = fields[0].GetComponentInParent<PreferencesCategoryScroller>(true);
             Require(categories != null && categories.GetComponent<RectMask2D>() != null, "Preferences category scrolling/clipping was not installed.");
+            await CheckPreferencesScrolling(categories, fields[0]);
             Require(fields[0].transform.parent.parent.GetComponentsInChildren<Slider>(true).Length == 0,
                 "A legacy camera sensitivity slider remains in the Camera category.");
 
@@ -129,12 +144,40 @@ namespace ProtobotEditorTools {
             try {
                 Require(test.TryCommit("0.375") && test.GetComponent<InputField>().text == "0.375", "Typed camera value did not commit exactly.");
                 Require(!test.TryCommit("NaN") && test.GetComponent<InputField>().text == "0.375", "Invalid camera value replaced the last valid value.");
+                var defaultButton = test.transform.parent.Find("Set Default Button").GetComponent<Button>();
+                Require(defaultButton.interactable, "A changed camera preference did not enable its default button.");
+                Require(test.TryCommit("0.10000001") && !test.IsDefault && defaultButton.interactable, "A near-default exact value disabled the reset button.");
+                defaultButton.onClick.Invoke();
+                Require(test.IsDefault && test.GetComponent<InputField>().text == NumericPreferenceField.Format(test.DefaultValue),
+                    "The camera default button did not restore and display the exact default.");
+                Near(LocalPreferences.GetFloat(test.PreferenceKey), test.DefaultValue, "The restored camera default was not persisted.");
+                Require(!defaultButton.interactable, "The camera default button stayed enabled at the default value.");
             }
             finally {
                 if (had) LocalPreferences.SetString(test.PreferenceKey, previous); else LocalPreferences.DeleteKey(test.PreferenceKey);
                 LocalPreferences.Save();
             }
-            Debug.Log("Camera navigation smoke passed: immediate orbit/pan/zoom, numeric UI/persistence, scrolling, keyboard focus and modal ownership.");
+            Debug.Log("Camera navigation smoke passed: immediate orbit/pan/zoom, compact numeric UI, per-field defaults, persistence, scrolling, keyboard focus and modal ownership.");
+        }
+
+        private static async Task CheckPreferencesScrolling(PreferencesCategoryScroller scroller, NumericPreferenceField field) {
+            var category = field.transform.parent.parent.parent as RectTransform;
+            var selected = EventSystem.current.currentSelectedGameObject;
+            var ancestors = scroller.GetComponentsInParent<Transform>(true)
+                .Select(item => (item.gameObject, item.gameObject.activeSelf)).ToArray();
+            var categoryStates = scroller.transform.Cast<Transform>()
+                .Select(item => (item.gameObject, item.gameObject.activeSelf)).ToArray();
+            GameObject.Find("Launch Canvas")?.SetActive(false);
+            foreach (var state in ancestors) state.gameObject.SetActive(true);
+            foreach (var state in categoryStates) state.gameObject.SetActive(state.gameObject == category.gameObject);
+            try {
+                await InteractionOverhaulValidation.CheckSettingsScroll(scroller, category, field);
+            }
+            finally {
+                EventSystem.current.SetSelectedGameObject(selected);
+                foreach (var state in categoryStates) state.gameObject.SetActive(state.activeSelf);
+                foreach (var state in ancestors) state.gameObject.SetActive(state.activeSelf);
+            }
         }
 
         private static void Near(float actual, float expected, string message) => Require(Mathf.Abs(actual - expected) < .00001f, message + $" ({actual} vs {expected})");

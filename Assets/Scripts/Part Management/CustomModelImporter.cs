@@ -3,34 +3,62 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using Protobot.Collaboration;
 
 namespace Protobot {
     /// <summary>File parsing only; safe to run away from Unity's thread.</summary>
-    public static class CustomModelImporter {
+    public static partial class CustomModelImporter {
         public const int MaxFileBytes = 64 * 1024 * 1024;
         public const int MaxTriangles = 500000;
         public const int MaxVertices = MaxTriangles * 3;
 
         public static CustomModelData Read(string path, float inchesPerUnit) {
+            var data = ReadPackage(path, inchesPerUnit, out var images);
+            if (images.Count > 0) throw new InvalidDataException("This file requires the model texture importer.");
+            return data;
+        }
+
+        internal static CustomModelData ReadPackage(string path, float inchesPerUnit, out List<byte[]> images) {
+            path = Path.GetFullPath(path);
+            var package = new ObjPackage(Path.GetDirectoryName(path));
+            return Parse(ReadBytes(path, MaxFileBytes), Path.GetExtension(path), Path.GetFileNameWithoutExtension(path), inchesPerUnit, package, out images);
+        }
+
+        private static byte[] ReadBytes(string path, int maximum) {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length <= 0 || info.Length > maximum)
+                throw new InvalidDataException("A model or dependency is missing, empty, or exceeds its size limit.");
             using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (file.Length > MaxFileBytes) throw new InvalidDataException("Model files must be smaller than 64 MB.");
+            if (file.Length <= 0 || file.Length > maximum) throw new InvalidDataException("A model or dependency exceeds its size limit.");
             var bytes = new byte[(int)file.Length];
             int offset = 0, count;
             while (offset < bytes.Length && (count = file.Read(bytes, offset, bytes.Length - offset)) > 0) offset += count;
-            if (offset != bytes.Length) throw new EndOfStreamException("Could not read the complete model.");
-            return Parse(bytes, Path.GetExtension(path), Path.GetFileNameWithoutExtension(path), inchesPerUnit);
+            if (offset != bytes.Length) throw new EndOfStreamException("Could not read the complete model file or dependency.");
+            return bytes;
         }
 
         public static CustomModelData Parse(byte[] bytes, string extension, string name, float inchesPerUnit) {
+            var data = Parse(bytes, extension, name, inchesPerUnit, null, out var images);
+            if (images.Count > 0) throw new InvalidDataException("This file requires the model texture importer.");
+            return data;
+        }
+
+        private static CustomModelData Parse(byte[] bytes, string extension, string name, float inchesPerUnit, ObjPackage package, out List<byte[]> images) {
             if (bytes == null || bytes.Length == 0 || bytes.Length > MaxFileBytes)
                 throw new InvalidDataException("The model is empty or larger than 64 MB.");
+            bool glb = string.Equals(extension, ".glb", StringComparison.OrdinalIgnoreCase);
+            if (glb) inchesPerUnit = 1f / .0254f; // glTF stores linear distances in meters.
             if (!Finite(inchesPerUnit) || inchesPerUnit <= 0) throw new InvalidDataException("Invalid model units.");
+            var imageSources = package?.imageSources ?? new SourceImages();
+            images = imageSources.bytes;
             var vertices = new List<float>();
             var triangles = new List<int>();
+            CustomAppearance appearance = null;
             switch (extension.ToLowerInvariant()) {
-                case ".obj": ParseObj(Encoding.UTF8.GetString(bytes), vertices, triangles); break;
+                case ".obj": appearance = ParseObj(Encoding.UTF8.GetString(bytes), vertices, triangles, package); break;
                 case ".stl": ParseStl(bytes, vertices, triangles); break;
-                default: throw new InvalidDataException("Choose an OBJ or STL model.");
+                case ".glb": appearance = Glb.Read(bytes, vertices, triangles, imageSources); break;
+                default: throw new InvalidDataException("Choose an OBJ, STL, or GLB model.");
             }
             if (vertices.Count == 0 || triangles.Count == 0) throw new InvalidDataException("The model contains no triangle faces.");
             // Center the editing pivot and bake units into geometry, keeping ordinary transforms at scale one.
@@ -43,38 +71,71 @@ namespace Protobot {
                 if (!Finite(vertices[i]) || Math.Abs(vertices[i]) > 100000)
                     throw new InvalidDataException("The model dimensions are too large. Check its units.");
             }
-            return new CustomModelData { name = name, vertices = vertices.ToArray(), triangles = triangles.ToArray() };
+            return new CustomModelData { name = name, vertices = vertices.ToArray(), triangles = triangles.ToArray(), appearance = appearance };
         }
 
-        private static void ParseObj(string text, List<float> vertices, List<int> triangles) {
-            using var reader = new StringReader(text.TrimStart('\uFEFF'));
+        private static CustomAppearance ParseObj(string text, List<float> vertices, List<int> triangles, ObjPackage package) {
+            var libraries = package?.ReadLibraries(text);
+            var faces = libraries != null ? new ObjFaces(package, libraries) : null;
+            var sourceVertices = faces != null ? new List<float>() : vertices;
+            using var reader = new StringReader(text);
             string line;
+            bool first = true;
             while ((line = reader.ReadLine()) != null) {
-                int comment = line.IndexOf('#');
-                if (comment >= 0) line = line.Substring(0, comment);
-                var words = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-                if (words.Length == 0) continue;
-                if (words[0] == "v") {
-                    if (words.Length < 4) throw new InvalidDataException("An OBJ vertex needs three coordinates.");
-                    for (int i = 1; i <= 3; i++) vertices.Add(Number(words[i]));
-                    CheckLimits(vertices, triangles);
-                }
-                else if (words[0] == "f") {
-                    if (words.Length < 4 || words.Length > 4097) throw new InvalidDataException("An OBJ face needs 3–4096 vertices.");
-                    var face = new int[words.Length - 1];
-                    for (int i = 1; i < words.Length; i++) {
-                        string indexText = words[i].Split('/')[0];
-                        if (!int.TryParse(indexText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) || index == 0)
-                            throw new InvalidDataException("Invalid OBJ vertex index.");
-                        index = index < 0 ? vertices.Count / 3 + index : index - 1;
-                        if (index < 0 || index >= vertices.Count / 3) throw new InvalidDataException("An OBJ face references a missing vertex.");
-                        face[i - 1] = index;
-                    }
-                    Triangulate(face, vertices, triangles);
-                    CheckLimits(vertices, triangles);
+                if (first) { line = line.TrimStart('\uFEFF'); first = false; }
+                var (command, args) = Statement(line);
+                switch (command) {
+                    case "v":
+                        var coordinates = Words(args);
+                        if (coordinates.Length < 3) throw new InvalidDataException("An OBJ vertex needs three coordinates.");
+                        for (int i = 0; i < 3; i++) sourceVertices.Add(Number(coordinates[i]));
+                        CheckLimits(sourceVertices, triangles);
+                        break;
+                    case "vt": faces?.AddUv(args); break;
+                    case "usemtl":
+                        faces?.Select(args);
+                        break;
+                    case "mtllib":
+                        if (package == null) throw new InvalidDataException("OBJ material libraries require importing the OBJ from its directory.");
+                        break;
+                    case "f":
+                        var words = Words(args);
+                        if (words.Length < 3 || words.Length > 4096) throw new InvalidDataException("An OBJ face needs 3–4096 vertices.");
+                        if (triangles.Count / 3 + words.Length - 2 > MaxTriangles)
+                            throw new InvalidDataException("Models may contain at most 500,000 triangles.");
+                        var face = new int[words.Length];
+                        for (int i = 0; i < words.Length; i++) {
+                            int slash = words[i].IndexOf('/');
+                            int index = ObjIndex(slash < 0 ? words[i] : words[i].Substring(0, slash), sourceVertices.Count / 3, "vertex");
+                            face[i] = faces?.Corner(index, words[i], slash, sourceVertices, vertices) ?? index;
+                        }
+                        Triangulate(face, vertices, triangles);
+                        faces?.AddFace(words.Length - 2);
+                        CheckLimits(vertices, triangles);
+                        break;
                 }
             }
+            return faces?.Finish(sourceVertices, vertices);
         }
+
+        private static int ObjIndex(string value, int count, string kind) {
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) || index == 0)
+                throw new InvalidDataException($"Invalid OBJ {kind} index.");
+            index = index < 0 ? count + index : index - 1;
+            if (index < 0 || index >= count) throw new InvalidDataException($"An OBJ face references a missing {kind}.");
+            return index;
+        }
+
+        private static (string command, string args) Statement(string line) {
+            int comment = line.IndexOf('#');
+            if (comment >= 0) line = line.Substring(0, comment);
+            line = line.Trim();
+            int end = 0;
+            while (end < line.Length && !char.IsWhiteSpace(line[end])) end++;
+            return (line.Substring(0, end), line.Substring(end).Trim());
+        }
+
+        private static string[] Words(string value) => value.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
 
         // Ear clipping also handles concave planar polygons exported by CAD tools.
         private static void Triangulate(int[] face, List<float> v, List<int> triangles) {

@@ -126,7 +126,7 @@ namespace ProtobotEditorTools {
                     });
                     legacy.ApplyBindingOverride(0, "<Keyboard>/ctrl");
                     legacy.ApplyBindingOverride(3, "<Keyboard>/k");
-                    PlayerPrefs.SetString(id, legacy.SaveBindingOverridesAsJson());
+                    LocalPreferences.SetString(id, legacy.SaveBindingOverridesAsJson());
                     loaded = new RebindAction(id);
                     try {
                         Keys(Key.LeftCtrl, Key.K);

@@ -38,16 +38,26 @@ namespace Protobot {
         public static Color GetColor(GameObject part) => SampleMaterial(part)?.color ?? Color.white;
         public static bool SameRGB(Color a, Color b) => a.r == b.r && a.g == b.g && a.b == b.b;
 
-        public static bool IsDefault(GameObject part) => OwnedPartMaterials.CaptureDefaults(part)
-            .DefaultColors().All(entry => entry.material.color == entry.color);
+        public static bool IsDefault(GameObject part) =>
+            part.TryGetComponent<CustomModel>(out var model) && model.HasImportedAppearance
+                ? !part.GetComponent<SavedObject>().hasPaint
+                : OwnedPartMaterials.CaptureDefaults(part).DefaultColors().All(entry => entry.material.color == entry.color);
 
         public static void RestoreDefaults(GameObject part) {
+            if (part.TryGetComponent<CustomModel>(out var model) && model.HasImportedAppearance) {
+                model.ApplyImportedAppearance(false, default);
+                return;
+            }
             OwnedPartMaterials.CaptureGenerated(part);
             foreach (var entry in part.GetComponent<OwnedPartMaterials>().DefaultColors()) entry.material.color = entry.color;
             part.GetComponent<SavedObject>().hasPaint = false;
         }
 
         public static void ApplyPaint(GameObject part, Color color) {
+            if (part.TryGetComponent<CustomModel>(out var model) && model.HasImportedAppearance) {
+                model.ApplyImportedAppearance(true, color);
+                return;
+            }
             // Instance every ordinary material slot before mutation and register
             // ownership. CustomModel already owns its body's material.
             OwnedPartMaterials.CaptureGenerated(part);

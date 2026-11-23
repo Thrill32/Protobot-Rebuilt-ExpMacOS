@@ -12,15 +12,15 @@ namespace Protobot {
                 Mathf.Abs(Vector3.Dot(point.transform.forward, normal)) > .99999f &&
                 Mathf.Abs(Vector3.Dot(surface - point.Surface, normal)) < .001f);
 
-        public static bool Recalibrate(CustomMountPoint point) {
+        public static bool Recalibrate(CustomMountPoint point, bool recordState = true) {
             if (point == null || point.Owner == null || point.IsPreview || !point.gameObject.activeInHierarchy || point.gameObject.IsDeleted() ||
                 Reference(point.Owner, point.Surface, point.transform.forward) == point) return false;
             // The first active point on each plane defines its frame. Snapshot/load
             // and whole-model copies retain child order, so no file-format change
             // is needed to persist an explicitly chosen reference.
-            StateSystem.AddElement(new GridOrderElement(point, point.transform.GetSiblingIndex()));
+            if (recordState) StateSystem.AddElement(new GridOrderElement(point, point.transform.GetSiblingIndex()));
             point.transform.SetAsFirstSibling();
-            StateSystem.AddState(new GridOrderElement(point, 0));
+            if (recordState) StateSystem.AddState(new GridOrderElement(point, 0));
             return true;
         }
 

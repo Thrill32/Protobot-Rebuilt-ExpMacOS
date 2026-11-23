@@ -17,6 +17,8 @@ namespace Protobot {
         public void Configure(CustomMountData value) { data = value; owner = GetComponentInParent<CustomModel>(); }
         public CustomMountData Snapshot() {
             var pose = CustomModelTool.SavedMountPose(this) ?? LocalPose;
+            var body = Owner.GetComponent<SavedObject>();
+            pose = new Pose(body.GeometryLocal(pose.position), body.GeometryLocal(pose.rotation));
             return new CustomMountData {
                 x = pose.position.x, y = pose.position.y, z = pose.position.z,
                 qx = pose.rotation.x, qy = pose.rotation.y, qz = pose.rotation.z, qw = pose.rotation.w,
