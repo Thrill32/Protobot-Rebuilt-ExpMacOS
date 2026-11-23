@@ -66,38 +66,50 @@ namespace Protobot {
             var parts = objects.Where(obj => obj != null)
                 .SelectMany(obj => obj.GetComponentsInChildren<SavedObject>(true))
                 .Select(saved => saved.gameObject).Distinct().ToList();
-            var sourceRoots = parts.Where(part => !parts.Any(other =>
-                other != part && part.transform.IsChildOf(other.transform))).ToList();
+            var sourceRoots = CopyRoots(parts);
             CustomModel.RequireAppearanceCapacity(parts.Sum(part => part.GetComponent<CustomModel>()?.CurrentAppearanceCost ?? 0));
             var copies = new List<GameObject>();
-            foreach (var part in sourceRoots) {
-                var copy = Instantiate(part, part.transform.position, part.transform.rotation, parent);
-                if (preserveConnectionIds) {
-                    var originals = part.GetComponentsInChildren<SavedObject>(true);
+            try {
+                foreach (var part in sourceRoots) {
+                    var copy = Instantiate(part, part.transform.position, part.transform.rotation, parent);
+                    copies.Add(copy);
                     var cloned = copy.GetComponentsInChildren<SavedObject>(true);
-                    for (int i = 0; i < originals.Length; i++) cloned[i].ConnectionId = originals[i].ConnectionId;
+                    foreach (var saved in cloned) saved.InitializeMirrorMeshes();
+                    if (preserveConnectionIds) {
+                        var originals = part.GetComponentsInChildren<SavedObject>(true);
+                        for (int i = 0; i < originals.Length; i++) cloned[i].ConnectionId = originals[i].ConnectionId;
+                    }
+                    if (parent != null && !parent.gameObject.activeInHierarchy && copy.TryGetComponent<CustomModel>(out var custom))
+                        custom.InitializeTemplate();
+                    copy.DisableOutline();
+                    OwnedPartMaterials.CloneForCopy(copy);
                 }
-                if (parent != null && !parent.gameObject.activeInHierarchy && copy.TryGetComponent<CustomModel>(out var custom))
-                    custom.InitializeTemplate();
-                copy.DisableOutline();
-                // CustomModel.Awake creates its owned body material; mounting rings
-                // intentionally share their immutable resource material.
-                OwnedPartMaterials.CloneForCopy(copy);
-                copies.Add(copy);
+                if (copyChains && parent == null && !preserveConnectionIds && !CollaborationSession.IsShared)
+                    CopyRoutes(sourceRoots, copies, new List<GameObject>());
+                return copies;
             }
-            if (copyChains && parent == null && !preserveConnectionIds && !CollaborationSession.IsShared) {
-                var ids = new Dictionary<string, string>();
-                for (int i = 0; i < sourceRoots.Count; i++) {
-                    var original = sourceRoots[i].GetComponentsInChildren<SavedObject>(true);
-                    var cloned = copies[i].GetComponentsInChildren<SavedObject>(true);
-                    for (int j = 0; j < original.Length; j++) ids[original[j].ConnectionId] = cloned[j].ConnectionId;
-                }
-                foreach (var chain in Simulation.ChainLoop.SaveAll().Where(c => c.members.All(ids.ContainsKey)))
-                    Simulation.ChainLoop.FromData(chain.Remap(id => ids[id]));
-                foreach (var rope in Simulation.RopeRoute.Capture(ids.Keys.ToHashSet()))
-                    Simulation.RopeRoute.FromData(rope.Remap(id => ids[id]));
+            catch {
+                DiscardCopies(copies);
+                throw;
             }
-            return copies;
+        }
+
+        internal static List<GameObject> CopyRoots(List<GameObject> parts) => parts.Where(part => !parts.Any(other =>
+            other != part && part.transform.IsChildOf(other.transform))).ToList();
+
+        internal static void CopyRoutes(IReadOnlyList<GameObject> sources, IReadOnlyList<GameObject> copies, List<GameObject> routes) {
+            var ids = new Dictionary<string, string>();
+            for (int i = 0; i < sources.Count; i++) {
+                var original = sources[i].GetComponentsInChildren<SavedObject>(true);
+                var cloned = copies[i].GetComponentsInChildren<SavedObject>(true);
+                for (int j = 0; j < original.Length; j++) ids[original[j].ConnectionId] = cloned[j].ConnectionId;
+            }
+            foreach (var chain in Simulation.ChainLoop.SaveAll().Where(c => c.members.All(ids.ContainsKey))) {
+                var loop = Simulation.ChainLoop.FromData(chain.Remap(id => ids[id]));
+                if (loop != null) routes.Add(loop.gameObject);
+            }
+            foreach (var rope in Simulation.RopeRoute.Capture(ids.Keys.ToHashSet()))
+                routes.Add(Simulation.RopeRoute.FromData(rope.Remap(id => ids[id])).gameObject);
         }
 
         public static void DiscardCopies(List<GameObject> copies) {
@@ -116,6 +128,7 @@ namespace Protobot {
                 .Where(route => route.MemberIds.All(ids.Contains))) rope.Discard();
             foreach (var copy in copies.Where(copy => copy != null)) {
                 copy.SetActive(false);
+                foreach (var saved in copy.GetComponentsInChildren<SavedObject>(true)) saved.ReleaseMirrorMeshes();
                 if (copy.TryGetComponent<CustomModel>(out var custom)) custom.ReleaseGeometry();
                 copy.GetComponent<OwnedPartMaterials>()?.Release();
                 if (Application.isPlaying) Destroy(copy);

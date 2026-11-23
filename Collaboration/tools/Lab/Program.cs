@@ -22,6 +22,10 @@ internal static partial class Program {
         if (index >= 0) transports = new[] { args[index + 1] == "long-polling" ? CollaborationTransport.LongPolling : args[index + 1] == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.WebSocket };
         var timer = Stopwatch.StartNew();
         try {
+            if (args.Contains("--mirror-only")) {
+                await MirrorChecks(directory);
+                Console.WriteLine("Mirror passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
+            }
             if (args.Contains("--directory-only")) {
                 await DirectoryChecks(directory);
                 Console.WriteLine("Directory passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
@@ -108,6 +112,7 @@ internal static partial class Program {
                 Console.WriteLine("Connection passed: " + assertions + " assertions. Artifacts: " + directory); return 0;
             }
             ModelChecks(); RoomChecks(); HistoryChecks();
+            await MirrorChecks(directory);
             await ReplacementStorageChecks(directory); await ReplacementNetworkChecks(directory); await ReplacementLargeChecks(directory); await EditorReplacementChecks(directory);
             if (Environment.GetEnvironmentVariable("PROTOBOT_TEST_INSTALL_ARTIFACT") != null) await InstallationChecks(directory);
             await RoomCreationChecks(directory);

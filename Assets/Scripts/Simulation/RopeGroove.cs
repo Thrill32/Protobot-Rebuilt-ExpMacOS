@@ -13,6 +13,11 @@ namespace Protobot.Simulation {
         public Vector3 Axis => transform.TransformDirection(localAxis).normalized;
         public float SurfaceRadius => surfaceRadius;
 
+        internal void ReflectLocalGeometry() {
+            localCenter = PartReflection.Local(localCenter);
+            localAxis = PartReflection.Local(localAxis);
+        }
+
         // The tangent path follows the rope's centerline, half a diameter off the bare surface.
         public float EffectiveRadius(float ropeDiameter = KitRopeDiameter) => surfaceRadius + ropeDiameter * .5f;
     }

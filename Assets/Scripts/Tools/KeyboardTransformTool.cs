@@ -12,7 +12,7 @@ using UnityEngine.UI;
 
 namespace Protobot.Tools {
     /// <summary>Blender-style modal grab/rotation of the current rigid selection.</summary>
-    public sealed class KeyboardTransformTool : MonoBehaviour {
+    public sealed partial class KeyboardTransformTool : MonoBehaviour {
         [SerializeField] private SelectionManager selectionManager;
         [SerializeField] private Placement placement;
         [SerializeField] private Camera refCamera;
@@ -49,6 +49,7 @@ namespace Protobot.Tools {
         private bool rotating;
         private bool settling;
         private bool cameraPaused;
+        private bool hasFocus;
         private Tween smoothingTween;
         private Vector3 displayedOffset;
         private Quaternion displayedRotation = Quaternion.identity;
@@ -58,7 +59,8 @@ namespace Protobot.Tools {
         private bool moveHandoffWaiting;
         private const float SmoothingDuration = 0.25f; // Same duration as standard axis dragging.
 
-        public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled && (instance.active || instance.placement?.IsTypingRotation == true)) ||
+        public static bool IsCapturingInput => (instance != null && instance.isActiveAndEnabled &&
+            (instance.active || instance.mirrorSelection != null || instance.placement?.IsTypingRotation == true)) ||
             finishedFrame == Time.frameCount;
         public static bool IsBorrowingMove => instance != null && instance.isActiveAndEnabled &&
             instance.moveHandoffSelection != null && (instance.moveHandoffWaiting || instance.placement?.placing == true);
@@ -66,6 +68,7 @@ namespace Protobot.Tools {
         internal static void CaptureCurrentFrame() => finishedFrame = Time.frameCount;
 
         internal static bool CancelActive() {
+            if (CancelPendingMirror()) return true;
             if (instance == null || !instance.active) return false;
             instance.Finish(false);
             return true;
@@ -97,8 +100,10 @@ namespace Protobot.Tools {
         // Keep modifiers available, but consume selection, undo/redo, tool changes,
         // and camera clicks until the confirmation/cancellation frame has ended.
         public static bool AllowsInput(InputEvent input) {
+            if (instance != null && instance.HoldsMirrorAxis(input)) return false;
             if (!IsCapturingInput || instance == null)
                 return true;
+            if (instance.mirrorSelection != null) return false;
             if (instance.numericInput.IsOpen || instance.placement?.IsTypingRotation == true)
                 return false;
             // Raw modal axis keys win even over allowed actions rebound to X/Y/Z.
@@ -142,9 +147,11 @@ namespace Protobot.Tools {
 
         private void Awake() {
             instance = this;
+            hasFocus = Application.isFocused;
             grabInput.performed += Grab;
             rotateInput.performed += Rotate;
             if (holeSnapInput != null) holeSnapInput.performed += MoveFromGrab;
+            if (mirrorInput != null) mirrorInput.performed += BeginMirror;
         }
 
         private void Grab() => Begin(false);
@@ -152,7 +159,7 @@ namespace Protobot.Tools {
 
         private void Begin(bool rotate) {
             if (!isActiveAndEnabled || placement.placing || ConnectTool.IsCapturingPoints || CustomModelTool.IsCapturingInput ||
-                RebindAction.Rebinding || InputEvent.IsNoclipMovementCaptured || !Application.isFocused ||
+                RebindAction.Rebinding || InputEvent.IsNoclipMovementCaptured || !hasFocus ||
                 Mouse.current == null || MouseInput.overUI || IsEditingText())
                 return;
 
@@ -300,12 +307,13 @@ namespace Protobot.Tools {
 
         private void LateUpdate() {
             MaintainMoveHandoff();
+            if (mirrorSelection != null) { UpdateMirror(); return; }
             if (!active)
                 return;
 
             var keyboard = Keyboard.current;
             var mouse = Mouse.current;
-            if (RebindAction.Rebinding || !Application.isFocused || keyboard == null || mouse == null ||
+            if (RebindAction.Rebinding || !hasFocus || keyboard == null || mouse == null ||
                 selectionManager.current != selection || roots.Any(root => root == null) || placement.placing) {
                 Finish(false);
                 return;
@@ -544,6 +552,7 @@ namespace Protobot.Tools {
         }
 
         private void OnDisable() {
+            CancelMirror();
             Finish(false);
             if (moveHandoffSelection != null && placement.placing) placement.CancelPlacement();
             EndMoveHandoff();
@@ -552,8 +561,9 @@ namespace Protobot.Tools {
         private string ConstraintLabel => axis == Vector3.right ? "X" :
             axis == Vector3.up ? "Y" : axis == Vector3.forward ? "Z" : "Free";
 
-        public static string ControlsText => instance != null && instance.isActiveAndEnabled && instance.active
-            ? instance.GetControlsText() : null;
+        public static string ControlsText => instance == null || !instance.isActiveAndEnabled ? null :
+            instance.mirrorSelection != null && !instance.mirrorReserving ? MirrorPrompt :
+            instance.active ? instance.GetControlsText() : null;
 
         private string GetControlsText() {
             string snap = numericInput.IsOpen ? "Exact entry" : TransformSnapping.Active ? "Snap on" : "Snap off";
@@ -584,6 +594,7 @@ namespace Protobot.Tools {
             grabInput.performed -= Grab;
             rotateInput.performed -= Rotate;
             if (holeSnapInput != null) holeSnapInput.performed -= MoveFromGrab;
+            if (mirrorInput != null) mirrorInput.performed -= BeginMirror;
             if (instance == this)
                 instance = null;
         }

@@ -227,10 +227,10 @@ namespace Protobot.Simulation {
             };
             status.text = length + "\n" + (pickError ?? prompt);
             PositionMarker(0, rope.Start.part == null ? rope.drum.GetComponent<RopeGroove>().Center :
-                rope.drum.transform.TransformPoint(rope.Start.LocalPoint));
+                rope.Start.WorldPoint(rope.drum));
             for (int i = 0; i < rope.pulleys.Count; i++)
                 PositionMarker(i + 1, rope.pulleys[i] != null ? rope.pulleys[i].GetComponent<RopeGroove>().Center : null);
-            PositionMarker(markers.Count - 1, rope.EndBody != null ? rope.EndBody.transform.TransformPoint(rope.End.LocalPoint) : null);
+            PositionMarker(markers.Count - 1, rope.EndBody != null ? rope.End.WorldPoint(rope.EndBody) : null);
         }
 
         private void PositionMarker(int index, Vector3? world) {

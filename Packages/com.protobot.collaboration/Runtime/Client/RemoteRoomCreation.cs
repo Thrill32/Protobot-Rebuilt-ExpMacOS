@@ -92,6 +92,8 @@ namespace Protobot.Collaboration {
             string recoveryRoot, CancellationToken cancellation, bool allowEditorProjectReplacement = false) {
             var caps = await InspectAsync(cancellation).ConfigureAwait(false);
             GeometryTransfer.RequireAppearanceSupport(GeometryTransfer.HasAppearance(content.document), caps.customAppearanceVersion);
+            DocumentModel.Require(caps.mirrorVersion == CollaborationProtocol.MirrorVersion ||
+                content.document?.parts?.Any(part => part?.mirrored == true) != true, "mirror-server-required");
             DocumentModel.Require(!allowEditorProjectReplacement || caps.editorRoomReplacementVersion == RoomReplacement.EditorPolicyVersion, "editor-room-replacement-unavailable");
             DocumentModel.Require(administrator || caps.roomCreationPolicy != "admin-only", "server-admin-required");
             DocumentModel.Require(administrator || caps.roomCreationPolicy != "key" || DocumentModel.ValidAssetHash(credential), "room-creation-key-required");

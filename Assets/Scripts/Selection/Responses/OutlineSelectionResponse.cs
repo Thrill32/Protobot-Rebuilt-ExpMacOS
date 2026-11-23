@@ -17,7 +17,7 @@ namespace Protobot.SelectionSystem {
         public override void OnClear(ClearInfo info) {
             var clearedObj = info.selection.gameObject;
 
-            if (!clearedObj.tag.Contains(ignoredTags)) {
+            if (clearedObj != null && !clearedObj.tag.Contains(ignoredTags)) {
                 clearedObj.DisableOutline();
             }
         }

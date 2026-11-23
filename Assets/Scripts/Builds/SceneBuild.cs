@@ -119,6 +119,7 @@ namespace Protobot.Builds {
                 : PartsManager.GeneratePart(objectData.partId, objectData.GetPos(), objectData.GetRot());
             generatedObject.GetComponent<SavedObject>().ConnectionId = objectData.connectionId;
             generatedObject.GetComponent<SavedObject>().state = objectData.states;
+            generatedObject.GetComponent<SavedObject>().SetMirrored(objectData.mirrored);
             if (buildData.HasColors)
             { 
                 if (objectData.hasPaint) PartColors.ApplyPaint(generatedObject, objectData.GetColor());
@@ -194,6 +195,7 @@ namespace Protobot.Builds {
                     connectionId = savedData.ConnectionId,
                     customModel = tForm.TryGetComponent<CustomModel>(out var custom) ? custom.Snapshot() : null,
                     hasPaint = savedData.hasPaint,
+                    mirrored = savedData.Mirrored,
 
                     xPos = position.x,
                     yPos = position.y,

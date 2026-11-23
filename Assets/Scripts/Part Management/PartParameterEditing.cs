@@ -61,6 +61,7 @@ namespace Protobot {
             Vector3? holeAnchor = null, Vector3? localHole = null) {
             var replacement = generator.Generate(original.transform.position, original.transform.rotation);
             if (replacement == null) return null;
+            replacement.GetComponent<SavedObject>().SetMirrored(original.GetComponent<SavedObject>().Mirrored);
             if (holeAnchor.HasValue && localHole.HasValue) {
                 var hole = replacement.GetComponentsInChildren<HoleCollider>()
                     .OrderBy(candidate => (replacement.transform.InverseTransformPoint(candidate.transform.position) - localHole.Value).sqrMagnitude)

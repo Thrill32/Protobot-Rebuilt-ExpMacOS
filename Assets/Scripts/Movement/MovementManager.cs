@@ -62,7 +62,8 @@ namespace Protobot {
             movementPivot.transform.position = MovingObj.transform.position;
             movementPivot.transform.rotation = MovingObj.transform.rotation;
             
-            movementPivot.AddObjects(objs, !objectLink.individual);
+            movementPivot.AddObjects(objs.Where(obj => obj != null && !objs.Any(parent =>
+                parent != null && parent != obj && obj.transform.IsChildOf(parent.transform))).ToList(), !objectLink.individual);
         }
 
         public void StopContinuous() {

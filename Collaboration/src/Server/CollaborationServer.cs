@@ -123,6 +123,7 @@ namespace Protobot.Collaboration.Server {
             var rootCapabilities = registry == null ? Room.Capabilities : new Capabilities { durable = true, multiRoom = true, registryVersion = RoomRegistry.Version,
                 geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
                 customAppearanceVersion = CustomAppearance.Version,
+                mirrorVersion = CollaborationProtocol.MirrorVersion,
                 roomCreationVersion = ServerRooms.CreationVersion, roomCreationPolicy = registry.CreationPolicy, serverId = registry.ServerId,
                 roomDirectoryVersion = ServerRooms.DirectoryVersion, roomDirectoryPolicy = registry.DirectoryPolicy,
                 editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion,

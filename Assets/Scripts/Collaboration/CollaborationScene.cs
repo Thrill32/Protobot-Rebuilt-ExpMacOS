@@ -51,7 +51,8 @@ namespace Protobot {
             return new Part { id = saved.ConnectionId, version = version, catalogId = saved.id, state = saved.state,
                 position = new double[] { pose.position.x, pose.position.y, pose.position.z },
                 rotation = new double[] { pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w },
-                hasPaint = saved.hasPaint, color = new double[] { color.r, color.g, color.b }, assetHash = acceptedCustom?.assetHash ?? asset?.hash,
+                hasPaint = saved.hasPaint, mirrored = saved.Mirrored,
+                color = new double[] { color.r, color.g, color.b }, assetHash = acceptedCustom?.assetHash ?? asset?.hash,
                 mounts = acceptedCustom != null ? WireJson.Clone(DocumentModel.Mounts(acceptedCustom)) :
                     customData?.mounts?.Select(CaptureMount).ToArray() ?? Array.Empty<CustomMount>() };
         }
@@ -119,7 +120,7 @@ namespace Protobot {
         }
         public static ObjectData ToObjectData(Part part, IEnumerable<GeometryAsset> geometry = null) {
             var rotation = Rotation(part).eulerAngles;
-            return new ObjectData { connectionId = part.id, partId = part.catalogId, states = part.state, hasPaint = part.hasPaint,
+            return new ObjectData { connectionId = part.id, partId = part.catalogId, states = part.state, hasPaint = part.hasPaint, mirrored = part.mirrored,
                 xPos = part.position[0], yPos = part.position[1], zPos = part.position[2],
                 xRot = rotation.x, yRot = rotation.y, zRot = rotation.z,
                 rColor = part.color[0], gColor = part.color[1], bColor = part.color[2],
@@ -178,6 +179,10 @@ namespace Protobot {
             var bodies = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
             var changed = edit.transaction.writes.Select(p => p.id).Concat(edit.transaction.deletes).Where(bodies.ContainsKey).Select(id => bodies[id]).ToArray();
             var detectors = HoleDetector.GetAffectedDetectors(changed);
+            bool reflected = edit.transaction.kind == "MirrorParts" || edit.transaction.kind == "MirrorAndCopy" ||
+                edit.transaction.writes.Any(part => bodies.TryGetValue(part.id, out var body)
+                    ? body.GetComponent<SavedObject>().Mirrored != part.mirrored : part.mirrored);
+            var updated = new List<GameObject>();
             foreach (var id in edit.transaction.deletes) if (bodies.TryGetValue(id, out var body)) { body.SetActive(false); UnityEngine.Object.Destroy(body); }
             foreach (var write in edit.transaction.writes) {
                 var part = accepted.parts.First(p => p.id == write.id);
@@ -187,18 +192,19 @@ namespace Protobot {
                 else ApplyMountLayout(body, part);
                 ApplyAppearance(body, part);
                 SetPose(body, part);
+                updated.Add(body);
             }
             foreach (var selection in reselect) {
                 var selected = PartsManager.FindLoadedObjects().Where(b => selection.ids.Contains(b.GetComponent<SavedObject>().ConnectionId)).ToList();
                 if (selected.Count > 0) selection.manager.SetCurrent(selected.Count == 1 ? new ObjectSelection { gameObject = selected[0], individual = selection.individual } :
                     new MultiSelection(null, selected) { individual = selection.individual }, true, bypassResponseSelectors: true);
             }
-            Physics.SyncTransforms();
-            foreach (var write in edit.transaction.writes) {
-                var body = PartsManager.FindLoadedObjects().FirstOrDefault(b => b.GetComponent<SavedObject>().ConnectionId == write.id);
-                if (body != null) HoleDetector.RefreshPart(body, detectors);
+            if (reflected) HoleDetector.RefreshMirroredParts(updated.ToArray(), detectors);
+            else {
+                Physics.SyncTransforms();
+                foreach (var body in updated) HoleDetector.RefreshPart(body, detectors);
+                foreach (var detector in detectors) if (detector != null && detector.isActiveAndEnabled) detector.RefreshOverlaps();
             }
-            foreach (var detector in detectors) if (detector != null && detector.isActiveAndEnabled) detector.RefreshOverlaps();
             foreach (var manager in UnityEngine.Object.FindObjectsByType<SelectionManager>(FindObjectsSortMode.None))
                 if (manager.current is MultiSelection multi && multi.pivot != null && BuildTransfer.SelectedBodies(multi)
                     .Any(b => edit.transaction.writes.Any(p => p.id == b.GetComponent<SavedObject>().ConnectionId))) multi.pivot.Center();
@@ -226,8 +232,12 @@ namespace Protobot {
         }
         private static void SetPose(GameObject body, Part part) {
             // Work in world space; selection and connection pivots remain temporary, local objects.
-            body.transform.SetPositionAndRotation(new Vector3((float)part.position[0], (float)part.position[1], (float)part.position[2]), Rotation(part));
+            body.GetComponent<SavedObject>().SetMirrored(part.mirrored);
+            var pose = GetPose(part);
+            body.transform.SetPositionAndRotation(pose.position, pose.rotation);
         }
+        internal static Pose GetPose(Part part) => new(
+            new Vector3((float)part.position[0], (float)part.position[1], (float)part.position[2]), Rotation(part));
         private static void ApplyAppearance(GameObject body, Part part) {
             body.GetComponent<SavedObject>().state = part.state;
             var color = new Color((float)part.color[0], (float)part.color[1], (float)part.color[2]);

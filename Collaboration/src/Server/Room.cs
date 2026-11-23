@@ -67,6 +67,7 @@ namespace Protobot.Collaboration.Server {
         public Capabilities Capabilities { get { lock (gate) return new Capabilities { durable = IsDurable, participantAdministration = true,
             geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
                 customAppearanceVersion = CustomAppearance.Version,
+                mirrorVersion = CollaborationProtocol.MirrorVersion,
             roomReplacementVersion = IsDurable ? RoomReplacement.Version : 0, roomIdentity = RoomStore.Identity(roomInfo),
             editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion, allowEditorProjectReplacement = roomInfo.allowEditorProjectReplacement,
             diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
@@ -120,6 +121,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(request.version == CollaborationProtocol.Version, "server-version-mismatch");
                 DocumentModel.Require(request.geometryLimitsVersion == GeometryTransfer.LimitsVersion, "geometry-limits-client-required");
                 DocumentModel.Require(request.customAppearanceVersion == CustomAppearance.Version, "appearance-client-required");
+                DocumentModel.Require(request.mirrorVersion == CollaborationProtocol.MirrorVersion, "mirror-client-required");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 DocumentModel.Require(!requireGenerationProof || roomInfo.schema < 2 || request.expectedGeneration != null && request.roomIdentity != null,
                     "room-replacement-client-required");
@@ -284,7 +286,10 @@ namespace Protobot.Collaboration.Server {
                     // lease, while the reducer restricts new chains to endpoints
                     // created by that same atomic transaction.
                     var existingPartIds = document.parts.Select(p => p.id).ToHashSet(StringComparer.Ordinal);
-                    var requiredLeaseIds = existing.Concat(chainMembers.Where(existingPartIds.Contains)).Distinct().ToArray();
+                    var mirrorSources = command.kind == "MirrorAndCopy"
+                        ? command.expected.Select(source => source.id).Where(existingPartIds.Contains)
+                        : Enumerable.Empty<string>();
+                    var requiredLeaseIds = existing.Concat(chainMembers.Where(existingPartIds.Contains)).Concat(mirrorSources).Distinct().ToArray();
                     Lease lease = null;
                     if (requiredLeaseIds.Length > 0 && inverse == null) {
                         lease = OwnedLease(member, transaction.lease);

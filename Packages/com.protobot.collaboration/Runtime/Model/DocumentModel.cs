@@ -54,9 +54,11 @@ namespace Protobot.Collaboration {
             Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxWriteSet &&
                 tx.expected.Length <= MaxWriteSet * 2 && expectedChains.Length <= MaxWriteSet * 2, "write-set-limit");
             Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "SetCustomMounts" ||
-                tx.kind == "DeleteParts" || tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts",
+                tx.kind == "DeleteParts" || tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts" ||
+                tx.kind == "MirrorParts" || tx.kind == "MirrorAndCopy",
                 "unsupported-mutation");
-            bool createsPartsAndChains = (tx.kind == "AddParts" || tx.kind == "TransformAndCopy") && tx.writes.Length > 0 && tx.deletes.Length == 0 &&
+            bool addsParts = tx.kind == "AddParts" || tx.kind == "MirrorAndCopy";
+            bool createsPartsAndChains = (addsParts || tx.kind == "TransformAndCopy") && tx.writes.Length > 0 && tx.deletes.Length == 0 &&
                 chainWrites.Length > 0 && chainDeletes.Length == 0;
             Require(tx.kind == "SetChains" ? tx.writes.Length == 0 && tx.deletes.Length == 0 && chainWrites.Length + chainDeletes.Length > 0 :
                 tx.kind == "RestoreParts" || createsPartsAndChains || chainWrites.Length == 0 && chainDeletes.Length == 0 ||
@@ -86,6 +88,10 @@ namespace Protobot.Collaboration {
                     tombstones.TryGetValue(dependency.id, out var deleted) ? deleted : 0;
                 Require(actual == dependency.version, "stale-entity");
             }
+            if (tx.kind == "MirrorAndCopy")
+                Require(expected.Keys.Count(parts.ContainsKey) == tx.writes.Length && tx.writes.Length > 0, "copy-map-mismatch");
+            if (tx.kind == "MirrorParts")
+                Require(tx.writes.Length > 0 && tx.deletes.Length == 0, "invalid-mirror");
             var changed = new HashSet<string>(StringComparer.Ordinal);
             var created = new HashSet<string>(StringComparer.Ordinal);
             foreach (var write in tx.writes) {
@@ -93,7 +99,7 @@ namespace Protobot.Collaboration {
                 Require(!IsCustom(write) || assets.ContainsKey(write.assetHash), "missing-asset");
                 Require(changed.Add(write.id) && expected.ContainsKey(write.id), "missing-write-version");
                 bool exists = parts.TryGetValue(write.id, out var before);
-                if (tx.kind == "AddParts") {
+                if (addsParts) {
                     Require(!exists && !tombstones.ContainsKey(write.id) && !chains.ContainsKey(write.id) && !chainTombstones.ContainsKey(write.id) &&
                         expected[write.id] == 0 && tx.deletes.Length == 0, "identity-in-use");
                 }
@@ -109,8 +115,10 @@ namespace Protobot.Collaboration {
                     if (tx.kind == "SetCustomMounts")
                         Require(IsCustom(before) && IsCustom(write) && SameExceptMounts(before, write), "mounts-only");
                     else if (tx.kind == "SetParts")
-                        Require(IsCustom(before) == IsCustom(write) && (!IsCustom(before) || SameCustom(before, write)), "custom-content-immutable");
+                        Require(before.mirrored == write.mirrored && IsCustom(before) == IsCustom(write) &&
+                            (!IsCustom(before) || SameCustom(before, write)), "custom-content-immutable");
                     else Require(before.catalogId == write.catalogId && before.state == write.state && before.hasPaint == write.hasPaint &&
+                        (tx.kind == "MirrorParts" ? before.mirrored != write.mirrored : before.mirrored == write.mirrored) &&
                         before.color.SequenceEqual(write.color) && SameCustom(before, write), "pose-only");
                 }
                 var accepted = WireJson.Clone(write);
@@ -147,7 +155,7 @@ namespace Protobot.Collaboration {
                     "missing-chain-version");
                 bool exists = chains.TryGetValue(write.id, out var before);
                 Require(!exists || (before.rope == null) == (write.rope == null), "invalid-chain-mutation");
-                if (tx.kind == "AddParts" || tx.kind == "TransformAndCopy")
+                if (addsParts || tx.kind == "TransformAndCopy")
                     Require(!exists && write.members.All(created.Contains), "invalid-chain-mutation");
                 if (tx.kind == "RestoreParts") Require(exists || chainTombstones.ContainsKey(write.id), "missing-chain");
                 else if (!exists) Require(!chainTombstones.ContainsKey(write.id) && chainExpected[write.id] == 0, "chain-identity-in-use");
@@ -180,7 +188,7 @@ namespace Protobot.Collaboration {
 
         // History compares logical content; accepted entity versions always increase, including resurrection.
         public static bool SamePart(Part a, Part b) => a == null || b == null ? a == b :
-            a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") && a.hasPaint == b.hasPaint &&
+            a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") && a.hasPaint == b.hasPaint && a.mirrored == b.mirrored &&
             a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.color.SequenceEqual(b.color) &&
             SameCustom(a, b);
 
@@ -319,7 +327,7 @@ namespace Protobot.Collaboration {
         private static bool SameCustom(Part a, Part b) => (a.assetHash ?? "") == (b.assetHash ?? "") && Mounts(a).Length == Mounts(b).Length &&
             Mounts(a).Zip(Mounts(b), SameMount).All(equal => equal);
         private static bool SameExceptMounts(Part a, Part b) => a.id == b.id && a.catalogId == b.catalogId && (a.state ?? "") == (b.state ?? "") &&
-            a.hasPaint == b.hasPaint && a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) &&
+            a.hasPaint == b.hasPaint && a.mirrored == b.mirrored && a.position.SequenceEqual(b.position) && NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) &&
             a.color.SequenceEqual(b.color) && (a.assetHash ?? "") == (b.assetHash ?? "");
         private static bool SameMount(CustomMount a, CustomMount b) => a != null && b != null && a.position.SequenceEqual(b.position) &&
             NormalizeRotation(a.rotation).SequenceEqual(NormalizeRotation(b.rotation)) && a.diameter == b.diameter && a.depth == b.depth && a.threaded == b.threaded;
@@ -384,6 +392,13 @@ namespace Protobot.Collaboration {
                         writer.Write(asset.vertices.Length);
                         foreach (var n in asset.vertices) writer.Write(n == 0 ? 0.0 : n);
                         writer.Write(asset.triangles.Length); foreach (var index in asset.triangles) writer.Write(index);
+                    }
+                    // Keep existing unmirrored checkpoints and document identities stable.
+                    var mirrored = document.parts.Where(part => part.mirrored).OrderBy(part => part.id, StringComparer.Ordinal).ToArray();
+                    if (mirrored.Length > 0) {
+                        writer.Write("mirror1");
+                        writer.Write(mirrored.Length);
+                        foreach (var part in mirrored) writer.Write(part.id);
                     }
                 }
                 using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(stream.ToArray()));

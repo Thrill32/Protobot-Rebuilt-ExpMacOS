@@ -127,6 +127,7 @@ namespace Protobot.Collaboration {
                 DocumentModel.Require(Transport != CollaborationTransport.ShortPolling || capabilities.shortPollingVersion == CollaborationProtocol.ShortPollingVersion, "short-polling-unavailable");
                 GeometryAssetByteLimit = GeometryTransfer.ServerAssetLimit(capabilities);
                 AppearanceVersion = capabilities.customAppearanceVersion;
+                SupportsMirror = capabilities.mirrorVersion == CollaborationProtocol.MirrorVersion;
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
@@ -299,8 +300,12 @@ namespace Protobot.Collaboration {
             }
         }
 
+        public bool SupportsMirror { get; private set; }
+
         public async Task<Receipt> SubmitAsync(Transaction transaction, CancellationToken cancellation = default) {
             DocumentModel.Require(IsConnected, IsMembershipRevoked ? "membership-revoked" : "disconnected");
+            DocumentModel.Require(SupportsMirror || (transaction.kind != "MirrorParts" && transaction.kind != "MirrorAndCopy" &&
+                !(transaction.writes ?? Array.Empty<Part>()).Any(part => part?.mirrored == true)), "mirror-server-required");
             long epoch = ConnectionEpoch;
             transaction = await PrepareAssetsAsync(transaction, cancellation).ConfigureAwait(false);
             try {

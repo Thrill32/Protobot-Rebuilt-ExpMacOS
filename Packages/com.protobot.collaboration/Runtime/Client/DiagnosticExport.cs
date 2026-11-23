@@ -62,6 +62,7 @@ namespace Protobot.Collaboration {
             "membership-revoked", "pending-operation-limit", "asset-transfer-busy", "server-transfer-busy", "asset-byte-limit", "asset-room-quota",
             "asset-materialization-quota", "asset-scene-quota", "asset-client-quota", "asset-unused-quota", "server-geometry-quota", "alpha-history-limit",
             "geometry-limits-client-required", "geometry-limits-unsupported", "appearance-client-required", "appearance-helper-required",
+            "mirror-client-required", "mirror-server-required",
             "appearance-version-unsupported", "appearance-texture-dimensions", "appearance-texture-budget", "invalid-appearance", "invalid-appearance-texture",
             "room-request-limit", "room-data-in-use", "room-data-unreadable-or-locked", "room-storage-corrupt", "registered-room-database-missing",
             "registered-room-storage-version-mismatch", "registered-room-identity-mismatch", "invalid-room-registration", "registry-link-refused",

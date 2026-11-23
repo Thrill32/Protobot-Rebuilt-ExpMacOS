@@ -70,9 +70,12 @@ namespace Protobot.Collaboration {
             RoomReplacement.ValidateTarget(target); cancellation.ThrowIfCancellationRequested();
             var current = await InspectAsync(target.room, ownerCredential, cancellation).ConfigureAwait(false);
             DocumentModel.Require(RoomReplacement.SameTarget(current, target), "replacement-target-changed");
-            if (GeometryTransfer.HasAppearance(content.document)) {
+            bool appearance = GeometryTransfer.HasAppearance(content.document);
+            bool mirrored = content.document?.parts?.Any(part => part?.mirrored == true) == true;
+            if (appearance || mirrored) {
                 var caps = await ConnectionRetry.GetAsync<Capabilities>(http, Origin + "/rooms/" + target.room + "/capabilities", cancellation).ConfigureAwait(false);
-                GeometryTransfer.RequireAppearanceSupport(true, caps.customAppearanceVersion);
+                GeometryTransfer.RequireAppearanceSupport(appearance, caps.customAppearanceVersion);
+                DocumentModel.Require(!mirrored || caps.mirrorVersion == CollaborationProtocol.MirrorVersion, "mirror-server-required");
             }
             var request = new RoomReplacementRequest { expected = WireJson.Clone(target), content = content };
             var body = await Task.Run(() => { content.Validate(); DocumentModel.Require(content.catalog.hash == target.catalogHash, "catalog-mismatch");

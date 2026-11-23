@@ -47,6 +47,7 @@ namespace Protobot.InputEvents {
         private void DeselectOneLevel() {
             // Native panels and the rebind UI own their own Escape handling.
             if (NativeFileDialogs.IsOpen || RebindAction.Rebinding || RebindAction.CanceledThisFrame) return;
+            if (KeyboardTransformTool.CancelPendingMirror()) return;
             if (CancelFocusedUI()) return;
             if (CollaborationSession.CancelWaitingReservation()) return;
             if (KeyboardTransformTool.CancelActive()) return;

@@ -6,7 +6,7 @@ using System;
 
 namespace Protobot {
     public class Screw : ConnectingPart {
-        public float ScrewLength => GetComponent<MeshFilter>().mesh.bounds.size.z - 0.087f;
+        public float ScrewLength => GetComponent<MeshFilter>().sharedMesh.bounds.size.z - 0.087f;
 
         public override bool CanFormConnection => holeDetector.TargetHoleFound;
 

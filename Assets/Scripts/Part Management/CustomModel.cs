@@ -92,8 +92,9 @@ namespace Protobot {
             if (diameter <= 0 || depth <= 0 || diameter > 100 || depth > 100 ||
                 float.IsNaN(diameter) || float.IsNaN(depth)) throw new ArgumentOutOfRangeException(nameof(diameter));
             var outwardNormal = face.rotation * Vector3.forward;
-            var center = transform.InverseTransformPoint(face.position - outwardNormal * (depth * .5f));
-            var rotation = Quaternion.Inverse(transform.rotation) * face.rotation;
+            var body = GetComponent<SavedObject>();
+            var center = body.GeometryLocal(transform.InverseTransformPoint(face.position - outwardNormal * (depth * .5f)));
+            var rotation = body.GeometryLocal(Quaternion.Inverse(transform.rotation) * face.rotation);
             var data = new CustomMountData { x = center.x, y = center.y, z = center.z,
                 qx = rotation.x, qy = rotation.y, qz = rotation.z, qw = rotation.w,
                 diameter = diameter, depth = depth, threaded = threaded };
@@ -115,8 +116,9 @@ namespace Protobot {
             var obj = new GameObject("Custom mounting point");
             obj.SetActive(false);
             obj.transform.SetParent(transform, false);
-            obj.transform.localPosition = new Vector3(data.x, data.y, data.z);
-            obj.transform.localRotation = new Quaternion(data.qx, data.qy, data.qz, data.qw);
+            var body = GetComponent<SavedObject>();
+            obj.transform.localPosition = body.GeometryLocal(new Vector3(data.x, data.y, data.z));
+            obj.transform.localRotation = body.GeometryLocal(new Quaternion(data.qx, data.qy, data.qz, data.qw));
             // A tiny collider overhang lets the point be picked over the uncut model surface.
             obj.transform.localScale = new Vector3(data.diameter, data.diameter, data.depth + .004f);
             obj.layer = HoleCollider.HOLE_COLLISIONS_LAYER;
@@ -204,11 +206,19 @@ namespace Protobot {
                     ApplyImportedAppearance(painted, inheritedColor);
                 }
                 ownedMesh.RecalculateNormals(); ownedMesh.RecalculateBounds();
+                if (GetComponent<SavedObject>().Mirrored) PartReflection.ReflectMesh(ownedMesh);
                 GetComponent<MeshFilter>().sharedMesh = ownedMesh;
                 GetComponent<MeshCollider>().sharedMesh = ownedMesh;
                 renderer.sharedMaterials = ownedMaterials;
             }
             catch { ReleaseGeometry(); throw; }
+        }
+
+        internal void ReflectMesh() {
+            var collider = GetComponent<MeshCollider>();
+            collider.sharedMesh = null;
+            PartReflection.ReflectMesh(ownedMesh);
+            collider.sharedMesh = ownedMesh;
         }
 
         internal void ApplyImportedAppearance(bool painted, Color paint) {

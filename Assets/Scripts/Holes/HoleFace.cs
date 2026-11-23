@@ -20,7 +20,8 @@ namespace Protobot {
 
         public void Refresh() {
             if (hole?.part == null) return;
-            direction = hole.part.transform.TransformDirection(localDirection).normalized;
+            var body = hole.part.GetComponent<SavedObject>();
+            direction = hole.part.transform.TransformDirection(body != null ? body.GeometryLocal(localDirection) : localDirection).normalized;
             var face = MoveTargeting.HoleFace(hole, direction);
             transform.SetPositionAndRotation(face.position, MoveTargeting.Oppose(face.rotation));
         }
@@ -28,6 +29,8 @@ namespace Protobot {
         public void Set(HoleData newHole, Vector3 newDir) {
             localDirection = newHole.part != null
                 ? newHole.part.transform.InverseTransformDirection(newDir) : newDir;
+            if (newHole.part != null && newHole.part.TryGetComponent<SavedObject>(out var body))
+                localDirection = body.GeometryLocal(localDirection);
             var face = MoveTargeting.HoleFace(newHole, newDir);
             transform.SetPositionAndRotation(face.position, MoveTargeting.Oppose(face.rotation));
             

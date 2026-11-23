@@ -67,7 +67,7 @@ namespace Protobot.StateSystems {
             if (curIndex < lastStateIndex) {
                 var discarded = states.GetRange(curIndex + 1, lastStateIndex - curIndex);
                 states = states.GetRange(0, curIndex + 1);
-                var restorable = states.Append(newState).SelectMany(state => state.elements).OfType<ObjectElement>()
+                var restorable = ObjectElements(states.Append(newState))
                     .Where(element => element.existing).Select(element => element.obj).ToHashSet();
                 DiscardOrphanedAppearance(discarded, restorable);
             }
@@ -80,11 +80,18 @@ namespace Protobot.StateSystems {
 
 
         private static void DiscardOrphanedAppearance(IEnumerable<State> discarded, HashSet<GameObject> restorable) {
-            foreach (var obj in discarded.SelectMany(state => state.elements).OfType<ObjectElement>().Select(element => element.obj).Distinct()) {
+            foreach (var obj in ObjectElements(discarded).Select(element => element.obj).Distinct()) {
                 if (obj != null && !restorable.Contains(obj) && obj.TryGetComponent<CustomModel>(out var model))
                     model.DiscardDeletedAppearance();
             }
         }
+
+        private static IEnumerable<ObjectElement> ObjectElements(IEnumerable<State> history) =>
+            history.SelectMany(state => state.elements).SelectMany(element => element switch {
+                ObjectElement single => new[] { single },
+                IObjectElements group => group.Objects,
+                _ => Array.Empty<ObjectElement>()
+            });
 
         /// <summary>
         /// Adds and advances the current state with a given element

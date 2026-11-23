@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Events;
 using System;
+using System.Collections.Generic;
 
 namespace Protobot.SelectionSystem {
     [Serializable]
@@ -116,21 +117,25 @@ namespace Protobot.SelectionSystem {
             }
         }
 
+        internal ISelection SelectExact(List<GameObject> bodies) {
+            if (bodies.Count == 0) return null;
+            ISelection result = bodies.Count == 1 ? new ObjectSelection { gameObject = bodies[0], individual = true } :
+                new MultiSelection(null, bodies) { individual = true };
+            SetCurrent(result, true, bypassResponseSelectors: true);
+            return result;
+        }
+
         public void ClearCurrent(bool setting = false, bool noSelector = false, bool bypassConditions = false) {
-            if (current?.gameObject != null) {
-                if (!bypassConditions && !PassedAllConditions(current, true)) {
-                    return;
-                }
+            if (current == null) return;
+            bool hasBody = current.gameObject != null;
+            if (hasBody && !bypassConditions && !PassedAllConditions(current, true)) return;
 
-                ClearInfo info = new ClearInfo(current, setting);
-                if (noSelector)
-                    current.selector = null;
-
-                RunClearResponses(info);
-                current.Deselect();
-                OnClearSelection?.Invoke();
-                current = null;
-            }
+            ClearInfo info = new ClearInfo(current, setting);
+            if (noSelector || !hasBody) current.selector = null;
+            RunClearResponses(info);
+            if (hasBody) current.Deselect();
+            OnClearSelection?.Invoke();
+            current = null;
         }
     }
 }

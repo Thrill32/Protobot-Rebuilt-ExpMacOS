@@ -14,6 +14,7 @@ namespace Protobot.Builds {
         [System.Runtime.Serialization.OptionalField] public string connectionId;
         [System.Runtime.Serialization.OptionalField] public CustomModelData customModel;
         [System.Runtime.Serialization.OptionalField] public bool hasPaint;
+        [System.Runtime.Serialization.OptionalField] public bool mirrored;
         public bool IsCustomModel => partId == CustomModel.PartId;
         public Vector3 GetPos() => new Vector3((float)xPos, (float)yPos, (float)zPos);
         public Quaternion GetRot() => Quaternion.Euler((float)xRot, (float)yRot, (float)zRot);
@@ -26,6 +27,7 @@ namespace Protobot.Builds {
             if (data.GetPos() != GetPos()) return false;
             if (data.GetRot() != GetRot()) return false;
             if (data.partId != partId) return false;
+            if (data.mirrored != mirrored) return false;
             // Unity's inline JSON serializer can expand a null class into empty fields.
             if (IsCustomModel && (customModel == null || !customModel.SameAs(data.customModel))) return false;
             if (data.hasPaint != hasPaint) return false;

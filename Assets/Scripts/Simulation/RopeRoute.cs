@@ -12,6 +12,7 @@ namespace Protobot.Simulation {
         private RopeVisual visual;
         private SavedObject[] parts;
         private Matrix4x4[] matrices;
+        private bool[] handedness;
         public RopeRouteData Data => data.Snapshot();
         public IEnumerable<string> MemberIds => data.MemberIds;
 
@@ -107,8 +108,8 @@ namespace Protobot.Simulation {
                 string expected = i == 0 ? RopeRouteData.DrumId : RopeRouteData.PulleyId;
                 if (parts[i].id != expected || !parts[i].TryGetComponent(out grooves[i])) return false;
             }
-            return RopeRouteGeometry.TryBuild(grooves, parts[0].transform.TransformPoint(data.start.LocalPoint),
-                parts[^1].transform.TransformPoint(data.end.LocalPoint), data.wraps, out contour, out reason);
+            return RopeRouteGeometry.TryBuild(grooves, data.start.WorldPoint(parts[0]),
+                data.end.WorldPoint(parts[^1]), data.WorldWraps(parts[0]), out contour, out reason);
         }
 
         private void SetData(RopeRouteData value) {
@@ -132,11 +133,15 @@ namespace Protobot.Simulation {
                 return;
             }
             bool changed = matrices == null;
-            matrices ??= new Matrix4x4[parts.Length];
+            if (changed) {
+                matrices = new Matrix4x4[parts.Length];
+                handedness = new bool[parts.Length];
+            }
             for (int i = 0; i < parts.Length; i++) {
                 var matrix = parts[i].transform.localToWorldMatrix;
-                changed |= !matrices[i].Equals(matrix);
+                changed |= !matrices[i].Equals(matrix) || handedness[i] != parts[i].Mirrored;
                 matrices[i] = matrix;
+                handedness[i] = parts[i].Mirrored;
             }
             if (changed) {
                 bool valid = TryContour(data, parts, out var contour, out _) && contour.length <= data.availableLength + .0001f;

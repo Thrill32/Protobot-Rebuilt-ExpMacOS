@@ -29,8 +29,8 @@ namespace Protobot.Simulation {
             }
             var drum = parts[0].GetComponent<RopeGroove>();
             var pulley = parts[1].GetComponent<RopeGroove>();
-            var start = parts[0].transform.TransformPoint(data.start.LocalPoint);
-            var end = parts[2].transform.TransformPoint(data.end.LocalPoint);
+            var start = data.start.WorldPoint(parts[0]);
+            var end = data.end.WorldPoint(parts[2]);
             if (!ClearOfDrum(drum, contour.exit, end)) {
                 reason = "Keep the load's travel span clear of the drum.";
                 return null;
@@ -53,8 +53,9 @@ namespace Protobot.Simulation {
             axialOffset = Vector3.Dot(tail, contour.normal);
             tailLength = Math.Sqrt(planarSpan * planarSpan + axialOffset * axialOffset);
             double drumRadius = RopeRouteGeometry.Radius(drum), pulleyRadius = RopeRouteGeometry.Radius(pulley);
-            inchesPerDegree = drumRatio * WrapSign(data.wraps[0]) * drumRadius * Math.PI / 180;
-            pulleyRatio = inchesPerDegree * 180 / Math.PI / pulleyRadius * WrapSign(data.wraps[1]);
+            var wraps = data.WorldWraps(drum.GetComponent<SavedObject>());
+            inchesPerDegree = drumRatio * WrapSign(wraps[0]) * drumRadius * Math.PI / 180;
+            pulleyRatio = inchesPerDegree * 180 / Math.PI / pulleyRadius * WrapSign(wraps[1]);
 
             double payout = contour.drumWrapLength + contour.FullDrumTurns(data.availableLength) * contour.DrumCircumference;
             double minimumSpan = Math.Sqrt(RopeRouteGeometry.Diameter * RopeRouteGeometry.Diameter + axialOffset * axialOffset);
@@ -63,7 +64,7 @@ namespace Protobot.Simulation {
             bool Clear(double distance) {
                 Vector3 target = end + axis * (float)LoadDisplacement(distance);
                 return ClearOfDrum(drum, contour.exit, target) &&
-                    RopeRouteGeometry.TryBuild(grooves, start, target, data.wraps, out _, out _);
+                    RopeRouteGeometry.TryBuild(grooves, start, target, wraps, out _, out _);
             }
             takeUpLimit = ClearDistance(takeUp, distance => Clear(-distance));
             payoutLimit = ClearDistance(payout, Clear);
@@ -104,8 +105,9 @@ namespace Protobot.Simulation {
             var pivot = ratchet.transform.InverseTransformPoint(pawl.Center);
             float gearScale = ratchet.transform.lossyScale.x;
             if (Vector3.ProjectOnPlane(pivot, ratchet.localAxis).magnitude * gearScale <= radius) return false;
+            var pawlBody = pawl.GetComponent<SavedObject>();
             return mesh.vertices.Any(vertex => {
-                if (vertex.x < .43f || Mathf.Abs(vertex.z) > .06f) return false;
+                if (pawlBody.GeometryLocal(vertex).x < .43f || Mathf.Abs(vertex.z) > .06f) return false;
                 var point = ratchet.transform.InverseTransformPoint(pawl.transform.TransformPoint(vertex));
                 return point.z >= gearBounds.min.z + .055f && point.z <= gearBounds.max.z + .02f &&
                     Vector3.ProjectOnPlane(point, ratchet.localAxis).magnitude * gearScale <= radius + .025f;

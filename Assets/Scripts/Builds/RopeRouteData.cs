@@ -10,9 +10,10 @@ namespace Protobot.Builds {
         public string part;
         public float x, y, z;
         public Vector3 LocalPoint => new(x, y, z);
+        public Vector3 WorldPoint(SavedObject body) => body.transform.TransformPoint(body.GeometryLocal(LocalPoint));
 
         public static RopeAttachment At(SavedObject body, Vector3 worldPoint) {
-            var point = body.transform.InverseTransformPoint(worldPoint);
+            var point = body.GeometryLocal(body.transform.InverseTransformPoint(worldPoint));
             return new RopeAttachment { part = body.ConnectionId, x = point.x, y = point.y, z = point.z };
         }
     }
@@ -29,6 +30,9 @@ namespace Protobot.Builds {
         // Drum followed by ordered pulleys. 0 = outer, 1 = inner.
         public int[] wraps;
         public float availableLength = KitLength;
+
+        // Signed sweeps use the drum's live axis. Reflection reverses their sense.
+        internal int[] WorldWraps(SavedObject drum) => drum.Mirrored ? wraps.Select(wrap => 1 - wrap).ToArray() : wraps;
 
         public IEnumerable<string> MemberIds {
             get {

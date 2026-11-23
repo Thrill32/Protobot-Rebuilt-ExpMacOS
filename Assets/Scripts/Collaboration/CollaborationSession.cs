@@ -133,7 +133,7 @@ namespace Protobot {
                 case "Simulation Chain Selected Sprockets": return CanEdit && !HasReservation;
                 // A held pointer must survive the asynchronous reservation wait; dragging starts only after the grant.
                 case "Tool Drag": return instance.client.IsConnected && instance.client.Participant.role != "viewer";
-                case "Grab Selection": case "Rotate Placement": case "Delete Selection": case "Place":
+                case "Grab Selection": case "Mirror Selection": case "Rotate Placement": case "Delete Selection": case "Place":
                 case "Grab Hole Snap": case "Duplicate": case "Pick Part": case "Copy Selection": case "Paste Selection":
                 case "Undo": case "Redo": case "Enable Transform Tool": case "Enable Move Tool": case "Enable Color Tool": case "Enable Connect Tool":
                 case "Place Selection": case "Import Build": case "Save Selected Parts As": case "Import Custom Model":
@@ -273,6 +273,8 @@ namespace Protobot {
             try {
                 await candidate.JoinAsync(displayName, password, owner, owner == null && joinAsViewer, attempt.Token, attempt, acceptReplacement);
                 attempt.Token.ThrowIfCancellationRequested();
+                if (hosting && committed.parts.Any(part => part.mirrored))
+                    DocumentModel.Require(candidate.SupportsMirror, "mirror-server-required");
                 client = candidate;
                 committed = candidate.Snapshot;
                 applying = true;
@@ -333,11 +335,11 @@ namespace Protobot {
             }
         }
 
-        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null) {
+        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null, bool sendPreviews = true) {
             if (instance == null) return;
             var saved = CollaborationScene.Bodies(bodies);
             if (saved.Count == 0) { denied?.Invoke(); return; }
-            _ = instance.ReservePartsAsync(saved, true, granted, denied);
+            _ = instance.ReservePartsAsync(saved, sendPreviews, granted, denied);
         }
         public static void ReserveCustomMounts(IReadOnlyList<CustomModel> models, Action granted, Action denied = null) {
             if (instance == null) return;
@@ -451,11 +453,41 @@ namespace Protobot {
             }
         }
         public static void CancelCustomMounts() => CancelPose();
+        internal static void ConfirmMirror(GameObject[] bodies, Vector3 pivot, Vector3 normal, SelectionManager selectCopies) {
+            if (!IsShared) return;
+            var session = instance;
+            try {
+                DocumentModel.Require(session.client.SupportsMirror, "mirror-server-required");
+                DocumentModel.Require(HasPoseReservation(bodies), "lease-set-mismatch");
+                var ids = session.reserved.ToDictionary(id => id, id => selectCopies != null ? Guid.NewGuid().ToString("N") : id);
+                var writes = session.committed.parts.Where(part => ids.ContainsKey(part.id)).Select(source => {
+                    var part = WireJson.Clone(source);
+                    part.id = ids[source.id];
+                    part.mirrored = !part.mirrored;
+                    var pose = PartReflection.Across(CollaborationScene.GetPose(source), pivot, normal);
+                    part.position = new double[] { pose.position.x, pose.position.y, pose.position.z };
+                    part.rotation = new double[] { pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w };
+                    return part;
+                }).ToArray();
+                DocumentModel.Require(writes.Length == ids.Count, "stale-entity");
+                var routes = selectCopies != null ? session.CaptureCopiedRoutes(ids) : Array.Empty<ChainRecord>();
+                var routeSources = selectCopies != null ? DocumentModel.Chains(session.committed)
+                    .Where(route => route.members.All(ids.ContainsKey)).Select(route => route.id) : Enumerable.Empty<string>();
+                var tx = session.CreateTransaction(selectCopies != null ? "MirrorAndCopy" : "MirrorParts", writes,
+                    dependencies: session.reservedVersions, token: session.lease,
+                    chainWrites: routes, chainDependencies: ChainVersions(routeSources));
+                if (selectCopies != null)
+                    session.selectAfterApply[tx.operationId] = (selectCopies, writes.Select(part => part.id).ToArray());
+                _ = session.Submit(tx);
+            }
+            catch (Exception error) { CancelPose(); session.Report(error); }
+        }
+
         private ChainRecord[] CaptureCopiedRoutes(List<GameObject> sourceBodies, List<GameObject> copies) {
             if (copies == null || copies.Count == 0) return Array.Empty<ChainRecord>();
             var sourceParts = sourceBodies.Where(body => body != null).SelectMany(body => body.GetComponentsInChildren<SavedObject>(true))
                 .Select(saved => saved.gameObject).Distinct().ToList();
-            var sourceRoots = sourceParts.Where(part => !sourceParts.Any(other => other != part && part.transform.IsChildOf(other.transform))).ToList();
+            var sourceRoots = ObjectDuplicator.CopyRoots(sourceParts);
             DocumentModel.Require(sourceRoots.Count == copies.Count, "copy-map-mismatch");
             var ids = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 0; i < sourceRoots.Count; i++) {
@@ -464,6 +496,10 @@ namespace Protobot {
                 DocumentModel.Require(source.Length == copy.Length, "copy-map-mismatch");
                 for (int j = 0; j < source.Length; j++) ids[source[j].ConnectionId] = copy[j].ConnectionId;
             }
+            return CaptureCopiedRoutes(ids);
+        }
+
+        private ChainRecord[] CaptureCopiedRoutes(Dictionary<string, string> ids) {
             var used = committed.parts.Select(p => p.id).Concat(committed.tombstones.Select(p => p.id))
                 .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet(StringComparer.Ordinal);
             return DocumentModel.Chains(committed).Where(chain => chain.members.All(ids.ContainsKey)).Select(chain => {
@@ -507,8 +543,7 @@ namespace Protobot {
             if (manager == null) return;
             var bodies = PartsManager.FindLoadedObjects().Where(b => ids.Contains(b.GetComponent<SavedObject>().ConnectionId)).ToList();
             manager.ClearCurrent(false, true, true);
-            if (bodies.Count > 0) manager.SetCurrent(bodies.Count == 1 ? new ObjectSelection { gameObject = bodies[0], individual = true } :
-                new MultiSelection(null, bodies) { individual = true }, true, bypassResponseSelectors: true);
+            manager.SelectExact(bodies);
         }
         public static void Paint(GameObject[] bodies, Color color, bool reset) {
             if (!IsShared || !CanEdit) return;

@@ -7,6 +7,7 @@ namespace Protobot.Collaboration {
     public static class CollaborationProtocol {
         public const string Version = "0.9.0-alpha";
         public const int ShortPollingVersion = 1;
+        public const int MirrorVersion = 1;
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -17,6 +18,7 @@ namespace Protobot.Collaboration {
         public double[] position = new double[3];
         public double[] rotation = new double[] { 0, 0, 0, 1 };
         public bool hasPaint;
+        [System.Runtime.Serialization.OptionalField] public bool mirrored;
         public double[] color = new double[] { 1, 1, 1 };
         // CUSTOM parts reference immutable document geometry and own an ordered
         // mounting layout. Catalog parts leave both fields empty.
@@ -118,6 +120,7 @@ namespace Protobot.Collaboration {
     [Serializable] public sealed class JoinRequest {
         [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion = GeometryTransfer.LimitsVersion;
         [System.Runtime.Serialization.OptionalField] public int customAppearanceVersion = CustomAppearance.Version;
+        [System.Runtime.Serialization.OptionalField] public int mirrorVersion = CollaborationProtocol.MirrorVersion;
         [System.Runtime.Serialization.OptionalField] public string expectedGeneration, roomIdentity, resynchronizeFromGeneration;
         public int protocol = 1;
         public string version = CollaborationProtocol.Version;
@@ -170,6 +173,7 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public bool geometryTransfer = true;
         [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion, geometryAssetBytes;
         [System.Runtime.Serialization.OptionalField] public int customAppearanceVersion;
+        [System.Runtime.Serialization.OptionalField] public int mirrorVersion;
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;
