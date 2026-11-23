@@ -62,7 +62,7 @@ namespace ProtobotEditorTools {
                 string text = await line; Require(text != null, "Configured TLS helper exited before readiness.");
                 var ready = WireJson.Decode<Ready>(System.Text.Encoding.UTF8.GetBytes(text));
                 Require(ready.url.StartsWith("https://127.0.0.1:", StringComparison.Ordinal), "Configured helper did not bind HTTPS.");
-                CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
+                var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
                 string saved = Path.Combine(root, "original.pbb"); manager.buildPath = saved;
                 Require(await (Task<bool>)Invoke(manager, "SaveAsync", false), "TLS fixture local save failed."); byte[] bytes = File.ReadAllBytes(saved);
                 var baseline = CollaborationScene.CaptureDocument(seed.catalog); string hash = DocumentModel.Hash(baseline);

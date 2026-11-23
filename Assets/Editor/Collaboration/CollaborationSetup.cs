@@ -12,15 +12,6 @@ using UnityEngine;
 
 namespace ProtobotEditorTools {
     public static class CollaborationSetup {
-        [MenuItem("Tools/Protobot/Collaboration/Enable Development UI")]
-        public static void Enable() {
-            EditorPrefs.SetBool("Protobot.Collaboration.Development", true);
-            if (Application.isPlaying) CollaborationSession.EnableDevelopment();
-            Debug.Log("Collaboration development UI enabled for Play Mode. Development players show the button on normal launch; release builds require --collaboration.");
-        }
-        [MenuItem("Tools/Protobot/Collaboration/Disable Development UI")]
-        public static void Disable() => EditorPrefs.SetBool("Protobot.Collaboration.Development", false);
-
         [MenuItem("Tools/Protobot/Collaboration/Export Catalog")]
         public static void ExportCatalog() {
             PartsManager.LoadPartTypes();

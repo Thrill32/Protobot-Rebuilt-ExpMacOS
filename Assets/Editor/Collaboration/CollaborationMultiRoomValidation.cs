@@ -81,7 +81,7 @@ namespace ProtobotEditorTools {
                 var ready = await Start("http://127.0.0.1:0");
                 foreach (string room in new[] { "red", "blue" }) await Run("room", "create", "--url", ready.url, "--admin-file", Path.Combine(registry, "admin.json"),
                     "--room", room, "--snapshot", Path.Combine(root, room + ".json"), "--owner-output", Path.Combine(root, room + "-owner.json"));
-                CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
+                var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
                 Set(session, "endpoint", ready.url); Set(session, "room", "red"); Set(session, "transport", CollaborationTransport.WebSocket);
                 await (Task)Invoke(session, "JoinAsync"); Require(CollaborationSession.IsShared, "Unity red join failed.");
                 var redClient = Get<CollaborationClient>(session, "client"); string redIdentity = redClient.Participant.id;

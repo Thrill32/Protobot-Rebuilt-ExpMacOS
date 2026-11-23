@@ -17,7 +17,7 @@ def main():
     app = args.player.resolve()
     executable = next(p for p in (app / "Contents/MacOS").iterdir() if not p.name.startswith(".")) if app.suffix == ".app" else app
     output = root / "navigation.json"
-    command = [str(executable), "--collaboration", "--collab-profile", str(root / "owner-profile"),
+    command = [str(executable), "--collab-profile", str(root / "owner-profile"),
                "--collab-probe", "ui", "--collab-test-results", str(output), "-logFile", str(root / "owner.log"),
                "-screen-width", "1280", "-screen-height", "720", "-screen-fullscreen", "0"]
     process = subprocess.Popen(command)

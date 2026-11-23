@@ -57,7 +57,7 @@ def main():
 
     def launch(directory, name, origin=None):
         output = directory / (name + ".json")
-        options = [str(executable), "--collaboration", "--collab-profile", str(directory / (name + "-profile")),
+        options = [str(executable), "--collab-profile", str(directory / (name + "-profile")),
                    "--collab-probe", "editor-replacement", "--collab-test-results", str(output), "--collab-name", name,
                    "--collab-transport", "websocket" if name == "Owner" else "long-polling",
                    "-logFile", str(directory / (name + ".log")), "-screen-width", "1100", "-screen-height", "820", "-screen-fullscreen", "0"]

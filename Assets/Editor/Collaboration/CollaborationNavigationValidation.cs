@@ -37,7 +37,11 @@ namespace ProtobotEditorTools {
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
         }
         private static async Task Check() {
-            CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>();
+            var sessions = Object.FindObjectsByType<CollaborationSession>();
+            Require(sessions.Length == 1, "Main did not install exactly one collaboration session on ordinary launch.");
+            var session = sessions[0];
+            Require(!CollaborationSession.IsShared && !CollaborationSession.BlocksUIInput &&
+                Get<CollaborationHost>(session, "host") == null, "Ordinary launch connected, started hosting, or captured input.");
             var title = (RectTransform)Object.FindFirstObjectByType<Protobot.UI.BuildNameText>().transform;
             var badge = Get<RectTransform>(session, "uiBadge");
             string root = Path.Combine(LocalPreferences.ProfileDirectory, "navigation-render"); Directory.CreateDirectory(root);

@@ -76,17 +76,8 @@ namespace Protobot {
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install() {
-            bool enabled = CollaborationArguments.Enabled;
-#if UNITY_EDITOR
-            enabled |= UnityEditor.EditorPrefs.GetBool("Protobot.Collaboration.Development", false);
-#else
-            enabled |= Debug.isDebugBuild;
-#endif
-            if (enabled) EnableDevelopment();
-        }
-        public static void EnableDevelopment() {
             if (instance != null) return;
-            new GameObject("Collaboration (development alpha)").AddComponent<CollaborationSession>();
+            new GameObject("Collaboration Session").AddComponent<CollaborationSession>();
         }
         private void Awake() {
             instance = this;
@@ -99,7 +90,6 @@ namespace Protobot {
             networkRoute = CollaborationArguments.Get("--collab-network-route", "system") == "direct" ? 1 : 0;
             invalidNetworkArgument = CollaborationArguments.Get("--collab-network-route", "system") != "system" && CollaborationArguments.Get("--collab-network-route") != "direct";
             transport = requestedTransport == "long-polling" ? CollaborationTransport.LongPolling : requestedTransport == "websocket" ? CollaborationTransport.WebSocket : requestedTransport == "short-polling" ? CollaborationTransport.ShortPolling : CollaborationTransport.Auto;
-            RefreshRecoveredRooms();
             InitializeUI();
             Application.quitting += OnQuitting;
         }

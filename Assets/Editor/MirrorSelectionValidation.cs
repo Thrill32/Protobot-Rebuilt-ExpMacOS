@@ -299,7 +299,6 @@ namespace ProtobotEditorTools {
             var id = Id(body);
             var originalVertices = Vertices(body);
             var pivot = body.transform.position;
-            CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
             Set(session, "port", "0");
             await (Task)Invoke(session, "HostAsync");

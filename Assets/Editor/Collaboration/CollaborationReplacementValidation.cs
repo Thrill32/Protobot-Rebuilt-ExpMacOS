@@ -68,7 +68,7 @@ namespace ProtobotEditorTools {
             return DocumentModel.Hash(captured);
         }
         private static async Task Check() {
-            CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>();
+            var session = Object.FindFirstObjectByType<CollaborationSession>();
             var manager = Object.FindFirstObjectByType<BuildsManager>();
             Invoke(session, "RefreshUI"); Invoke(session, "PositionCollaborationButton");
             var badge = Get<RectTransform>(session, "uiBadge");

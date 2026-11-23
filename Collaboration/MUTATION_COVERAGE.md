@@ -1,6 +1,6 @@
 # Connected-mode mutation coverage
 
-Development players expose collaboration normally; release builds require the collaboration switch. Only the rows marked supported may mutate a connected document. The offline editor retains its existing paths. This audit is a release gate, not a claim of complete collaboration coverage.
+The Collaboration button is available on normal launch. Only the rows marked supported may mutate a connected document. This audit documents the supported editing paths for release validation.
 
 | Mutation / action | Connected alpha | Real entry point / guard |
 | --- | --- | --- |

@@ -53,7 +53,7 @@ namespace ProtobotEditorTools {
             Require(process.ExitCode == 0, "Room creation helper command failed.");
         }
         private static async Task Check() {
-            CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
+            var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
             string root = Path.Combine(LocalPreferences.ProfileDirectory ?? Path.GetTempPath(), "room-creation-smoke"); RecoveryFiles.CreateDirectory(root);
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild); PartsManager.GeneratePart("CCHL-1x2-5", Vector3.zero, Quaternion.identity);
             string model = Path.Combine(root, "model.obj"); File.WriteAllText(model, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");

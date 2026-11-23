@@ -42,7 +42,7 @@ namespace ProtobotEditorTools {
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
         }
         private static async Task Check() {
-            CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>();
+            var session = Object.FindFirstObjectByType<CollaborationSession>();
             var manager = Object.FindFirstObjectByType<BuildsManager>();
             string root = Path.Combine(LocalPreferences.ProfileDirectory ?? Path.GetTempPath(), "shutdown-check"); RecoveryFiles.CreateDirectory(root);
             var catalog = CollaborationScene.Catalog;

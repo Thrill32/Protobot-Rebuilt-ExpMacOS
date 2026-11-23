@@ -119,7 +119,6 @@ namespace ProtobotEditorTools {
             int ghosts = 0;
             try {
                 if (shared) {
-                    CollaborationSession.EnableDevelopment();
                     session = Object.FindFirstObjectByType<CollaborationSession>();
                     Set(session, "port", "0");
                     await (Task)Invoke(session, "HostAsync");

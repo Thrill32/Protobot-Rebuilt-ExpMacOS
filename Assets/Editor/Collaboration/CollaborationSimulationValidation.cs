@@ -86,7 +86,6 @@ namespace ProtobotEditorTools {
             string sprocketAId = sprocketA.GetComponent<SavedObject>().ConnectionId;
             string sprocketBId = sprocketB.GetComponent<SavedObject>().ConnectionId;
             var catalog = CollaborationScene.Catalog;
-            CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
             Set(session, "port", "0");
             await (Task)Invoke(session, "HostAsync");

@@ -54,7 +54,6 @@ namespace ProtobotEditorTools {
             var geometry = CustomModelImporter.Read(largePath, 1); File.Delete(largePath);
             var custom = CustomModel.Create(geometry, Vector3.right * 20, Quaternion.identity);
             string customId = custom.GetComponent<SavedObject>().ConnectionId;
-            CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
             Set(session, "port", "0"); Set(session, "password", "recovery-test-password");
             await (Task)Invoke(session, "HostAsync");

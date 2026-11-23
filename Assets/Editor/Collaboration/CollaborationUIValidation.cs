@@ -51,7 +51,6 @@ namespace ProtobotEditorTools {
                 "Unity could not decode an earlier 0.7 helper capability response.");
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
             PartsManager.GeneratePart("CCHL-1x2-5", Vector3.right * 3, Quaternion.identity);
-            CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
             Invoke(session, "OpenPanel", 1); await Task.Delay(80); Canvas.ForceUpdateCanvases();
             var modal = Get<GameObject>(session, "uiModal");

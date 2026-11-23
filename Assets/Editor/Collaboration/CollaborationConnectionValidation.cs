@@ -49,7 +49,7 @@ namespace ProtobotEditorTools {
             string modelId = custom.GetComponent<SavedObject>().ConnectionId;
             var document = CollaborationScene.CaptureDocument(catalog); document.parts.First(p => p.catalogId != "CUSTOM").position[0] = 41;
             SceneBuild.GenerateBuild(local);
-            CollaborationSession.EnableDevelopment(); var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
+            var session = Object.FindFirstObjectByType<CollaborationSession>(); var manager = Object.FindFirstObjectByType<BuildsManager>();
             string originalSave = Path.Combine(root, "original.pbb"); manager.buildPath = originalSave;
             Require(await (Task<bool>)Invoke(manager, "SaveAsync", false), "Initial local save failed."); byte[] originalBytes = File.ReadAllBytes(originalSave);
             var seed = new Bootstrap { room = "connection-room", password = "private-ui-password", ownerCredential = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"), catalog = catalog, document = document };

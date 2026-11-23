@@ -60,7 +60,6 @@ namespace ProtobotEditorTools {
             var manager = Object.FindFirstObjectByType<BuildsManager>();
             manager.buildPath = savedPath;
             Set(manager, "savedBuildData", SceneBuild.ToBuildData());
-            CollaborationSession.EnableDevelopment();
             var session = Object.FindFirstObjectByType<CollaborationSession>();
             Set(session, "port", "0"); Set(session, "displayName", "Hosting editor");
             // The scene uses exactly the same private helper lifecycle as players.

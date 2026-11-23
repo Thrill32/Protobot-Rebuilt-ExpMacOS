@@ -6,7 +6,7 @@ This is a fork of Protobot Rebuilt that has been updated to Unity 6000.6.9f1 and
 
 Shift + WASDQE is the default noclip controls. The mouse controls look direction. 
 
-Development collaboration now includes durable single-room Host/Join and bounded dedicated multi-room hosting; see [collaboration setup, limits and pending acceptance](Collaboration/README.md).
+Open **Collaboration** beside the filename to join a shared build or host one locally. See the [collaboration setup and hosting guide](Collaboration/README.md).
 
 Blender-esque grab/rotate controls. G/R to activate on selected and XYZ keybinds for directions.
 

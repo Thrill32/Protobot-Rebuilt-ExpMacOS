@@ -11,7 +11,6 @@ namespace Protobot {
         private static readonly string[] ValueOptions = { "--collab-profile", "--collab-catalog", "--collab-name", "--collab-join", "--collab-server", "--collab-room", "--collab-transport", "--collab-network-route", "--collab-probe", "--collab-test-results" };
         private static readonly Dictionary<string, string> values = Parse();
         public static string Get(string option, string fallback = null) => values.TryGetValue(option, out var value) ? value : fallback;
-        public static bool Enabled => Environment.GetCommandLineArgs().Contains("--collaboration") || Get("--collab-join") != null;
         public static IEnumerable<string> StartupFiles {
             get {
                 var args = Environment.GetCommandLineArgs();

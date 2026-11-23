@@ -74,7 +74,7 @@ namespace Protobot {
             uiCard = UIRect("Window", uiModal.transform); uiCard.anchorMin = uiCard.anchorMax = uiCard.pivot = new Vector2(.5f, .5f);
             UIImage(uiCard, new Color(.055f, .065f, .08f, 1));
             var title = UIText(uiCard, "Title", "Collaboration", 23); UIPlace(title.rectTransform, 22, 12, -90, 34, true);
-            var subtitle = UIText(uiCard, "Subtitle", "Development alpha  |  Shared build editing", 13); UIPlace(subtitle.rectTransform, 22, 49, -44, 26, true);
+            var subtitle = UIText(uiCard, "Subtitle", "Shared build editing", 13); UIPlace(subtitle.rectTransform, 22, 49, -44, 26, true);
             var close = UIButton(uiCard, "Close", "Close", ClosePanel); UIPlace((RectTransform)close.transform, -86, 14, 66, 32);
             ((RectTransform)close.transform).anchorMin = ((RectTransform)close.transform).anchorMax = Vector2.one;
 
@@ -82,7 +82,7 @@ namespace Protobot {
             uiPageButtons = new Button[6];
             uiPageButtons[0] = UIButton(uiTabs.transform, "Host Tab", "Host", () => SelectUITab(0));
             uiPageButtons[1] = UIButton(uiTabs.transform, "Join Tab", "Join", () => SelectUITab(1));
-            uiPageButtons[2] = UIButton(uiTabs.transform, "Recovery Tab", "Local rooms", () => { RefreshRecoveredRooms(); SelectUITab(2); });
+            uiPageButtons[2] = UIButton(uiTabs.transform, "Recovery Tab", "Local rooms", () => SelectUITab(2));
             uiPageButtons[3] = UIButton(uiTabs.transform, "Create Room Tab", "Create room", () => SelectUITab(3));
             uiPageButtons[5] = UIButton(uiTabs.transform, "Owned Rooms Tab", "Owned rooms", () => SelectUITab(5));
             uiPageButtons[4] = UIButton(uiTabs.transform, "Server Admin Tab", "Server admin", () => SelectUITab(4));
@@ -217,6 +217,7 @@ namespace Protobot {
             if (uiNavigation != null) uiNavigation.SetActive(busy && !advancedNavigation);
         }
         private void SelectUITab(int tab) {
+            if (tab == 2) RefreshRecoveredRooms();
             ClearReplacementConfirmation(); uiResyncConfirmation?.SetActive(false); uiJoinResyncConfirmation?.SetActive(false);
             ClearUIFocus(); uiTab = tab;
             uiHost.SetActive(tab == 0); uiJoin.SetActive(tab == 1); uiRecovery.SetActive(tab == 2);

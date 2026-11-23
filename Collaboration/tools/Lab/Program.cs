@@ -608,7 +608,7 @@ internal static partial class Program {
         var drains = new List<Task>();
         Process Launch(string profile, string role, string url, string transport) {
             var start = new ProcessStartInfo { FileName = executable, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-            var options = new List<string> { "--collaboration", "--collab-profile", Path.Combine(directory, profile + " profile"), "--collab-name", profile,
+            var options = new List<string> { "--collab-profile", Path.Combine(directory, profile + " profile"), "--collab-name", profile,
                 "--collab-probe", role, "--collab-test-results", Path.Combine(directory, profile + ".json"), "--collab-transport", transport,
                 "-batchmode", "-nographics", "-logFile", Path.Combine(directory, profile + ".log") };
             if (url != null) options.AddRange(new[] { "--collab-join", url });
