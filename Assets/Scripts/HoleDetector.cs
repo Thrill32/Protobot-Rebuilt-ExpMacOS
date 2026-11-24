@@ -9,6 +9,7 @@ namespace Protobot {
         public HashSet<HoleCollider> holes = new HashSet<HoleCollider>();
         [SerializeField] HoleCollider.HoleType targetHoleType;
         private ConnectingPart owner;
+        internal ConnectingPart Owner => owner;
 
         private void Awake() => owner = GetComponentInParent<ConnectingPart>();
 

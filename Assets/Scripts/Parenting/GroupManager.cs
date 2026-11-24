@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Linq;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -66,6 +65,7 @@ namespace Protobot {
             objs = null;
             if (!Live(obj)) return false;
             var visited = new HashSet<GameObject>();
+            var seats = new Dictionary<Shaft, (GameObject left, GameObject right)>();
             var pending = new Stack<GameObject>();
             pending.Push(obj);
             while (pending.Count > 0) {
@@ -73,10 +73,49 @@ namespace Protobot {
                 if (!Live(current) || !visited.Add(current)) continue;
                 if (Graph.TryGetValue(current, out var neighbours))
                     foreach (var next in neighbours) if (Live(next)) pending.Push(next);
+
+                foreach (var shaft in NearbyShafts(current)) {
+                    if (!Live(shaft.gameObject) || !Graph.ContainsKey(shaft.gameObject)) continue;
+                    if (!seats.TryGetValue(shaft, out var walls)) {
+                        walls = shaft.GetSeatedWalls();
+                        if (!Live(walls.left) || !Live(walls.right) || !ShareFixedFrame(walls.left, walls.right)) walls = default;
+                        seats.Add(shaft, walls);
+                    }
+                    if (walls.left == null) continue;
+                    if (current == shaft.gameObject) {
+                        pending.Push(walls.left);
+                        pending.Push(walls.right);
+                    } else if (current == walls.left || current == walls.right) pending.Push(shaft.gameObject);
+                }
             }
             if (visited.Count < 2) return false;
             objs = visited.ToList();
             return true;
+        }
+
+        private static IEnumerable<Shaft> NearbyShafts(GameObject body) {
+            if (body.TryGetComponent(out Shaft shaft)) yield return shaft;
+            foreach (var hole in body.GetComponentsInChildren<HoleCollider>()) {
+                if (hole.holeType != HoleCollider.HoleType.Normal || hole.holeData?.part != body) continue;
+                foreach (var detector in hole.detectors)
+                    if (detector != null && detector.Owner is Shaft owner && owner != null) yield return owner;
+            }
+        }
+
+        // Resolve seating against the live fastener graph. Shaft edges cannot establish a frame,
+        // and a change in face contact need not produce a trigger enter or exit.
+        private static bool ShareFixedFrame(GameObject left, GameObject right) {
+            var visited = new HashSet<GameObject>();
+            var pending = new Stack<GameObject>();
+            pending.Push(left);
+            while (pending.Count > 0) {
+                var current = pending.Pop();
+                if (!Live(current) || current.TryGetComponent<Shaft>(out _) || !visited.Add(current)) continue;
+                if (current == right) return true;
+                if (Graph.TryGetValue(current, out var neighbours))
+                    foreach (var next in neighbours) pending.Push(next);
+            }
+            return false;
         }
     }
 }

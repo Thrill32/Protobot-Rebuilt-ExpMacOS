@@ -1,14 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using DG.Tweening;
 using Protobot;
+using Protobot.Builds;
 using Protobot.InputEvents;
 using Protobot.SelectionSystem;
+using Protobot.Simulation;
 using Protobot.StateSystems;
 using Protobot.Tools;
 using Protobot.UI;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -17,10 +23,213 @@ using Object = UnityEngine.Object;
 
 namespace ProtobotEditorTools {
     public static class FastenerGroupingValidation {
+        private const string RetentionSmoke = "Protobot.ShaftRetentionSmoke";
+        private static int frames;
+
+        public static void ShaftRetentionSmoke() {
+            EditorSceneManager.OpenScene("Assets/Scenes/Main.unity", OpenSceneMode.Single);
+            SessionState.SetBool(RetentionSmoke, true);
+            EditorApplication.EnterPlaymode();
+        }
+
+        [InitializeOnLoadMethod]
+        private static void Resume() {
+            if (SessionState.GetBool(RetentionSmoke, false)) EditorApplication.update += Tick;
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void Devices() {
+            if (!SessionState.GetBool(RetentionSmoke, false)) return;
+            if (Mouse.current == null) InputSystem.AddDevice<Mouse>();
+            if (Keyboard.current == null) InputSystem.AddDevice<Keyboard>();
+        }
+
+        private static async void Tick() {
+            if (!EditorApplication.isPlaying || EditorApplication.isCompiling || ++frames < 20) return;
+            EditorApplication.update -= Tick;
+            SessionState.SetBool(RetentionSmoke, false);
+            try {
+                GameObject.Find("Splash Screen")?.SetActive(false);
+                GameObject.Find("Launch Canvas")?.SetActive(false);
+                await CheckShaftRetention();
+                EditorApplication.Exit(0);
+            }
+            catch (Exception exception) {
+                Debug.LogException(exception);
+                EditorApplication.Exit(1);
+            }
+        }
+
         public static void ValidateRelated() {
             KeyboardTransformValidation.Validate();
             TransformEntryValidation.Validate();
             InteractionUpdatesValidation.Validate();
+        }
+
+        private static async Task CheckShaftRetention() {
+            var oldSimulation = Physics.simulationMode;
+            var builds = Object.FindFirstObjectByType<BuildsManager>();
+            var path = Path.Combine(Path.GetTempPath(), $"protobot-shaft-retention-{Guid.NewGuid():N}.pbb");
+            var rotation = Quaternion.Euler(17, 32, 11);
+            var axis = rotation * Vector3.forward;
+            var center = new Vector3(75, 80, 85);
+            try {
+                Physics.simulationMode = SimulationMode.Script;
+                foreach (var (strength, leftVariant, rightVariant) in new[] {
+                    ("Normal", "CLMP-Normal-Normal", "CLMP-Clamping-Normal"),
+                    ("High Strength", "CLMP-Clamping-Low Profile HS", "CLMP-Clamping-High Strength")
+                }) {
+                    SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
+                    await StepPhysics();
+                    var shaft = Generate($"SHFT-{strength}-6", center).GetComponent<Shaft>();
+                    var framePosition = center + rotation * Vector3.right * .5f;
+                    var frame = Generate("SNDF-1.00in", framePosition);
+                    var (leftWall, leftBore, leftScrew) = Wall(-1);
+                    var (rightWall, rightBore, rightScrew) = Wall(1);
+                    var (leftCollar, leftClamp) = Collar(leftVariant, leftBore, -1);
+                    var (rightCollar, rightClamp) = Collar(rightVariant, rightBore, 1);
+                    var rotating = new[] { shaft.gameObject, leftCollar, rightCollar };
+                    var stationary = new[] { frame, leftWall, rightWall, leftScrew, rightScrew };
+                    var detector = shaft.holeDetector;
+                    await StepPhysics();
+                    var bores = new[] { leftBore, leftClamp, rightClamp, rightBore };
+                    shaft.gameObject.TryGetGroup(out List<GameObject> group);
+                    Debug.Log($"Shaft retention {strength}: " + string.Join(" → ", bores.Select(hole =>
+                        $"{hole.holeData.part.GetComponent<SavedObject>().id} ({hole.holeType}, " +
+                        $"detected={detector.holes.Contains(hole)}, owned={hole.IsOccupiedBy(detector)})")) +
+                        $"; Shaft.CanFormConnection={shaft.CanFormConnection}; Shaft.GetAttachedParts=" +
+                        PartIds(shaft.GetAttachedParts()) + "; GroupManager=" + PartIds(group));
+                    Require(bores.All(hole => detector.holes.Contains(hole) && hole.IsOccupiedBy(detector)) && shaft.CanFormConnection,
+                        "The real shaft detector missed a catalog clamp or wall bore: " + strength);
+                    Require(leftScrew.GetComponent<Screw>().CanFormConnection && rightScrew.GetComponent<Screw>().CanFormConnection,
+                        "Both walls must be screwed to the same frame.");
+                    var all = rotating.Concat(stationary).ToArray();
+                    Members(shaft.gameObject, all);
+                    Members(frame, all);
+
+                    var simulation = Object.FindFirstObjectByType<SimulationTool>();
+                    var baseline = all.ToDictionary(part => part, part => new Pose(part.transform.position, part.transform.rotation));
+                    Require(simulation.Begin(shaft.gameObject), "Tool 5 could not start the retained shaft.");
+                    simulation.Seek(1);
+                    foreach (var part in rotating)
+                        Require(Quaternion.Angle(baseline[part].rotation, part.transform.rotation) > 1f &&
+                            Vector3.Distance(part.transform.position, center + (Quaternion.AngleAxis(90, axis) *
+                                (baseline[part].position - center))) < .001f, "Tool 5 did not rotate the shaft and collar about the bore axis.");
+                    foreach (var part in stationary)
+                        Require(Vector3.Distance(part.transform.position, baseline[part].position) < .001f &&
+                            Quaternion.Angle(part.transform.rotation, baseline[part].rotation) < .01f, "Tool 5 moved the frame or a wall.");
+                    simulation.Cancel();
+
+                    if (strength == "Normal") {
+                        leftCollar.SetActive(false);
+                        await StepPhysics();
+                        Require(!shaft.gameObject.TryGetGroup(out List<GameObject> _), "A single collar retained the shaft.");
+                        Members(frame, stationary);
+                        leftCollar.SetActive(true);
+                        await StepPhysics();
+                        Members(frame, all);
+
+                        leftCollar.transform.position += axis * .025f;
+                        await StepPhysics();
+                        Require(bores.All(detector.holes.Contains), "The gap must preserve all shaft overlaps.");
+                        Members(shaft.gameObject, rotating);
+                        Members(frame, stationary);
+                        leftCollar.transform.position = baseline[leftCollar].position;
+                        Members(frame, all);
+
+                        // Offset the actual wall bore while leaving the wall bolted in place.
+                        var borePosition = leftBore.transform.position;
+                        leftBore.transform.position += rotation * Vector3.right * .025f;
+                        await StepPhysics();
+                        Require(detector.holes.Contains(leftBore), "The offset must still overlap to test seating alignment.");
+                        Members(shaft.gameObject, rotating);
+                        Members(frame, stationary);
+                        leftBore.transform.position = borePosition;
+                        Members(frame, all);
+
+                        leftScrew.SetActive(false);
+                        Require(detector.holes.Contains(leftBore), "Unbolting a wall unexpectedly removed its shaft overlap.");
+                        Members(shaft.gameObject, rotating);
+                        Members(frame, frame, rightWall, rightScrew);
+                        leftScrew.SetActive(true);
+                        await StepPhysics();
+                        Members(frame, all);
+                    } else {
+                        var ui = Object.FindFirstObjectByType<AddPropertiesUI>();
+                        var manager = Get<SelectionManager>(ui, "selectionManager");
+                        StateSystem.instance.ResetStates();
+                        manager.SetCurrent(new ObjectSelection { gameObject = rightCollar, individual = true }, true);
+                        Invoke(ui, "ObserveSelection");
+                        ui.UpdateParam2("Low Profile HS");
+                        var replacement = manager.current.gameObject;
+                        var replacementClamp = NearestHole(replacement, center, HoleCollider.HoleType.Clamp);
+                        Require(replacement != rightCollar && replacement.GetComponent<SavedObject>().id == "CLMP-Clamping-Low Profile HS" &&
+                            detector.holes.Contains(replacementClamp),
+                            "Variant regeneration did not replace and detect the compatible collar.");
+                        var editedRotating = new[] { shaft.gameObject, leftCollar, replacement };
+                        Members(shaft.gameObject, editedRotating);
+                        Members(frame, stationary);
+
+                        var editedPosition = replacement.transform.position;
+                        replacement.transform.position += SeatCenter(rightBore, replacementClamp, 1) - replacementClamp.transform.position;
+                        Members(frame, editedRotating.Concat(stationary).ToArray());
+                        replacement.transform.position = editedPosition;
+                        StateSystem.instance.Undo();
+                        Members(frame, all);
+
+                        var ids = all.Select(part => part.GetComponent<SavedObject>().ConnectionId).ToHashSet();
+                        builds.buildPath = path;
+                        Require(await (Task<bool>)Invoke(builds, "SaveAsync", false) && await builds.OpenPathAsync(path),
+                            "The retained shaft build could not be saved and reopened.");
+                        await StepPhysics();
+                        var loaded = PartsManager.FindLoadedObjects();
+                        Require(loaded.Count == all.Length && loaded.All(part => !all.Contains(part) &&
+                            ids.Contains(part.GetComponent<SavedObject>().ConnectionId)), "Opening the build did not regenerate the saved assembly.");
+                        var loadedFrame = loaded.Single(part => part.GetComponent<SavedObject>().id == "SNDF-1.00in");
+                        Members(loadedFrame, loaded.ToArray());
+                    }
+
+                    (GameObject, HoleCollider, GameObject) Wall(int side) {
+                        var wall = Generate($"BRNG-{strength}", center, side < 0 ? rotation * Quaternion.Euler(180, 0, 0) : rotation);
+                        var mount = NearestHole(wall, framePosition);
+                        var bore = NearestHole(wall, center);
+                        var mountCenter = framePosition + axis * (side * (.5f + mount.holeData.depth * .5f));
+                        wall.transform.position += mountCenter - mount.transform.position;
+                        var screw = Generate("SCRW-1/2in", mountCenter + axis * (side * mount.holeData.depth * .5f),
+                            Quaternion.LookRotation(axis * side, rotation * Vector3.up));
+                        return (wall, bore, screw);
+                    }
+
+                    (GameObject, HoleCollider) Collar(string id, HoleCollider wall, int side) {
+                        var collar = Generate(id, wall.transform.position);
+                        var clamp = NearestHole(collar, wall.transform.position, HoleCollider.HoleType.Clamp);
+                        collar.transform.position += SeatCenter(wall, clamp, side) - clamp.transform.position;
+                        return (collar, clamp);
+                    }
+                }
+                Debug.Log("Shaft retention passed: all four catalog collars on compatible shafts, shared frame, single stop, gap, offset bore, unbolted wall, Tool 5 rotation, variant replacement, undo and file reopen.");
+            }
+            finally {
+                Physics.simulationMode = oldSimulation;
+                if (File.Exists(path)) File.Delete(path);
+            }
+
+            GameObject Generate(string id, Vector3 position, Quaternion? orientation = null) =>
+                PartsManager.GeneratePart(id, position, orientation ?? rotation);
+            Vector3 SeatCenter(HoleCollider wall, HoleCollider clamp, int side) =>
+                wall.transform.position - axis * (side * (wall.holeData.depth + clamp.holeData.depth) * .5f);
+        }
+
+        private static string PartIds(List<GameObject> parts) => parts == null ? "" :
+            string.Join(", ", parts.Select(part => part.GetComponent<SavedObject>().id));
+
+        private static async Task StepPhysics() {
+            for (int i = 0; i < 4; i++) {
+                Physics.SyncTransforms();
+                Physics.Simulate(.02f);
+                int frame = Time.frameCount;
+                while (Time.frameCount == frame) await Task.Yield();
+            }
         }
 
         public static void Check(KeyboardTransformTool tool, SelectionManager manager) {
