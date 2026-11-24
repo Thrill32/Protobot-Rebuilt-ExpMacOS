@@ -22,7 +22,7 @@ namespace Protobot {
         public Parameter param1;
         public Parameter param2;
         public bool UsesParams => param1.name.Length > 0;
-        public bool UsesTwoParams => param2.name.Length > 0;
+        public virtual bool UsesTwoParams => param2.name.Length > 0;
         
         public void InitParamValues() {
             if (!UsesParams) return;
@@ -36,7 +36,10 @@ namespace Protobot {
         public abstract List<string> GetParam1Options();
         public abstract List<string> GetParam2Options();
 
-        public string GetId() {
+        public virtual (string first, string second) ReadIdParameters(string[] values) =>
+            (values.Length >= 2 ? values[1] : "", values.Length == 3 ? values[2] : "");
+
+        public virtual string GetId() {
             var partType = GetComponent<PartType>();
             var id = partType.id;
             

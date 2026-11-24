@@ -146,11 +146,15 @@ namespace Protobot.UI {
         }
 
         public void UpdateDisplayedDropdowns(bool usesTwoParams) {
+            ResizePropertyPanel(usesTwoParams);
+            SetDropdown1();
+        }
+
+        private void ResizePropertyPanel(bool usesTwoParams) {
             var rect = upperAddMenu.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(rect.sizeDelta.x, usesTwoParams ? doubleParamSize : singleParamSize);
             param1Display.gameObject.SetActive(true);
             param2Display.gameObject.SetActive(usesTwoParams);
-            SetDropdown1();
         }
 
         public void SetDropdown1() {
@@ -167,13 +171,16 @@ namespace Protobot.UI {
         public void UpdateParam2(string value) => UpdateParameter(1, value);
 
         private void UpdateParameter(int index, string value) {
-            if (generator == null) return;
+            if (generator == null || (index == 1 && !generator.UsesTwoParams)) return;
             string before = generator.GetId();
             (index == 0 ? generator.param1 : generator.param2).value = value;
             PartParameterEditing.Normalize(generator);
             if (before != generator.GetId()) ApplyParameters();
             // Keep text fields editable without resetting the caret on each keystroke.
-            if (index == 0) SetDropdown2();
+            if (index == 0) {
+                ResizePropertyPanel(generator.UsesTwoParams);
+                SetDropdown2();
+            }
         }
 
         private void ApplyParameters() {
@@ -213,6 +220,7 @@ namespace Protobot.UI {
             StateSystem.AddState(after);
             editingObject = replacement;
             observedSelection = selectionManager.current;
+            observedId = replacement.GetComponent<SavedObject>().id;
             FindFirstObjectByType<PartListOutput>()?.CalculatePartsList();
         }
 

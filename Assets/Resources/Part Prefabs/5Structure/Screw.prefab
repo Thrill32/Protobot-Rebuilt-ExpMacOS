@@ -141,8 +141,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 2.25in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 2.25in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -160,6 +160,171 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   name: 2.25" Screw
   weightInGrams: 2.2
+--- !u!1 &4634705838983406541
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6723562819125967231}
+  - component: {fileID: 2151033459830202229}
+  - component: {fileID: 6010647878018779765}
+  - component: {fileID: 8815896688107888733}
+  - component: {fileID: 4916820225896572769}
+  - component: {fileID: 6178660985419163084}
+  - component: {fileID: 220315019399063096}
+  m_Layer: 0
+  m_Name: Bearing Rivet
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6723562819125967231
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7074932536225802395}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &2151033459830202229
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  m_Mesh: {fileID: 4300000, guid: 68b00c805bdee4b0186ac5971c6383c9, type: 2}
+--- !u!23 &6010647878018779765
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 212d9dd57862f5749ac4d331ea23eba2, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!64 &8815896688107888733
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 4300000, guid: 68b00c805bdee4b0186ac5971c6383c9, type: 2}
+--- !u!114 &4916820225896572769
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.PartData
+  param1Value: Bearing Rivet
+  param2Value:
+  flipPlacement: 0
+  placementHole: {fileID: 0}
+  holeData:
+  primaryHole: {fileID: 0}
+  allowCenterInserts: 0
+--- !u!114 &6178660985419163084
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c70d59fbaa6e7d4d89b42b9cfbcf475, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Parts_List.PartName
+  name: Bearing Rivet
+  weightInGrams: 0.19
+--- !u!114 &220315019399063096
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4634705838983406541}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8463766ac34f4e0f8ef28e028d3d828, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.FixedFastener
+  holeDetector: {fileID: 0}
+  targetType: 0
+  diameter: 0.1675
+  engagementDepth: 0.404473
 --- !u!1 &5519233413200490527
 GameObject:
   m_ObjectHideFlags: 0
@@ -301,8 +466,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 2.50in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 2.50in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -461,8 +626,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 7/8in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 7/8in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -621,8 +786,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 2.00in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 2.00in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -781,8 +946,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 1.50in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 1.50in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -941,8 +1106,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 1/4in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 1/4in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1101,8 +1266,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 3/8in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 3/8in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1261,8 +1426,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 1.75in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 1.75in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1421,8 +1586,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 1.00in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 1.00in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1450,7 +1615,7 @@ GameObject:
   m_Component:
   - component: {fileID: 7074932536225802395}
   - component: {fileID: 7074932536225802392}
-  - component: {fileID: 2784955339133885854}
+  - component: {fileID: 7649069201654400117}
   m_Layer: 0
   m_Name: Screw
   m_TagString: Untagged
@@ -1465,6 +1630,7 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7074932536225802394}
+  serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: -1.26, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
@@ -1483,8 +1649,9 @@ Transform:
   - {fileID: 7074932535504565887}
   - {fileID: 1610107663260183009}
   - {fileID: 8882518505012856133}
+  - {fileID: 4665698935444954744}
+  - {fileID: 6723562819125967231}
   m_Father: {fileID: 0}
-  m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &7074932536225802392
 MonoBehaviour:
@@ -1502,7 +1669,7 @@ MonoBehaviour:
   connectingPart: 1
   group: 0
   icon: {fileID: 21300000, guid: 96e2adeef415cbb479abfebe6725be44, type: 3}
---- !u!114 &2784955339133885854
+--- !u!114 &7649069201654400117
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1511,22 +1678,22 @@ MonoBehaviour:
   m_GameObject: {fileID: 7074932536225802394}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f7484347a8d1d024f92b7bd05efe7df5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Script: {fileID: 11500000, guid: e3a8baa0d5a3b4393a1b545e96313a18, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.ScrewPartGenerator
   param1:
+    name: Type
+    value: Standard Screw
+    custom: 0
+    customUnit:
+    customDefault:
+    customLimits: {x: 0, y: 0}
+  param2:
     name: Size
     value: 1/4in
     custom: 0
-    customUnit: 
-    customDefault: 
-    customLimits: {x: 0, y: 0}
-  param2:
-    name: 
-    value: 
-    custom: 0
-    customUnit: 
-    customDefault: 
+    customUnit:
+    customDefault:
     customLimits: {x: 0, y: 0}
 --- !u!1 &7074932536272152139
 GameObject:
@@ -1669,8 +1836,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 5/8in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 5/8in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1829,8 +1996,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 3/4in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 3/4in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -1989,8 +2156,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 1.25in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 1.25in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -2149,8 +2316,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  param1Value: 1/2in
-  param2Value: 
+  param1Value: Standard Screw
+  param2Value: 1/2in
   holeData: 
   primaryHole: {fileID: 0}
   allowCenterInserts: 0
@@ -2168,3 +2335,168 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   name: 1/2" Screw
   weightInGrams: 0.7
+--- !u!1 &8305467251937240463
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4665698935444954744}
+  - component: {fileID: 6388579064417692616}
+  - component: {fileID: 2683847040676824296}
+  - component: {fileID: 7919253345197810666}
+  - component: {fileID: 5530406192831602586}
+  - component: {fileID: 5824035553023316281}
+  - component: {fileID: 5379131689375166660}
+  m_Layer: 0
+  m_Name: Set Screw
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4665698935444954744
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7074932536225802395}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &6388579064417692616
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  m_Mesh: {fileID: 4300000, guid: 35a6c4ba5cf944063a45faa451a7fd96, type: 2}
+--- !u!23 &2683847040676824296
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 25457c7683ab153459e8ba499fa261be, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!64 &7919253345197810666
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 4300000, guid: 35a6c4ba5cf944063a45faa451a7fd96, type: 2}
+--- !u!114 &5530406192831602586
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eef8f5de2cc508f409ba021e27e5a351, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.PartData
+  param1Value: Set Screw
+  param2Value:
+  flipPlacement: 0
+  placementHole: {fileID: 0}
+  holeData:
+  primaryHole: {fileID: 0}
+  allowCenterInserts: 0
+--- !u!114 &5824035553023316281
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c70d59fbaa6e7d4d89b42b9cfbcf475, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Parts_List.PartName
+  name: Set Screw
+  weightInGrams: 0.47
+--- !u!114 &5379131689375166660
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8305467251937240463}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8463766ac34f4e0f8ef28e028d3d828, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::Protobot.FixedFastener
+  holeDetector: {fileID: 0}
+  targetType: 1
+  diameter: 0.164
+  engagementDepth: 0.1459

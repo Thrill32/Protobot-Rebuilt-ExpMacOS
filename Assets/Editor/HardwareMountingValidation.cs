@@ -64,6 +64,7 @@ namespace ProtobotEditorTools {
         }
 
         private static void Check() {
+            GameObject.Find("Launch Canvas")?.SetActive(false);
             GameObject.Find("Splash Screen")?.SetActive(false);
             GameObject.Find("Add Parts Menu")?.SetActive(false);
             var placement = Object.FindFirstObjectByType<Placement>();

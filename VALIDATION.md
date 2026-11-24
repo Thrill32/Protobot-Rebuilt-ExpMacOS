@@ -14,6 +14,10 @@ Choose checks after inspecting the change and identifying the affected subsystem
 - Do not treat every suite mentioned by a validation description as an automatic checklist. Record what ran and any checks that remain environment- or platform-dependent.
 - Finish applicable source and scene changes with the lightweight repository checks described below, including `git diff --check`.
 
+## Screw hardware
+
+Regenerate the collaboration catalog with `ProtobotEditorTools.CollaborationSetup.ExportCatalog` in batch mode with `-quit`. Run `ProtobotEditorTools.ScrewHardwareValidation.Smoke` with `-batchmode -nographics`, a fresh `--collab-profile` and no `-quit`. It opens Main and exercises the Screw row, all standard catalog IDs, the two-property controls and arrow bindings, the fixed CAD seats on rotated assemblies, fastener grouping, stamping, history, legacy clipboard copies and a real `.pbb` save/reopen. Run the hardware mounting and property checks below for regression coverage.
+
 ## Winch and pulley hardware
 
 Run `ProtobotEditorTools.CollaborationSetup.ExportCatalog` in batch mode with `-quit` after editing these assets or their geometry metadata. Run `ProtobotEditorTools.WinchHardwareValidation.Smoke` with `-batchmode -nographics`, a fresh `--collab-profile` and no `-quit`. It opens Main, selects the Motion rows, mounts the bracket and screws on a rotated plate, stamps the shaft-mounted parts including two pulleys from one selection, checks the mesh and mounting geometry, and saves and reopens a real `.pbb`.

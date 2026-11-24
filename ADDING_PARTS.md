@@ -78,6 +78,8 @@ Hyphens are delimiters, not escaped text: do not put them in new family IDs or p
 
 Catalog generators are shared loaded definitions, not one generator per placed object. `PartsManager.GeneratePart(id, pose)` temporarily applies the ID's parameter values, generates the object, then restores the previous values. New factory code should preserve this separation.
 
+The Screw family uses `ScrewPartGenerator`, a child generator whose Type controls whether Size is available. Its saved option is either the original size token (for example `SCRW-7/8in`) or the fixed type (`SCRW-Set Screw` or `SCRW-Bearing Rivet`). The collaboration catalog exports those same options. Legacy `SCRW-Star-<length>` records resolve via the original standard children and generate the corresponding size ID.
+
 ## Generator implementations and parameter changes
 
 Every generator provides two separate outputs: `GetMesh()` for the preview and `Generate(position, rotation)` for a real object. Their geometry must agree in generated-part coordinates. The real factory must supply colliders, holes, materials and other runtime components; a valid preview alone is insufficient.
@@ -115,7 +117,7 @@ Each update tries Main's serialized `placePositions` list in order; the first ru
 | Order | Rule | Main purpose |
 | --- | --- | --- |
 | 1 | `ShaftAxisPlaceDisplacement` | Place compatible bores/motion parts along a hovered shaft, including nearby mating-hole and insert offsets. |
-| 2 | `ScrewPlaceDisplacement` | Place `SCRW`/`RBMP` types at the current hole face. |
+| 2 | `ScrewPlaceDisplacement` | Place `SCRW`/`RBMP` types at the current hole face. Fixed screw types check their own seating compatibility. |
 | 3 | `ShaftPlaceDisplacement` | Place `SHFT` through a hole or into a motor socket using shaft length/type. |
 | 4 | `HolePlaceDisplacement` | Align an existing selected hole or an explicitly hole-anchored copied set to a hole/screw target. |
 | 5 | `NutPlaceDisplacement` | Place `NUT` at the endpoint of a hovered `Screw`. |
@@ -158,6 +160,15 @@ Load and import staging generate ordinary/custom bodies before types marked `con
 7. Give generated bodies correct `PartName`/weight metadata. Check generation by full saved ID as well as by catalog click, then exercise parameters, selection/movement, undo/redo, saving/reopening and copying/importing. Paint each variant, choose Default, and check every body slot's original color/alpha, undo/redo, copied and reloaded parts, and parameter changes to variants with different default colors. A new game-element family may also need an explicit visibility-preference mapping.
 
 `PartData.holeData` is a serialized text field, and [HoleGenerator.cs](Assets/Scripts/Holes/HoleGenerator.cs) contains a text-driven helper. There is currently no project C# caller of `HoleGenerator.CreateHoles`; neither `PartGenerator` nor its concrete factories automatically reads that text. Merely filling the field does not create runtime holes. Existing factories clone authored `HoleCollider` children or generate/copy them explicitly. `RemoveDataScripts` removes the generated root's `PartData`; it does not turn metadata into geometry.
+
+### Fixed Screw variants
+
+The two readable native meshes in `Assets/Models/Structure` use the winch conversion settings. Open Cascade tessellates the supplied STEP solids at 0.0015 inches of linear deflection and 0.45 radians of angular deflection. Unity local units are inches and the insertion direction is local −Z.
+
+- **Set Screw.** The source axis is STEP Z. The thread diameter is 0.164 inches and the axial length is 0.250 inches. The mounted mesh runs from −0.1459 inches at the cup tip to +0.1041 inches at the socket end. Local zero aligns with the radial hole face of the normal shaft collar, bringing the cup tip to the face of its nominal 0.125-inch shaft.
+- **Bearing Rivet.** The source axis is STEP Y. Local zero is the lowest point of the cap's underside rim. The cap is 0.300 inches across, the split sleeve is 0.1675 inches across and its full-diameter grip extends 0.404473 inches from the seat to the insertion chamfer. The full CAD length is 0.525370 inches. The split sleeve permits the press fit in a 0.164-inch bearing hole and passes through the matching structural hole.
+
+`FixedFastener` uses a detector sized to the authored engagement depth. The set screw engages the normal shaft collar's radial threaded hole. The bearing rivet connects touching aligned unthreaded bores from its seating face through its grip. These bodies use their own fastener component and ordinary body tags, so nut placement and screw-tip targeting remain specific to the standard screw.
 
 ## Custom models and transferred sets
 

@@ -17,6 +17,8 @@ namespace Protobot {
         public abstract HoleDetector CreateHoleDetector();
 
         public abstract List<GameObject> GetAttachedParts();
+
+        internal virtual bool AcceptsHole(HoleCollider hole) => true;
         
         public void Awake() {
             if (holeDetector == null)

@@ -22,6 +22,14 @@ namespace ProtobotEditorTools {
                 var oldLimits = generator.param2.customLimits;
                 try {
                     generator.InitParamValues();
+                    if (generator is ScrewPartGenerator screw) {
+                        entries.Add(new CatalogEntry {
+                            id = type.id,
+                            first = new ParameterRule { used = true, options = screw.GetSavedOptions() },
+                            second = new ParameterRule()
+                        });
+                        continue;
+                    }
                     var entry = new CatalogEntry {
                         id = type.id, first = Rule(generator.param1, generator.UsesParams, generator.GetParam1Options()),
                         second = Rule(generator.param2, generator.UsesTwoParams, generator.GetParam2Options())

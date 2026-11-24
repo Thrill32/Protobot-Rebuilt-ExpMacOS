@@ -94,11 +94,11 @@ namespace Protobot.Simulation {
                 var owner = body.transform.parent != null ? body.transform.parent.GetComponentInParent<SavedObject>() : null;
                 if (owner != null) Union(owner.gameObject, body);
             }
-            // Screw joints are rigid; a shaft passing through a bearing is not.
+            // Fastener joints are rigid. Bare shafts may rotate in bearings.
             foreach (var body in bodies) {
-                var screw = body.GetComponent<Screw>();
-                if (screw == null || !screw.CanFormConnection) continue;
-                foreach (var attached in screw.GetAttachedParts() ?? new List<GameObject>())
+                var fastener = body.GetComponent<ConnectingPart>();
+                if (fastener is not (Screw or FixedFastener) || !fastener.CanFormConnection) continue;
+                foreach (var attached in fastener.GetAttachedParts() ?? new List<GameObject>())
                     if (attached != null) Union(body, attached);
             }
             var ports = new List<Port>();
@@ -179,7 +179,8 @@ namespace Protobot.Simulation {
                 var saved = body.GetComponent<SavedObject>();
                 result.tracks.Add(new Track { body = body, center = node.center, axis = node.axis, linear = node.linear,
                     start = new Pose(body.transform.position, body.transform.rotation), ratio = node.ratio, rotates = true,
-                    showInTimeline = body.GetComponent<Screw>() == null && saved.nameId != "NUT" && saved.nameId != "WSHR" });
+                    showInTimeline = body.GetComponent<ConnectingPart>() is not (Screw or FixedFastener) &&
+                        saved.nameId != "NUT" && saved.nameId != "WSHR" });
             }
             var drivenRopes = UnityEngine.Object.FindObjectsByType<RopeRoute>(FindObjectsSortMode.None)
                 .Select(route => (route, data: route.Data))

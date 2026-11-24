@@ -8,12 +8,15 @@ namespace Protobot {
     public class HoleDetector : MonoBehaviour {
         public HashSet<HoleCollider> holes = new HashSet<HoleCollider>();
         [SerializeField] HoleCollider.HoleType targetHoleType;
+        private ConnectingPart owner;
+
+        private void Awake() => owner = GetComponentInParent<ConnectingPart>();
 
         private void Update() {
             if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;
             var allHoles = new HashSet<HoleCollider>(holes);
             foreach (var holeCollider in allHoles) {
-                if (!Usable(holeCollider))
+                if (!Usable(holeCollider) || owner != null && !owner.AcceptsHole(holeCollider))
                     RemoveHole(holeCollider);
             }
         }
@@ -180,7 +183,8 @@ namespace Protobot {
         }
 
         private bool Aligned(HoleCollider hole) => hole.holeData.part != transform.parent.gameObject &&
-            Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f;
+            Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.up)) > .98f &&
+            (owner == null || owner.AcceptsHole(hole));
 
         private void OnTriggerExit(Collider other) {
             if (!CanDetect || Protobot.Simulation.SimulationTool.HasPreview) return;

@@ -47,6 +47,8 @@ namespace ProtobotEditorTools {
         }
 
         private static void Check() {
+            GameObject.Find("Launch Canvas")?.SetActive(false);
+            GameObject.Find("Splash Screen")?.SetActive(false);
             var origin = new Vector3(1300, 900, 700);
             var rotation = Quaternion.Euler(31, 47, 19);
             var axis = rotation * Vector3.forward;

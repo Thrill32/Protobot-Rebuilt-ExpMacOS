@@ -30,7 +30,7 @@ namespace ProtobotEditorTools {
             try {
                 var center = new Vector3(2000, 2000, 2000);
                 var generator = PartsManager.GetPartType("SCRW").GetComponent<PartGenerator>();
-                generator.param1.value = "1.00in";
+                PartParameterEditing.Load(generator, "SCRW-1.00in");
                 var screwObject = generator.Generate(center, Quaternion.identity); objects.Add(screwObject);
                 var screw = screwObject.GetComponent<Screw>();
                 var plate = Body(center + Vector3.back * .3f); objects.Add(plate);
@@ -201,7 +201,7 @@ namespace ProtobotEditorTools {
             plate = Edit(plate, 0, "4", screwMembers, true);
             plate = Edit(plate, 1, "4", screwMembers, true);
             nut = Edit(nut, 0, "Keps", screwMembers, true);
-            screw = Edit(screw, 0, "1.25in", screwMembers, false);
+            screw = Edit(screw, 1, "1.25in", screwMembers, false);
             plate.SetActive(false); screwMembers.Remove(plate);
             var channel = Mount("CCHL-1x2-5", center - axis * .3f);
             screwMembers.Add(channel); Detect(); screw.GetComponent<Screw>().FormConnection();
@@ -273,7 +273,7 @@ namespace ProtobotEditorTools {
             }
             void ShrinkOutOfReach(GameObject fastener, string length, List<GameObject> members) {
                 Select(fastener, false);
-                if (fastener.GetComponent<Shaft>() != null) ui.UpdateParam2(length); else ui.UpdateParam1(length);
+                ui.UpdateParam2(length);
                 var shorter = EditedPart(); objects.Add(shorter);
                 Require(shorter != fastener, "Fastener shortening did not replace geometry.");
                 foreach (var part in members.Where(part => part != fastener).Append(shorter))

@@ -8,10 +8,10 @@ namespace Protobot {
     public static class PartParameterEditing {
         public static bool Load(PartGenerator generator, string id) {
             if (generator == null) return false;
-            var values = id.Split('-');
+            var (first, second) = generator.ReadIdParameters(id.Split('-'));
             generator.InitParamValues();
-            if (generator.UsesParams && values.Length > 1) generator.param1.value = values[1];
-            if (generator.UsesTwoParams && values.Length > 2) generator.param2.value = values[2];
+            if (generator.UsesParams && first.Length > 0) generator.param1.value = first;
+            if (generator.UsesTwoParams && second.Length > 0) generator.param2.value = second;
             Normalize(generator);
             return true;
         }

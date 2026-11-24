@@ -22,67 +22,31 @@ namespace Protobot {
         }
         
         public static GameObject GeneratePart(string id, Vector3 pos, Quaternion rot) {
-            var idSplit = id.Split('-');
-            var typeId = idSplit[0];
+            var partType = GetPartType(id);
+            if (partType == null) return null;
+            var gen = partType.GetComponent<PartGenerator>();
+            var (first, second) = gen.ReadIdParameters(id.Split('-'));
 
-            var p1Val = "";
-            var p2Val = "";
+            // Older builds omitted some of these options or stored the wheel size first.
+            if (id == "NUT") first = "Lock";
+            if ((gen.name == "Omni Wheel" || gen.name == "Traction Wheel") && second == "")
+                (first, second) = ("V1", first);
+            if (gen.name == "Motor" && first == "") first = "11W";
+            if (gen.name == "Block Bearing" && first == "") first = "Normal";
+            if (gen.name == "Cylinder" && second == "") second = "Normal";
+            if (gen.name == "Ring" && first == "") first = "Red";
 
-            if (idSplit.Length >= 2) p1Val = idSplit[1];
-            if (idSplit.Length == 3) p2Val = idSplit[2];
-    
-            if (id == "NUT") { //VERY TEMPORARY ONLY FOR BETA 1.3.1 PLEASE FIX WITH VERSION CONTROL
-                p1Val = "Lock";
+            string previousParam1 = gen.param1.value;
+            string previousParam2 = gen.param2.value;
+            try {
+                gen.param1.value = first;
+                gen.param2.value = second;
+                return gen.Generate(pos, rot);
             }
-
-            GameObject partObj = null;
-            
-            foreach (var partType in partTypes) {
-                if (partType.id == typeId) {
-                    var gen = partType.GetComponent<PartGenerator>();
-                    
-                    string previousParam1 = gen.param1.value;
-                    string previousParam2 = gen.param2.value;
-                    Parameter p1 = gen.param1;
-                    Parameter p2 = gen.param2;
-
-                    gen.param1.value = p1Val;
-                    gen.param2.value = p2Val;
-                    
-                    //TODO This is awful and should be compared against an array in another file/method to make sure legacy files work but this is a quick fix
-                    if (gen.name == "Omni Wheel" || gen.name == "Traction Wheel")
-                    {
-                        if (p2Val == "")
-                        {
-                            p2.value = p1Val;
-                            p1.value = "V1";
-                        }
-                    }
-                    if (gen.name == "Motor" && p1Val == "")
-                    {
-                        p1.value = "11W";
-                    }
-                    if (gen.name == "Block Bearing" && p1Val == "")
-                    {
-                        p1.value = "Normal";
-                    }
-                    if (gen.name == "Cylinder" && p2Val == "")
-                    {
-                        p2.value = "Normal";
-                    }
-                    if (gen.name == "Ring" && p1Val == "")
-                    {
-                        p1.value = "Red";
-                    }
-
-                    partObj = gen.Generate(pos, rot);
-
-                    gen.param1.value = previousParam1;
-                    gen.param2.value = previousParam2;
-                }
+            finally {
+                gen.param1.value = previousParam1;
+                gen.param2.value = previousParam2;
             }
-
-            return partObj;
         }
 
         /// <Summary> Returns a list of all loaded parts in the current scene </Summary>
