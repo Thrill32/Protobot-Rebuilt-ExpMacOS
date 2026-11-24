@@ -67,7 +67,7 @@ namespace Protobot.Collaboration.Server {
         public Capabilities Capabilities { get { lock (gate) return new Capabilities { durable = IsDurable, participantAdministration = true,
             geometryLimitsVersion = GeometryTransfer.LimitsVersion, geometryAssetBytes = GeometryTransfer.MaxAssetBytes,
                 customAppearanceVersion = CustomAppearance.Version,
-                mirrorVersion = CollaborationProtocol.MirrorVersion,
+                mirrorVersion = CollaborationProtocol.MirrorVersion, largeEditsVersion = CollaborationProtocol.LargeEditsVersion,
             roomReplacementVersion = IsDurable ? RoomReplacement.Version : 0, roomIdentity = RoomStore.Identity(roomInfo),
             editorRoomReplacementVersion = RoomReplacement.EditorPolicyVersion, allowEditorProjectReplacement = roomInfo.allowEditorProjectReplacement,
             diagnosticsVersion = DiagnosticExport.Version, shortPollingVersion = CollaborationProtocol.ShortPollingVersion,
@@ -122,6 +122,7 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(request.geometryLimitsVersion == GeometryTransfer.LimitsVersion, "geometry-limits-client-required");
                 DocumentModel.Require(request.customAppearanceVersion == CustomAppearance.Version, "appearance-client-required");
                 DocumentModel.Require(request.mirrorVersion == CollaborationProtocol.MirrorVersion, "mirror-client-required");
+                DocumentModel.Require(request.largeEditsVersion == CollaborationProtocol.LargeEditsVersion, "large-edits-client-required");
                 DocumentModel.Require(request.catalogHash == catalog.hash, "catalog-mismatch");
                 DocumentModel.Require(!requireGenerationProof || roomInfo.schema < 2 || request.expectedGeneration != null && request.roomIdentity != null,
                     "room-replacement-client-required");
@@ -163,8 +164,9 @@ namespace Protobot.Collaboration.Server {
         public LeaseResponse Reserve(string token, LeaseRequest request) {
             lock (gate) {
                 Expire(); var member = Editor(token);
-                DocumentModel.Require(request?.ids != null && request.ids.Length > 0 && request.ids.Length <= DocumentModel.MaxWriteSet &&
-                    request.ids.Distinct(StringComparer.Ordinal).Count() == request.ids.Length, "invalid-reservation");
+                DocumentModel.Require(request?.ids != null && request.ids.Length > 0, "invalid-reservation");
+                DocumentModel.Require(request.ids.Length <= DocumentModel.MaxReservedParts, "reservation-part-limit");
+                DocumentModel.Require(request.ids.Distinct(StringComparer.Ordinal).Count() == request.ids.Length, "invalid-reservation");
                 DocumentModel.Require(request.ids.All(id => document.parts.Any(p => p.id == id)), "missing-entity");
                 if (!string.IsNullOrEmpty(request.token)) {
                     var old = OwnedLease(member, request.token);
@@ -202,12 +204,17 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(preview.parts != null && preview.parts.Length == lease.ids.Length &&
                     preview.parts.Select(p => p?.id).OrderBy(x => x).SequenceEqual(lease.ids.OrderBy(x => x)), "preview-set-mismatch");
                 foreach (var part in preview.parts) {
-                    DocumentModel.ValidatePart(part, catalog);
-                    DocumentModel.Require(part.catalogId != "CUSTOM" || DocumentModel.Assets(document).Any(asset => asset.hash == part.assetHash), "missing-asset");
+                    if (part.catalogId == null) DocumentModel.ValidatePose(part);
+                    else {
+                        DocumentModel.ValidatePart(part, catalog);
+                        DocumentModel.Require(part.catalogId != "CUSTOM" || DocumentModel.Assets(document).Any(asset => asset.hash == part.assetHash), "missing-asset");
+                    }
                 }
-                var copy = WireJson.Clone(preview); copy.author = member.participant.id;
-                copy.parts = copy.parts.Select(p => new Part { id = p.id, position = p.position, rotation = p.rotation }).ToArray();
-                lease.preview = copy; Pulse();
+                lease.preview = new Preview {
+                    sequence = preview.sequence, author = member.participant.id,
+                    parts = preview.parts.Select(p => new Part { id = p.id, position = p.position.ToArray(), rotation = p.rotation.ToArray() }).ToArray()
+                };
+                Pulse();
             }
         }
 

@@ -49,6 +49,9 @@ namespace Protobot.Collaboration {
         public bool IsMembershipRevoked { get; private set; }
         public bool RequiresResynchronization { get; private set; }
         public bool SupportsRoomReplacement { get; private set; }
+        public bool SupportsLargeEdits { get; private set; }
+        public int ReservationPartLimit => SupportsLargeEdits ? DocumentModel.MaxReservedParts : DocumentModel.LegacyEditLimit;
+        public int TransactionMutationLimit => SupportsLargeEdits ? DocumentModel.MaxMutations : DocumentModel.LegacyEditLimit;
         public int GeometryAssetByteLimit { get; private set; } = GeometryTransfer.LegacyMaxAssetBytes;
         public string ActiveTransport { get; private set; }
         public CollaborationTransport Transport { get; }
@@ -128,6 +131,7 @@ namespace Protobot.Collaboration {
                 GeometryAssetByteLimit = GeometryTransfer.ServerAssetLimit(capabilities);
                 AppearanceVersion = capabilities.customAppearanceVersion;
                 SupportsMirror = capabilities.mirrorVersion == CollaborationProtocol.MirrorVersion;
+                SupportsLargeEdits = capabilities.largeEditsVersion == CollaborationProtocol.LargeEditsVersion;
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;

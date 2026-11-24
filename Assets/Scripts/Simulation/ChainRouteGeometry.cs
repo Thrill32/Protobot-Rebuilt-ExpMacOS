@@ -16,8 +16,12 @@ namespace Protobot.Simulation {
             public float RotationSign(int index) => (wraps[index] == 1 ? -1 : 1) * Mathf.Sign(Vector3.Dot(normal, parts[index].Axis));
         }
         public static bool CompatiblePlane(IReadOnlyList<SimulationPart> parts, out string reason) {
+            if (parts?.Count > Protobot.Collaboration.DocumentModel.MaxRouteMembers) {
+                reason = $"The chain has {parts.Count} sprockets. The route limit is {Protobot.Collaboration.DocumentModel.MaxRouteMembers}.";
+                return false;
+            }
             reason = "Select two or more distinct sprockets";
-            if (parts == null || parts.Count < 2 || parts.Count > Protobot.Collaboration.DocumentModel.MaxWriteSet ||
+            if (parts == null || parts.Count < 2 ||
                 parts.Any(p => p == null || p.kind != DriveKind.Sprocket) || parts.Distinct().Count() != parts.Count) return false;
             var first = parts[0];
             foreach (var part in parts) {

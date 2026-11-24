@@ -325,11 +325,53 @@ namespace Protobot {
             }
         }
 
-        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null, bool sendPreviews = true) {
+        internal static bool CheckEditBudget(int reservedParts, int mutations, int addedParts = 0, int addedRoutes = 0, int addedAssets = 0) {
+            if (!IsShared) return true;
+            string error = instance.EditBudgetError(reservedParts, mutations, addedParts, addedRoutes, addedAssets);
+            return error == null || instance.EditLimit(error);
+        }
+
+        private string EditBudgetError(int reservedParts, int mutations, int addedParts = 0, int addedRoutes = 0, int addedAssets = 0) {
+            if (reservedParts > client.ReservationPartLimit)
+                return $"This edit needs to reserve {reservedParts} unique parts. The room limit is {client.ReservationPartLimit}.";
+            if (mutations > client.TransactionMutationLimit)
+                return $"This edit needs {mutations} mutations (parts, routes and new assets). The room limit is {client.TransactionMutationLimit}.";
+            int parts = committed.parts.Length + addedParts;
+            if (addedParts > 0 && parts > DocumentModel.MaxParts)
+                return $"This edit would result in {parts} parts. The room limit is {DocumentModel.MaxParts}.";
+            int routes = DocumentModel.Chains(committed).Length + addedRoutes;
+            if (addedRoutes > 0 && routes > DocumentModel.MaxChains)
+                return $"This edit would result in {routes} routes. The room limit is {DocumentModel.MaxChains}.";
+            int assets = DocumentModel.Assets(committed).Length + addedAssets;
+            if (addedAssets > 0 && assets > DocumentModel.MaxAssets)
+                return $"This edit would result in {assets} custom assets. The room limit is {DocumentModel.MaxAssets}.";
+            return null;
+        }
+
+        internal static string RouteBudgetError(IEnumerable<string> previous, IEnumerable<string> next, bool addsRoute) =>
+            IsShared ? instance.EditBudgetError(previous.Union(next, StringComparer.Ordinal).Count(), 1, addedRoutes: addsRoute ? 1 : 0) : null;
+
+        private bool EditLimit(string message) {
+            status = message;
+            InteractionFeedback.Notify(message);
+            Debug.LogWarning("Collaboration: " + message);
+            return false;
+        }
+
+        internal static int NewAssetCount(IEnumerable<CustomModelData> models) {
+            var existing = DocumentModel.Assets(instance.committed).Select(asset => asset.hash).ToHashSet(StringComparer.Ordinal);
+            return models.Count(data => existing.Add(CollaborationScene.CaptureAsset(data).hash));
+        }
+
+        internal static bool CheckPlacementBudget(int parts, int routes = 0, int assets = 0) =>
+            CheckEditBudget(0, parts + routes + assets, parts, routes, assets);
+
+        public static void ReservePose(IReadOnlyList<GameObject> bodies, Action granted, Action denied = null, bool sendPreviews = true,
+            bool copy = false, bool moveOriginals = true) {
             if (instance == null) return;
             var saved = CollaborationScene.Bodies(bodies);
             if (saved.Count == 0) { denied?.Invoke(); return; }
-            _ = instance.ReservePartsAsync(saved, sendPreviews, granted, denied);
+            _ = instance.ReservePartsAsync(saved, sendPreviews, granted, denied, copy, moveOriginals);
         }
         public static void ReserveCustomMounts(IReadOnlyList<CustomModel> models, Action granted, Action denied = null) {
             if (instance == null) return;
@@ -337,13 +379,20 @@ namespace Protobot {
             if (saved.Count == 0) { denied?.Invoke(); return; }
             _ = instance.ReservePartsAsync(saved, false, granted, denied);
         }
-        private async Task ReservePartsAsync(IReadOnlyList<GameObject> bodies, bool sendPreviews, Action granted, Action denied) {
+        private async Task ReservePartsAsync(IReadOnlyList<GameObject> bodies, bool sendPreviews, Action granted, Action denied,
+            bool copy = false, bool moveOriginals = true) {
             if (!CanEdit || lease != null || reserving) return;
+            var ids = bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
+            bool FitsBudget() {
+                int routes = copy ? CompleteRoutes(ids.ToHashSet(StringComparer.Ordinal)).Count() : 0;
+                return CheckEditBudget(ids.Length, ids.Length + (copy && moveOriginals ? ids.Length : 0) + routes,
+                    copy ? ids.Length : 0, routes);
+            }
+            if (!FitsBudget()) { denied?.Invoke(); return; }
             reserving = true; status = "Waiting for edit reservation…";
             var previousRequest = reservationPending;
             var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             reservationPending = completed.Task;
-            var ids = bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
             var versions = Versions(ids);
             int request = ++reservationGeneration;
             var connection = client;
@@ -355,6 +404,9 @@ namespace Protobot {
                 var result = await connection.ReserveAsync(ids);
                 if (client != connection || connection.ConnectionEpoch != epoch || request != reservationGeneration || bodies.Any(b => b == null || !b.activeInHierarchy)) {
                     try { await connection.ReleaseAsync(result.token); } catch { } denied?.Invoke(); return;
+                }
+                if (copy && !FitsBudget()) {
+                    releasePending = Release(result.token); denied?.Invoke(); return;
                 }
                 lease = result.token; reserved = ids; reservedVersions = versions; broadcastReservationPreview = sendPreviews;
                 nextRenew = Time.realtimeSinceStartup + 3; previewSequence = 0;
@@ -461,8 +513,8 @@ namespace Protobot {
                 }).ToArray();
                 DocumentModel.Require(writes.Length == ids.Count, "stale-entity");
                 var routes = selectCopies != null ? session.CaptureCopiedRoutes(ids) : Array.Empty<ChainRecord>();
-                var routeSources = selectCopies != null ? DocumentModel.Chains(session.committed)
-                    .Where(route => route.members.All(ids.ContainsKey)).Select(route => route.id) : Enumerable.Empty<string>();
+                var routeSources = selectCopies != null ? session.CompleteRoutes(ids.Keys.ToHashSet(StringComparer.Ordinal))
+                    .Select(route => route.id) : Enumerable.Empty<string>();
                 var tx = session.CreateTransaction(selectCopies != null ? "MirrorAndCopy" : "MirrorParts", writes,
                     dependencies: session.reservedVersions, token: session.lease,
                     chainWrites: routes, chainDependencies: ChainVersions(routeSources));
@@ -489,10 +541,13 @@ namespace Protobot {
             return CaptureCopiedRoutes(ids);
         }
 
+        private IEnumerable<ChainRecord> CompleteRoutes(HashSet<string> ids) =>
+            DocumentModel.Chains(committed).Where(route => route.members.All(ids.Contains));
+
         private ChainRecord[] CaptureCopiedRoutes(Dictionary<string, string> ids) {
             var used = committed.parts.Select(p => p.id).Concat(committed.tombstones.Select(p => p.id))
                 .Concat(DocumentModel.Chains(committed).Select(c => c.id)).Concat(DocumentModel.ChainTombstones(committed).Select(c => c.id)).ToHashSet(StringComparer.Ordinal);
-            return DocumentModel.Chains(committed).Where(chain => chain.members.All(ids.ContainsKey)).Select(chain => {
+            return CompleteRoutes(ids.Keys.ToHashSet(StringComparer.Ordinal)).Select(chain => {
                 string id; do id = Guid.NewGuid().ToString("N"); while (!used.Add(id));
                 return new ChainRecord { id = id, members = chain.members.Select(member => ids[member]).ToArray(),
                     routeVersion = chain.routeVersion, wraps = chain.wraps?.ToArray(), rope = chain.rope };
@@ -509,12 +564,13 @@ namespace Protobot {
                     InteractionFeedback.Notify("Could not add parts to the shared room. Reconnect as an editor or wait for the current edit to finish.");
                     return false;
                 }
-                var parts = temporary.Select(b => CollaborationScene.Capture(b)).ToArray();
+                var parts = CollaborationScene.Bodies(temporary).Select(b => CollaborationScene.Capture(b)).ToArray();
                 var existingAssets = DocumentModel.Assets(session.committed).Select(asset => asset.hash).ToHashSet(StringComparer.Ordinal);
                 var assets = CollaborationScene.CaptureAssets(temporary).Where(asset => !existingAssets.Contains(asset.hash)).ToArray();
                 var chains = (temporaryChains ?? new List<GameObject>()).Where(obj => obj != null).Select(obj =>
                     obj.TryGetComponent<Simulation.RopeRoute>(out var rope) ? CollaborationScene.CaptureRope(rope.Data) :
                     obj.GetComponent<Simulation.ChainLoop>()?.Capture()).Where(route => route != null).ToArray();
+                if (!CheckPlacementBudget(parts.Length, chains.Length, assets.Length)) return false;
                 var tx = session.CreateTransaction("AddParts", parts, dependencies: dependencies,
                     chainWrites: chains, chainDependencies: ChainVersions(chains.Select(c => c.id)), assetWrites: assets);
                 if (selectResult != null) session.selectAfterApply[tx.operationId] = (selectResult, parts.Select(p => p.id).ToArray());
@@ -558,7 +614,7 @@ namespace Protobot {
             return instance.ChangeParts(WireJson.Clone(writes), "SetPoses", dependencies, expectedRevision);
         }
         private async Task<bool> ChangeParts(Part[] writes, string kind = "SetParts", VersionRef[] dependencies = null, long? expectedRevision = null) {
-            if (lease != null) return false;
+            if (lease != null || !CheckEditBudget(writes.Length, writes.Length)) return false;
             submitting = true;
             var connection = client; long epoch = connection.ConnectionEpoch;
             var expected = dependencies ?? Versions(writes.Select(p => p.id));
@@ -591,6 +647,10 @@ namespace Protobot {
         }
         public static void SetChainRoute(Builds.ChainData data, bool remove = false) {
             if (!IsShared || !CanEdit) return;
+            if (data.members?.Length > DocumentModel.MaxRouteMembers) {
+                instance.EditLimit($"The chain has {data.members.Length} parts. The route limit is {DocumentModel.MaxRouteMembers}.");
+                return;
+            }
             if (!DocumentModel.ValidRoute(data.members, data.routeVersion, data.wraps)) return;
             var byId = PartsManager.FindLoadedObjects().ToDictionary(b => b.GetComponent<SavedObject>().ConnectionId);
             var parts = data.members.Select(id => byId.TryGetValue(id, out var body) ? body.GetComponent<Simulation.SimulationPart>() : null).ToList();
@@ -624,6 +684,7 @@ namespace Protobot {
             var connection = client; long epoch = connection.ConnectionEpoch; string token = null;
             try {
                 var memberIds = (existing?.members ?? Array.Empty<string>()).Concat(write?.members ?? Array.Empty<string>()).Distinct().ToArray();
+                if (!CheckEditBudget(memberIds.Length, 1, addedRoutes: existing == null ? 1 : 0)) return;
                 var expected = Versions(memberIds);
                 var versions = ChainVersions(new[] { write?.id ?? existing.id });
                 await reservationPending; await releasePending;
@@ -653,6 +714,7 @@ namespace Protobot {
                 var ids = bodies.Select(b => b.GetComponent<SavedObject>().ConnectionId).Distinct().ToArray();
                 var chains = DocumentModel.Chains(committed).Where(c => c.members.Intersect(ids).Any()).ToArray();
                 var reservationIds = ids.Concat(chains.SelectMany(c => c.members)).Distinct().ToArray();
+                if (!CheckEditBudget(reservationIds.Length, ids.Length + chains.Length)) return;
                 var expected = Versions(reservationIds);
                 await reservationPending;
                 await releasePending;
@@ -675,6 +737,12 @@ namespace Protobot {
             var connection = client;
             long epoch = connection.ConnectionEpoch;
             try {
+                if (!CheckEditBudget(reserved.Length, DocumentModel.MutationCount(transaction))) {
+                    selectAfterApply.Remove(transaction.operationId);
+                    rejected?.Invoke();
+                    CollaborationScene.ApplyParts(committed.parts.Where(p => reserved.Contains(p.id)));
+                    return false;
+                }
                 await reservationPending;
                 await releasePending;
                 var receipt = await connection.SubmitAsync(transaction);
@@ -794,8 +862,11 @@ namespace Protobot {
             var connection = client; var sending = lease;
             long epoch = connection.ConnectionEpoch;
             try {
-                var bodies = PartsManager.FindLoadedObjects().Where(b => reserved.Contains(b.GetComponent<SavedObject>().ConnectionId)).ToArray();
-                var preview = FindFirstObjectByType<Placement>()?.SharedMovePreview() ?? bodies.Select(b => CollaborationScene.Capture(b)).ToArray();
+                var ids = reserved.ToHashSet(StringComparer.Ordinal);
+                bool compact = connection.SupportsLargeEdits;
+                var preview = FindFirstObjectByType<Placement>()?.SharedMovePreview(compact) ?? PartsManager.FindLoadedObjects()
+                    .Where(body => ids.Contains(body.GetComponent<SavedObject>().ConnectionId))
+                    .Select(body => CollaborationScene.CapturePreview(body, Simulation.SimulationTool.SavedPose(body), compact)).ToArray();
                 await connection.PreviewAsync(new Preview { lease = sending, sequence = ++previewSequence, parts = preview });
             }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && lease == sending && !submitting) { CancelSharedPreview(); Report(error); } }

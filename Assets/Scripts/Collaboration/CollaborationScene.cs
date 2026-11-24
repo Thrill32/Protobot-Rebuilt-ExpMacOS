@@ -41,6 +41,13 @@ namespace Protobot {
             return CapturePose(body, Protobot.Simulation.SimulationTool.SavedPose(body), version);
         }
         public static Part CaptureLive(GameObject body) => CapturePose(body, new Pose(body.transform.position, body.transform.rotation), 0);
+        internal static Part CapturePreview(GameObject body, Pose pose, bool compact) => compact
+            ? new Part {
+                id = body.GetComponent<SavedObject>().ConnectionId,
+                position = new double[] { pose.position.x, pose.position.y, pose.position.z },
+                rotation = new double[] { pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w }
+            }
+            : CapturePose(body, pose, 0);
         private static Part CapturePose(GameObject body, Pose pose, long version) {
             var saved = body.GetComponent<SavedObject>();
             var color = PartColors.GetColor(body);

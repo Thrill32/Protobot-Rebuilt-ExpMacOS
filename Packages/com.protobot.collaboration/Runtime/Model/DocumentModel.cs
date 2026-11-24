@@ -11,7 +11,10 @@ namespace Protobot.Collaboration {
         public const int MaxChains = 2000;
         public const int MaxAssets = 256;
         public const int MaxMountsPerPart = 4096;
-        public const int MaxWriteSet = 256;
+        public const int LegacyEditLimit = 256;
+        public const int MaxReservedParts = 512;
+        public const int MaxMutations = 1024;
+        public const int MaxRouteMembers = 256;
 
         public static void Validate(Document document, CatalogManifest catalog) {
             Require(document != null && catalog != null && (document.schema == 1 || document.schema == 2) && catalog.protocol == 1, "schema-mismatch");
@@ -44,15 +47,18 @@ namespace Protobot.Collaboration {
             Require(WireJson.Encode(document.schema == 2 ? GeometryTransfer.References(document) : document).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
         }
 
+        public static int MutationCount(Transaction tx) =>
+            (tx.writes?.Length ?? 0) + (tx.deletes?.Length ?? 0) + ChainWrites(tx).Length + ChainDeletes(tx).Length + AssetWrites(tx).Length;
+
         public static Document Reduce(Document current, Transaction tx, CatalogManifest catalog) {
             Require(tx != null && tx.protocol == 1, "protocol-mismatch");
             Require(tx.generation == current.generation, "generation-mismatch");
             Require(!tx.expectedRevision.HasValue || tx.expectedRevision.Value == current.revision, "stale-document");
             Require(ValidId(tx.operationId) && tx.sequence > 0, "invalid-operation");
             var chainWrites = ChainWrites(tx); var chainDeletes = ChainDeletes(tx); var expectedChains = ExpectedChains(tx); var assetWrites = AssetWrites(tx);
-            int mutations = tx.writes?.Length + tx.deletes?.Length + chainWrites.Length + chainDeletes.Length + assetWrites.Length ?? 0;
-            Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxWriteSet &&
-                tx.expected.Length <= MaxWriteSet * 2 && expectedChains.Length <= MaxWriteSet * 2, "write-set-limit");
+            int mutations = MutationCount(tx);
+            Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxMutations &&
+                tx.expected.Length <= MaxMutations * 2 && expectedChains.Length <= MaxMutations * 2, "write-set-limit");
             Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "SetCustomMounts" ||
                 tx.kind == "DeleteParts" || tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts" ||
                 tx.kind == "MirrorParts" || tx.kind == "MirrorAndCopy",
@@ -199,7 +205,7 @@ namespace Protobot.Collaboration {
                     a.rope.length == b.rope.length && a.rope.start.SequenceEqual(b.rope.start) && a.rope.end.SequenceEqual(b.rope.end));
 
         public static bool ValidRoute(string[] members, int version, int[] wraps) =>
-            members != null && members.Length >= 2 && members.Length <= MaxWriteSet &&
+            members != null && members.Length >= 2 && members.Length <= MaxRouteMembers &&
             members.All(id => !string.IsNullOrEmpty(id)) && members.Distinct(StringComparer.Ordinal).Count() == members.Length &&
             (version == 0 && (wraps == null || wraps.Length == 0) ||
              version == 1 && wraps != null && wraps.Length == members.Length && wraps.All(w => w == 0 || w == 1));
@@ -236,7 +242,7 @@ namespace Protobot.Collaboration {
         // Historical routes can refer to parts that are currently deleted.
         public static void ValidateRouteMetadata(ChainRecord record) {
             Require(record != null && ValidId(record.id) && record.members != null && record.members.Length >= 2 &&
-                record.members.Length <= MaxWriteSet && record.members.All(ValidId) &&
+                record.members.Length <= MaxRouteMembers && record.members.All(ValidId) &&
                 record.members.Distinct(StringComparer.Ordinal).Count() == record.members.Length, "invalid-chain");
             var rope = record.rope;
             if (rope == null) {
@@ -261,12 +267,17 @@ namespace Protobot.Collaboration {
             Require(chain.members.All(available.Contains), "missing-chain-member");
         }
 
-        public static void ValidatePart(Part part, CatalogManifest catalog) {
-            Require(part != null && ValidId(part.id) && part.catalogId != null && part.catalogId.Length <= 200 &&
-                (part.state == null || part.state.Length <= 4096), "invalid-part");
+        public static void ValidatePose(Part part) {
+            Require(part != null && ValidId(part.id), "invalid-part");
             Require(part.position != null && part.position.Length == 3 && part.position.All(v => Finite(v) && Math.Abs(v) <= 1000000), "invalid-position");
             Require(part.rotation != null && part.rotation.Length == 4 && part.rotation.All(Finite) &&
                 Math.Abs(part.rotation.Sum(v => v * v) - 1) < 0.0001, "invalid-rotation");
+        }
+
+        public static void ValidatePart(Part part, CatalogManifest catalog) {
+            Require(part != null && part.catalogId != null && part.catalogId.Length <= 200 &&
+                (part.state == null || part.state.Length <= 4096), "invalid-part");
+            ValidatePose(part);
             Require(part.color != null && part.color.Length == 3 && part.color.All(v => Finite(v) && v >= 0 && v <= 1), "invalid-color");
             if (IsCustom(part)) {
                 Require(ValidAssetHash(part.assetHash) && Mounts(part).Length <= MaxMountsPerPart, "invalid-custom-part");

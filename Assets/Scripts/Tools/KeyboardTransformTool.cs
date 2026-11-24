@@ -209,6 +209,12 @@ namespace Protobot.Tools {
                 roots.RemoveAll(nestedRoots.Contains);
             }
 
+            foreach (var root in roots) {
+                foreach (var saved in root.GetComponentsInChildren<SavedObject>()) {
+                    if (!bodies.Contains(saved.gameObject))
+                        bodies.Add(saved.gameObject);
+                }
+            }
             if (bodies.Count == 0)
                 return;
 
@@ -218,7 +224,7 @@ namespace Protobot.Tools {
                     CollaborationSession.ReservePose(bodies, () => {
                         if (selectionManager.current == requestedSelection) BeginReservedSelection(rotate, true);
                         else CollaborationSession.CancelPose();
-                    });
+                    }, copy: duplicateForGesture);
                     return;
                 }
                 if (!CollaborationSession.HasPoseReservation(bodies)) { CollaborationSession.CancelPose(); return; }
@@ -227,10 +233,6 @@ namespace Protobot.Tools {
             // A MultiPivot is already a movement root. Never parent it under a
             // temporary pivot or transform its children a second time.
             foreach (var root in roots) {
-                foreach (var saved in root.GetComponentsInChildren<SavedObject>()) {
-                    if (!bodies.Contains(saved.gameObject))
-                        bodies.Add(saved.gameObject);
-                }
                 root.DOKill();
                 positions.Add(root.position);
                 rotations.Add(root.rotation);

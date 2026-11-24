@@ -49,7 +49,7 @@ namespace Protobot.Tools {
                 CollaborationSession.ReservePose(movementManager.GetMovingConnectedObjs(), () => {
                     if (this == null || !isActiveAndEnabled || !waiting || request != requestGeneration || selected != refObj) { CollaborationSession.CancelPose(); return; }
                     waiting = false; movementManager.PrepareSharedDuplicate(duplicate); BeginDrag();
-                }, () => { if (this != null && request == requestGeneration) waiting = false; });
+                }, () => { if (this != null && request == requestGeneration) waiting = false; }, copy: duplicate);
                 return;
             }
             BeginDrag();

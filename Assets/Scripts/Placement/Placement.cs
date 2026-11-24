@@ -108,18 +108,16 @@ namespace Protobot {
 
         private Displacement currentDisplacement;
         private VersionRef[] targetDependencies = System.Array.Empty<VersionRef>();
-        public Part[] SharedMovePreview() {
+        public Part[] SharedMovePreview(bool compact) {
             if (!placing || currentPlacementData is not GameObjectPlacementData moving) return null;
             var source = moving.GetGameObject();
             var bodies = CollaborationScene.Bodies(source.GetConnectedObjects(true, false, !moving.individual));
             var delta = currentDisplacement.rotation.Orientation * Quaternion.Inverse(source.transform.rotation);
             var origin = source.transform.position;
             return bodies.Select(body => {
-                var part = CollaborationScene.Capture(body);
                 var position = currentDisplacement.translation.Position + delta * (body.transform.position - origin);
                 var rotation = delta * body.transform.rotation;
-                part.position = new double[] { position.x, position.y, position.z };
-                part.rotation = new double[] { rotation.x, rotation.y, rotation.z, rotation.w }; return part;
+                return CollaborationScene.CapturePreview(body, new Pose(position, rotation), compact);
             }).ToArray();
         }
         private Vector3 placementSnapOrigin;
@@ -295,6 +293,7 @@ namespace Protobot {
                 if (newPlacementData is SelectionPlacementData unsupported) unsupported.Dispose();
                 return;
             }
+            if (newPlacementData is PartPlacementData && !CollaborationSession.CheckPlacementBudget(1)) return;
             CustomModelTool.CancelActive();
             Protobot.Simulation.SimulationTool.ExitForEdit();
             if (stopping != null) { StopCoroutine(stopping); stopping = null; }
@@ -398,6 +397,7 @@ namespace Protobot {
             var displacePos = currentDisplacement.translation.Position;
             
             if (isPartPlacement) {
+                if (!CollaborationSession.CheckPlacementBudget(1)) return;
                 var generator = ((PartPlacementData)currentPlacementData).partGenerator;
                 GameObject placedObj = generator.Generate(displacePos, displaceRot);
                 if (CollaborationSession.IsShared) {
@@ -420,6 +420,7 @@ namespace Protobot {
             }
             else if (currentPlacementData is SelectionPlacementData selection) {
                 if (CollaborationSession.IsShared) {
+                    if (!selection.CheckSharedBudget()) { CancelPlacement(); return; }
                     var selected = selection.ResultSelection;
                     var sharedCopies = selection.Generate(displacePos, displaceRot);
                     var sharedChains = selection.GeneratedChains.Concat(selection.GeneratedRopes).ToList();

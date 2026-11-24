@@ -16,6 +16,12 @@ namespace Protobot {
         public bool RepeatPlacement { get; private set; } = true;
         public SelectionManager ResultSelection { get; private set; }
         public int PartCount => templates.Count;
+        internal bool CheckSharedBudget() {
+            int parts = templates.Sum(template => template.GetComponentsInChildren<SavedObject>(true).Length);
+            int assets = CollaborationSession.NewAssetCount(templates.SelectMany(template => template.GetComponentsInChildren<CustomModel>(true))
+                .Select(model => model.Snapshot()));
+            return CollaborationSession.CheckPlacementBudget(parts, chains.Length + ropes.Length, assets);
+        }
         public readonly List<GameObject> GeneratedChains = new();
         public readonly List<GameObject> GeneratedRopes = new();
 
@@ -34,10 +40,15 @@ namespace Protobot {
             var anchor = BuildTransfer.HoleAnchor(selection);
             if (anchor?.Hole?.part == null || !bodies.Contains(anchor.Hole.part)) anchor = null;
             var frame = anchor != null ? anchor.Face : new Pose(selection.gameObject.transform.position, selection.gameObject.transform.rotation);
-            return new SelectionPlacementData(bodies, frame, anchor != null, preview, duplicator);
+            var ids = bodies.SelectMany(body => body.GetComponentsInChildren<SavedObject>()).Select(saved => saved.ConnectionId).ToHashSet();
+            var chains = ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray();
+            var ropes = RopeRoute.Capture(ids);
+            if (!CollaborationSession.CheckPlacementBudget(ids.Count, chains.Length + ropes.Length)) return null;
+            return new SelectionPlacementData(bodies, frame, anchor != null, preview, duplicator, chains, ropes);
         }
 
-        private SelectionPlacementData(List<GameObject> bodies, Pose frame, bool hasHole, Transform preview, ObjectDuplicator duplicator) {
+        private SelectionPlacementData(List<GameObject> bodies, Pose frame, bool hasHole, Transform preview, ObjectDuplicator duplicator,
+            ChainData[] chains, RopeRouteData[] ropes) {
             placementTransform = preview;
             InitialRotation = frame.rotation;
             HasHole = hasHole;
@@ -48,9 +59,8 @@ namespace Protobot {
             try {
                 displayMesh = MeshCombiner.CombineMeshes(bodies, frame.position, frame.rotation);
                 templates.AddRange(duplicator.CreateCopies(bodies, templateRoot.transform, true));
-                var ids = bodies.SelectMany(body => body.GetComponentsInChildren<SavedObject>()).Select(s => s.ConnectionId).ToHashSet();
-                chains = ChainLoop.SaveAll().Where(chain => chain.members.All(ids.Contains)).ToArray();
-                ropes = RopeRoute.Capture(ids);
+                this.chains = chains;
+                this.ropes = ropes;
                 Normalize(frame);
             }
             catch { Dispose(); throw; }
@@ -67,6 +77,12 @@ namespace Protobot {
         public static SelectionPlacementData FromBuild(BuildData build, Transform preview, ObjectDuplicator duplicator, SelectionManager selectResult,
             bool validateChains = false) {
             BuildTransfer.Validate(build);
+            if (CollaborationSession.IsShared) {
+                int parts = build.parts.Count(part => part.partId != "Error");
+                int routes = (build.chains?.Length ?? 0) + (build.ropes?.Length ?? 0);
+                int assets = CollaborationSession.NewAssetCount(build.parts.Where(part => part.IsCustomModel).Select(part => part.customModel));
+                if (!CollaborationSession.CheckPlacementBudget(parts, routes, assets)) return null;
+            }
             if (validateChains) BuildTransfer.ValidateChains(build);
             var data = new SelectionPlacementData(preview, duplicator) { RepeatPlacement = false, ResultSelection = selectResult };
             try {

@@ -105,6 +105,10 @@ namespace Protobot.Simulation {
             var sprockets = SelectedSprockets();
             ExitForEdit();
             if (!ChainRouteGeometry.CompatiblePlane(sprockets, out var reason)) { Protobot.UI.InteractionFeedback.Notify(reason); return; }
+            if (CollaborationSession.IsShared) {
+                var ids = sprockets.Select(part => part.GetComponent<SavedObject>().ConnectionId).ToArray();
+                if (!CollaborationSession.CheckEditBudget(ids.Length, 1, addedRoutes: ChainLoop.Find(ids) == null ? 1 : 0)) return;
+            }
             RouteEditor = new ChainRoutingPanel(sprockets, RouteClosed);
         }
 
@@ -113,8 +117,15 @@ namespace Protobot.Simulation {
             var selected = RouteSelection().Select(body => body.GetComponent<SavedObject>()).Where(body => body != null).Distinct().ToArray();
             var drums = selected.Where(body => body.id == Builds.RopeRouteData.DrumId).ToArray();
             if (drums.Length != 1) { UI.InteractionFeedback.Notify("Select one Winch Drum to route a rope."); return; }
+            var pulleys = selected.Where(body => body.id == Builds.RopeRouteData.PulleyId).ToArray();
+            bool newRoute = RopeRoute.Find(drums[0].ConnectionId) == null;
+            if (newRoute && pulleys.Length > Builds.RopeRouteData.MaxPulleys) {
+                UI.InteractionFeedback.Notify($"The rope selection has {pulleys.Length} pulleys. The route limit is {Builds.RopeRouteData.MaxPulleys}.");
+                return;
+            }
+            if (newRoute && !CollaborationSession.CheckEditBudget(0, 1, addedRoutes: 1)) return;
             ExitForEdit();
-            RouteEditor = new ChainRoutingPanel(new RopeRoutingDraft(drums[0], selected.Where(body => body.id == Builds.RopeRouteData.PulleyId)), RouteClosed);
+            RouteEditor = new ChainRoutingPanel(new RopeRoutingDraft(drums[0], pulleys), RouteClosed);
         }
 
         private bool CanEditRoute() => RouteEditor == null && CollaborationSession.CanEdit && !CollaborationSession.HasReservation &&
@@ -180,6 +191,10 @@ namespace Protobot.Simulation {
                 status = candidate.WinchStatus ?? "Attach a shaft to this motor to preview its output";
                 panel?.Refresh();
                 return false;
+            }
+            if (CollaborationSession.IsShared && CollaborationSession.CanEdit) {
+                int count = candidate.tracks.Where(track => track.rotates).Select(track => track.body.GetComponent<SavedObject>().ConnectionId).Distinct().Count();
+                if (!CollaborationSession.CheckEditBudget(count, count)) return false;
             }
             simulation = candidate;
             previewRevision = CollaborationSession.CommittedRevision;

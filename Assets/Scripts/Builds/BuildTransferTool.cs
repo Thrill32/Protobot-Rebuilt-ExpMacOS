@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Protobot.InputEvents;
-using Protobot.Collaboration;
 using Protobot.SelectionSystem;
 using Protobot.Tools;
 using Protobot.UI;
@@ -115,12 +114,8 @@ namespace Protobot.Builds {
 
         private bool BeginPlacement(BuildData data) {
             if (placement.placing || !isActiveAndEnabled) return false;
-            int partCount = data.parts.Count(p => p.partId != "Error");
-            int customAssetUpperBound = data.parts.Count(p => p.IsCustomModel);
-            if (CollaborationSession.IsShared && partCount + (data.chains?.Length ?? 0) + (data.ropes?.Length ?? 0) + customAssetUpperBound > DocumentModel.MaxWriteSet) {
-                InteractionFeedback.Notify($"A shared paste or import may change at most {DocumentModel.MaxWriteSet} parts, routes and new custom assets at once."); return false;
-            }
             var copied = SelectionPlacementData.FromBuild(data, placement.transform, duplicator, selectionManager, CollaborationSession.IsShared);
+            if (copied == null) return false;
             placement.StartPlacing(copied);
             return true;
         }

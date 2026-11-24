@@ -24,7 +24,7 @@ namespace Protobot.Simulation {
             original = RopeRoute.Find(drum.ConnectionId);
             if (original == null) {
                 foreach (var pulley in selected.OrderBy(p => Vector3.Distance(p.transform.position, drum.transform.position))
-                             .ThenBy(p => p.ConnectionId, StringComparer.Ordinal).Take(RopeRouteData.MaxPulleys))
+                             .ThenBy(p => p.ConnectionId, StringComparer.Ordinal))
                     AddPulley(pulley, 0);
                 return;
             }
@@ -87,9 +87,12 @@ namespace Protobot.Simulation {
                     End = RopeAttachment.At(body, hit.collider.TryGetComponent(out HoleCollider hole) ? hole.transform.position : hit.point);
                     break;
                 case Pick.Pulley:
-                    reason = $"Choose an unused VEX Pulley. A route supports up to {RopeRouteData.MaxPulleys}.";
-                    if (body.id != RopeRouteData.PulleyId || body == EndBody || pulleys.Contains(body) ||
-                        pulleys.Count >= RopeRouteData.MaxPulleys) return false;
+                    reason = "Choose an unused VEX Pulley.";
+                    if (body.id != RopeRouteData.PulleyId || body == EndBody || pulleys.Contains(body)) return false;
+                    if (pulleys.Count >= RopeRouteData.MaxPulleys) {
+                        reason = $"The route would have {pulleys.Count + 1} pulleys. The route limit is {RopeRouteData.MaxPulleys}.";
+                        return false;
+                    }
                     AddPulley(body, 0);
                     break;
                 default:
@@ -109,6 +112,11 @@ namespace Protobot.Simulation {
                 Invalidate();
                 reason = "One of the route parts is unavailable.";
                 return false;
+            }
+            if (CollaborationSession.IsShared) {
+                reason = CollaborationSession.RouteBudgetError(original?.MemberIds ?? Enumerable.Empty<string>(),
+                    parts.Select(part => part.ConnectionId), original == null);
+                if (reason != null) return false;
             }
             bool changed = matrices == null;
             matrices ??= new Matrix4x4[parts.Length];

@@ -8,6 +8,7 @@ namespace Protobot.Collaboration {
         public const string Version = "0.9.0-alpha";
         public const int ShortPollingVersion = 1;
         public const int MirrorVersion = 1;
+        public const int LargeEditsVersion = 1;
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {
@@ -121,6 +122,7 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion = GeometryTransfer.LimitsVersion;
         [System.Runtime.Serialization.OptionalField] public int customAppearanceVersion = CustomAppearance.Version;
         [System.Runtime.Serialization.OptionalField] public int mirrorVersion = CollaborationProtocol.MirrorVersion;
+        [System.Runtime.Serialization.OptionalField] public int largeEditsVersion = CollaborationProtocol.LargeEditsVersion;
         [System.Runtime.Serialization.OptionalField] public string expectedGeneration, roomIdentity, resynchronizeFromGeneration;
         public int protocol = 1;
         public string version = CollaborationProtocol.Version;
@@ -174,6 +176,7 @@ namespace Protobot.Collaboration {
         [System.Runtime.Serialization.OptionalField] public int geometryLimitsVersion, geometryAssetBytes;
         [System.Runtime.Serialization.OptionalField] public int customAppearanceVersion;
         [System.Runtime.Serialization.OptionalField] public int mirrorVersion;
+        [System.Runtime.Serialization.OptionalField] public int largeEditsVersion;
         [System.Runtime.Serialization.OptionalField] public bool multiRoom;
         [System.Runtime.Serialization.OptionalField] public int registryVersion;
         [System.Runtime.Serialization.OptionalField] public int diagnosticsVersion;

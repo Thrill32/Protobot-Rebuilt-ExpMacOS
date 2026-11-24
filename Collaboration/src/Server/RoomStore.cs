@@ -172,15 +172,15 @@ namespace Protobot.Collaboration.Server {
                 members[receipt.id].receipts.Add(receipt.receipt);
             }
             foreach (var history in Query("SELECT member,position,blocked,data FROM history ORDER BY member,position", r =>
-                (id: r.GetString(0), index: r.GetInt32(1), blocked: r.GetBoolean(2), entry: DecodeHistory(ReadBytes(r, 3))))) {
+                (id: r.GetString(0), index: r.GetInt32(1), blocked: r.GetBoolean(2), entry: DecodeHistory(ReadBytes(r, 3, MaxHistoryEntryBytes))))) {
                 var list = members[history.id].history;
                 DocumentModel.Require(history.index == list.Count && history.entry.ids != null &&
-                    history.entry.ids.Length <= DocumentModel.MaxWriteSet && history.entry.ids.Distinct().Count() == history.entry.ids.Length &&
+                    history.entry.ids.Distinct().Count() == history.entry.ids.Length &&
                     history.entry.before != null && history.entry.after != null, "room-storage-corrupt");
                 foreach (var part in history.entry.before.Concat(history.entry.after)) DocumentModel.ValidatePart(part, info.catalog);
                 history.entry.chainIds ??= Array.Empty<string>(); history.entry.chainsBefore ??= Array.Empty<ChainRecord>(); history.entry.chainsAfter ??= Array.Empty<ChainRecord>();
                 DocumentModel.Require(history.entry.ids.Length + history.entry.chainIds.Length > 0 &&
-                    history.entry.chainIds.Length <= DocumentModel.MaxWriteSet && history.entry.chainIds.Distinct().Count() == history.entry.chainIds.Length &&
+                    history.entry.ids.Length + history.entry.chainIds.Length <= DocumentModel.MaxMutations && history.entry.chainIds.Distinct().Count() == history.entry.chainIds.Length &&
                     history.entry.chainIds.All(DocumentModel.ValidId), "room-storage-corrupt");
                 foreach (var route in history.entry.chainsBefore.Concat(history.entry.chainsAfter))
                     DocumentModel.ValidateRouteMetadata(route);
@@ -224,7 +224,7 @@ namespace Protobot.Collaboration.Server {
             if (entry != null) {
                 Execute("DELETE FROM history WHERE member=$member AND position >= $index", transaction, ("$member", member.participant.id), ("$index", entryIndex));
                 Execute("INSERT INTO history VALUES($member,$index,0,$data)", transaction,
-                    ("$member", member.participant.id), ("$index", entryIndex), ("$data", WireJson.Encode(entry)));
+                    ("$member", member.participant.id), ("$index", entryIndex), ("$data", LocalJson.Encode(entry, MaxHistoryEntryBytes)));
             }
             foreach (var changed in blocked)
                 Execute("UPDATE history SET blocked=1 WHERE member=$member AND position=$index", transaction, ("$member", changed.member), ("$index", changed.index));
@@ -246,8 +246,11 @@ namespace Protobot.Collaboration.Server {
             ("$member", member), ("$operation", receipt.operationId), ("$data", WireJson.Encode(receipt)));
         private void Finish(SqliteTransaction transaction, string stage) { BeforeCommit?.Invoke(stage); transaction.Commit(); AfterCommit?.Invoke(stage); }
         private void RequireCount(string table, int maximum) => DocumentModel.Require(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM " + table)) <= maximum, "room-storage-limit");
-        private static byte[] ReadBytes(SqliteDataReader reader, int column) {
-            DocumentModel.Require(reader.GetBytes(column, 0, null, 0, 0) <= WireJson.MaxMessageBytes, "room-storage-limit");
+        // A history entry holds two bounded snapshots plus its list of changed IDs.
+        private const int MaxHistoryEntryBytes = WireJson.MaxMessageBytes + 128 * 1024;
+
+        private static byte[] ReadBytes(SqliteDataReader reader, int column, int maximum = WireJson.MaxMessageBytes) {
+            DocumentModel.Require(reader.GetBytes(column, 0, null, 0, 0) <= maximum, "room-storage-limit");
             return (byte[])reader.GetValue(column);
         }
         private static T Decode<T>(SqliteDataReader reader, int column) => WireJson.Decode<T>(ReadBytes(reader, column));
@@ -269,10 +272,10 @@ namespace Protobot.Collaboration.Server {
         }
         private static StoredHistory DecodeHistory(byte[] data) {
             bool ids = HasField(data, "chainIds"), before = HasField(data, "chainsBefore"), after = HasField(data, "chainsAfter");
-            if (ids && before && after) return WireJson.Decode<StoredHistory>(data);
+            if (ids && before && after) return LocalJson.Decode<StoredHistory>(data, MaxHistoryEntryBytes);
             DocumentModel.Require(!ids && !before && !after, "room-storage-corrupt");
             var value = JsonNode.Parse(data).AsObject(); value["chainIds"] = new JsonArray(); value["chainsBefore"] = new JsonArray(); value["chainsAfter"] = new JsonArray();
-            return WireJson.Decode<StoredHistory>(JsonBytes(value));
+            return LocalJson.Decode<StoredHistory>(JsonBytes(value), MaxHistoryEntryBytes);
         }
         private object Scalar(string sql) { using var command = Command(sql); return command.ExecuteScalar(); }
         private List<T> Query<T>(string sql, Func<SqliteDataReader, T> read) {

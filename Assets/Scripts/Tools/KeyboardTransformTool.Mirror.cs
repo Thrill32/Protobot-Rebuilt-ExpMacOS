@@ -78,7 +78,7 @@ namespace Protobot.Tools {
                     var selectCopies = mirrorDuplicate ? selectionManager : null;
                     EndMirror();
                     CollaborationSession.ConfirmMirror(requested, pivot, normal, selectCopies);
-                }, () => { if (mirrorBodies == requested) CancelMirror(); }, sendPreviews: false);
+                }, () => { if (mirrorBodies == requested) CancelMirror(); }, sendPreviews: false, copy: mirrorDuplicate, moveOriginals: false);
             }
             else {
                 var selected = mirrorBodies;

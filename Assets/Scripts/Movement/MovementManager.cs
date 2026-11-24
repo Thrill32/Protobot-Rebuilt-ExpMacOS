@@ -120,7 +120,7 @@ namespace Protobot {
                 CollaborationSession.ReservePose(GetMovingConnectedObjs(), () => {
                     if (requested == MovingObj) { sharedDuplicateRequested = duplicate; DisplaceTo(displacement, duration, dependencies); }
                     else CollaborationSession.CancelPose();
-                });
+                }, copy: duplicate);
                 return;
             }
             if (!displaceContinous) {

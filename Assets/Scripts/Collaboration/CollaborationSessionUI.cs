@@ -447,6 +447,7 @@ namespace Protobot {
             "wrong-password" => "The room password was not accepted. Check it with the host and try again.",
             "catalog-or-room-mismatch" => "Room ID or catalog differs. Check the room ID and use the same build as the host.",
             "server-version-mismatch" => "The server uses a different collaboration version. Use matching builds and helpers.",
+            "large-edits-client-required" => "This room requires a Protobot build with large shared edit support.",
             "mirror-client-required" => "This room requires a Protobot build with Mirror Selection support.",
             "mirror-server-required" => "Mirrored parts require an updated collaboration helper.",
             "https-required-use-explicit-lan-http" => "Use an HTTPS address, or enable LAN HTTP for a trusted local-network test.",
