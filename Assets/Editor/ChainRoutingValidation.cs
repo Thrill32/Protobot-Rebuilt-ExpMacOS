@@ -11,6 +11,7 @@ using Protobot.InputEvents;
 using Protobot.SelectionSystem;
 using Protobot.Simulation;
 using Protobot.StateSystems;
+using Protobot.Tools;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -19,6 +20,8 @@ using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 using InputEvent = Protobot.InputEvents.InputEvent;
+using static ProtobotEditorTools.CameraNavigationValidation;
+using static ProtobotEditorTools.InteractionOverhaulValidation;
 
 namespace ProtobotEditorTools {
     public static class ChainRoutingValidation {
@@ -43,7 +46,7 @@ namespace ProtobotEditorTools {
             EditorApplication.update -= Tick; SessionState.SetBool(SessionKey, false);
             try {
                 await Check();
-                Debug.Log("Chain routing smoke passed: Shift+C and route buttons, preview/save isolation, invalid route guards, cancellation, signed simulation, stable identity, route undo/redo, P/clipboard copies, deletion recovery, binary/JSON load and malformed-route rejection.");
+                Debug.Log("Chain routing smoke passed: Shift+C, viewport camera input, marker projection, panel scrolling, modal scene input, Apply/Cancel, preview/save isolation, signed simulation, undo/redo, copies and file validation.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -59,13 +62,12 @@ namespace ProtobotEditorTools {
         private static void Complete() { foreach (var saved in Object.FindObjectsByType<SavedObject>(FindObjectsSortMode.None)) saved.transform.DOComplete(); }
         private static async Task Check() {
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
+            GameObject.Find("Launch Canvas")?.SetActive(false);
             GameObject.Find("Splash Screen")?.SetActive(false);
             bool renderProbe = Environment.GetCommandLineArgs().Contains("-chainRoutingRenderProbe");
-            EditorWindow game = null;
-            if (renderProbe) {
-                game = EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView")); game.Show(); game.Focus();
-                await Task.Delay(100);
-            }
+            var game = FocusRouteGameView();
+            await Frames();
+            Require(Application.isFocused, "Chain routing input checks require a focused Game View.");
             var tool = Object.FindFirstObjectByType<SimulationTool>();
             var manager = Get<SelectionManager>(tool, "selectionManager");
             var parts = ChainContourValidation.AdvancedFixture(); var route = ChainContourValidation.Route(parts);
@@ -80,6 +82,23 @@ namespace ProtobotEditorTools {
             editor.ToggleWrap(idler); Require(editor.IsValid, "Choosing the inner wrap did not produce a valid route");
             editor.Reverse(); Require(editor.IsValid, "Reversing the route in the editor changed validity");
             Require(ChainLoop.SaveAll().Length == 0 && SceneBuild.ToBuildData().chains.Length == 0, "Route preview leaked into persistence");
+            var canvas = GameObject.Find("Chain Routing");
+            var selected = manager.current;
+            var markerPart = parts.Single(p => p.GetComponent<SavedObject>().ConnectionId == editor.Data.members[0]);
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+            await Frames();
+            await CheckRouteNavigation(canvas, () => {
+                Require(tool.RouteEditor == editor && manager.current == selected && editor.IsValid, "Camera navigation changed the chain draft or scene selection.");
+                CheckRouteMarker(canvas, 1, markerPart.ContactCenter);
+            });
+            await RouteClick(new Vector2(Screen.width * .24f, Screen.height * .55f));
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.G, Key.Delete));
+            await Frames();
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+            await Frames();
+            Require(tool.RouteEditor == editor && manager.current == selected && !KeyboardTransformTool.IsCapturingInput &&
+                !Object.FindFirstObjectByType<Placement>().placing && parts.All(p => p.gameObject.activeInHierarchy),
+                "A viewport click or unrelated shortcut escaped the chain editor.");
             if (renderProbe) {
                 PivotCamera.Main.SetTransform(new Vector3(0, 1.5f, 0), new Vector3(0, 0, 0), -12);
                 PivotCamera.Main.transform.DOComplete(); PivotCamera.Main.camera.transform.DOComplete();
@@ -92,16 +111,23 @@ namespace ProtobotEditorTools {
                 for (int i = 0; i < 150 && !File.Exists(path); i++) { game.Repaint(); EditorApplication.QueuePlayerLoopUpdate(); await Task.Delay(20); }
                 Require(File.Exists(path), "Route editor screenshot was not captured");
             }
-            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(UnityEngine.InputSystem.Key.Escape)); UpdateInput();
-            EscapeDeselect.TryHandleEscape();
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.Escape));
+            await Frames();
             Require(tool.RouteEditor == null && ChainLoop.SaveAll().Length == 0 && manager.current != null, "Escape retained a route/preview or cleared selection");
-            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState()); UpdateInput(); input.Update();
-            await Task.Delay(50);
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+            await Frames();
+            tool.EditChainRoute();
+            await Frames();
+            var cancel = GameObject.Find("Chain Routing").GetComponentsInChildren<Button>().Single(b => b.name == "Cancel");
+            await RouteClick(cancel);
+            Require(tool.RouteEditor == null && ChainLoop.SaveAll().Length == 0 && manager.current == selected, "Cancel changed chain or selection state.");
             tool.EditChainRoute(); editor = tool.RouteEditor;
             Require(editor != null, "Route editor did not reopen");
             idler = Array.IndexOf(editor.Data.members, route.members[1]); editor.ToggleWrap(idler);
             var apply = Object.FindObjectsByType<Button>(FindObjectsSortMode.None).Single(b => b.name == "Apply" && b.transform.root.name == "Chain Routing");
-            Require(apply.interactable, "Apply is disabled for a valid route"); apply.onClick.Invoke();
+            Require(apply.interactable, "Apply is disabled for a valid route");
+            await Frames();
+            await RouteClick(apply);
             var loop = Object.FindObjectsByType<ChainLoop>(FindObjectsSortMode.None).Single(); string identity = loop.ConnectionId;
             Require(loop.Data.wraps.Contains(1) && tool.RouteEditor == null, "Apply did not save and close the route editor");
             StateSystem.instance.Undo(); Complete(); Require(!loop.gameObject.activeSelf, "Undo did not remove the new route");

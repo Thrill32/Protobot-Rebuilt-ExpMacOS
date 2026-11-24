@@ -1,9 +1,9 @@
 using DG.Tweening;
 using Protobot.InputEvents;
+using Protobot.Simulation;
+using Protobot.Tools;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 
 namespace Protobot {
     [DefaultExecutionOrder(-1000)]
@@ -49,11 +49,15 @@ namespace Protobot {
 
         private bool CanCaptureInput() {
             if (RebindAction.Rebinding || !Application.isFocused || CollaborationSession.BlocksUIInput ||
-                (!active && MouseInput.overUI) || !Protobot.Tools.KeyboardTransformTool.AllowsNoclipCamera(activationInput) ||
-                Protobot.Simulation.SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera)
+                (!active && MouseInput.BlocksCameraPointer) || !KeyboardTransformTool.AllowsNoclipCamera(activationInput) ||
+                SimulationTool.BlocksCamera || CustomModelTool.BlocksCamera || KeyboardTransformTool.IsEditingText())
                 return false;
 
-            return !Protobot.Tools.KeyboardTransformTool.IsEditingText();
+            // A free-fly binding that includes the pick button needs motion
+            // before locking the cursor so a stationary viewport click can pick.
+            var mouse = Mouse.current;
+            return active || !SimulationTool.HasPendingRoutePick || !activationInput.UsesControl(mouse?.leftButton) ||
+                mouse.delta.ReadValue() != Vector2.zero || Keyboard.current != null && ReadMovement(Keyboard.current) != Vector3.zero;
         }
 
         private void BeginNoclip() {
@@ -90,23 +94,26 @@ namespace Protobot {
             pitch = Mathf.Clamp(pitch - mouseDelta.y * mouseSensitivity, -89f, 89f);
 
             var rotation = Quaternion.Euler(pitch, yaw, 0f);
-            var movement = Vector3.zero;
-
-            if (keyboard.wKey.isPressed) movement += rotation * Vector3.forward;
-            if (keyboard.sKey.isPressed) movement -= rotation * Vector3.forward;
-            if (keyboard.dKey.isPressed) movement += rotation * Vector3.right;
-            if (keyboard.aKey.isPressed) movement -= rotation * Vector3.right;
-            if (keyboard.eKey.isPressed) movement += rotation * Vector3.up;
-            if (keyboard.qKey.isPressed) movement -= rotation * Vector3.up;
-
+            var movement = ReadMovement(keyboard);
             if (movement.sqrMagnitude > 1f)
                 movement.Normalize();
 
-            cameraWorldPosition += movement * movementSpeed * Time.unscaledDeltaTime;
+            cameraWorldPosition += rotation * movement * movementSpeed * Time.unscaledDeltaTime;
 
             var focusDistance = Mathf.Max(0.5f, -pivotCamera.camera.transform.localPosition.z);
             var focusPosition = cameraWorldPosition + rotation * Vector3.forward * focusDistance;
             pivotCamera.SetTransform(focusPosition, rotation.eulerAngles, -focusDistance);
+        }
+
+        private static Vector3 ReadMovement(Keyboard keyboard) {
+            var movement = Vector3.zero;
+            if (keyboard.wKey.isPressed) movement += Vector3.forward;
+            if (keyboard.sKey.isPressed) movement -= Vector3.forward;
+            if (keyboard.dKey.isPressed) movement += Vector3.right;
+            if (keyboard.aKey.isPressed) movement -= Vector3.right;
+            if (keyboard.eKey.isPressed) movement += Vector3.up;
+            if (keyboard.qKey.isPressed) movement -= Vector3.up;
+            return movement;
         }
 
         private static float NormalizeAngle(float angle) {

@@ -10,9 +10,11 @@ namespace Protobot {
         public bool moving => DOTween.IsTweening(transform);
 
         private int lastOrbitFrame = -1;
+        private int lastPanFrame = -1;
         private int lastZoomFrame = -1;
         public bool orbiting => lastOrbitFrame == Time.frameCount;
         public bool zooming => lastZoomFrame == Time.frameCount;
+        internal bool NavigatedThisFrame => orbiting || lastPanFrame == Time.frameCount || zooming;
 
         public Vector3 cameraPosition => camera.transform.localPosition;
         public Vector3 focusPosition => transform.position;
@@ -139,6 +141,7 @@ namespace Protobot {
             float zoomFactor = zoomDistance / 5; // makes panning adjust by zoom distance, closer zoom should be less pan distance covered
             panPos += ((transform.right * -panValue.x) + (transform.up * -panValue.y)) * zoomFactor;
             transform.position = panPos;
+            if (panValue != Vector2.zero) lastPanFrame = Time.frameCount;
         }
     }
 }

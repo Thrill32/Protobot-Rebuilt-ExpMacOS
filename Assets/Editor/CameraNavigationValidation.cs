@@ -12,8 +12,11 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
+using InputEvent = Protobot.InputEvents.InputEvent;
+using static ProtobotEditorTools.InteractionOverhaulValidation;
 
 namespace ProtobotEditorTools {
     public static class CameraNavigationValidation {
@@ -178,6 +181,100 @@ namespace ProtobotEditorTools {
                 foreach (var state in categoryStates) state.gameObject.SetActive(state.activeSelf);
                 foreach (var state in ancestors) state.gameObject.SetActive(state.activeSelf);
             }
+        }
+
+        internal static EditorWindow FocusRouteGameView() {
+            var view = EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView"));
+            view.Show();
+            view.Focus();
+            return view;
+        }
+
+        internal static async Task RouteMouse(Vector2 point, MouseButton? button = null, Vector2 delta = default, float wheel = 0) {
+            var state = new MouseState { position = point, delta = delta, scroll = new Vector2(0, wheel) };
+            InputSystem.QueueStateEvent(Mouse.current, button.HasValue ? state.WithButton(button.Value) : state);
+            await Frames();
+        }
+
+        internal static async Task RouteClick(Vector2 point) {
+            await RouteMouse(point);
+            await RouteMouse(point, MouseButton.Left);
+            await RouteMouse(point);
+        }
+
+        internal static Task RouteClick(Component control) => RouteClick(Point((RectTransform)control.transform, Vector2.one * .5f));
+
+        internal static async Task CheckRouteNavigation(GameObject canvas, Action checkRoute) {
+            var pivot = PivotCamera.Main;
+            var backdrop = canvas.transform.Find("Input capture").gameObject;
+            var point = new Vector2(Screen.width * .24f, Screen.height * .55f);
+            var delta = new Vector2(12, 6);
+            Require(Hit(point) == backdrop, "The navigation test point is outside the exposed routing viewport.");
+            await RouteMouse(point);
+            Require(MouseInput.overUI && Application.isFocused, "The routing backdrop must shield the scene in a focused Game View.");
+
+            var rotation = pivot.transform.rotation;
+            await RouteMouse(point, MouseButton.Right);
+            await RouteMouse(point + delta, MouseButton.Right, delta);
+            await RouteMouse(point + delta);
+            Require(Quaternion.Angle(rotation, pivot.transform.rotation) > .1f, "Viewport orbit did not respond in " + canvas.name);
+            checkRoute();
+
+            var position = pivot.transform.position;
+            await RouteMouse(point, MouseButton.Middle);
+            await RouteMouse(point + delta, MouseButton.Middle, delta);
+            await RouteMouse(point + delta);
+            Require(Vector3.Distance(position, pivot.transform.position) > .01f, "Viewport pan did not respond in " + canvas.name);
+            checkRoute();
+
+            float distance = pivot.focusDistance;
+            await RouteMouse(point, wheel: 120);
+            Require(!Mathf.Approximately(distance, pivot.focusDistance), "Viewport wheel did not zoom in " + canvas.name);
+            checkRoute();
+
+            position = pivot.transform.position;
+            rotation = pivot.transform.rotation;
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.LeftShift, Key.W));
+            await Frames();
+            await RouteMouse(point + delta, delta: delta);
+            Require(InputEvent.IsNoclipMovementCaptured && Vector3.Distance(position, pivot.transform.position) > .01f &&
+                Quaternion.Angle(rotation, pivot.transform.rotation) > .1f, "Viewport free-fly did not move and look in " + canvas.name);
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+            await Frames();
+            Require(!InputEvent.IsNoclipMovementCaptured, "Free-fly release retained input capture.");
+            checkRoute();
+
+            var scroll = canvas.GetComponentInChildren<ScrollRect>();
+            // The geometry fixtures use short routes. Make their existing rows overflow.
+            float height = scroll.viewport.rect.height;
+            scroll.viewport.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, 80);
+            try {
+                await Frames();
+                var scrollPoint = Point(scroll.viewport, new Vector2(.98f, .5f));
+                distance = pivot.focusDistance;
+                float start = scroll.content.anchoredPosition.y;
+                await RouteMouse(scrollPoint, wheel: -1200);
+                Require(scroll.content.anchoredPosition.y > start && Mathf.Approximately(distance, pivot.focusDistance),
+                    "Panel wheel failed to scroll independently of the camera in " + canvas.name);
+                rotation = pivot.transform.rotation;
+                await RouteMouse(scrollPoint, MouseButton.Right);
+                await RouteMouse(point, MouseButton.Right, point - scrollPoint);
+                await RouteMouse(point);
+                Require(Quaternion.Angle(rotation, pivot.transform.rotation) < .01f,
+                    "A press that began on the route panel leaked into viewport orbit in " + canvas.name);
+                checkRoute();
+            }
+            finally {
+                scroll.viewport.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height);
+                scroll.verticalNormalizedPosition = 1;
+            }
+        }
+
+        internal static void CheckRouteMarker(GameObject canvas, int number, Vector3 world) {
+            var marker = (RectTransform)canvas.transform.Find("Route marker " + number);
+            var screen = (Vector2)PivotCamera.Main.camera.WorldToScreenPoint(world);
+            Require(marker.gameObject.activeSelf && Vector2.Distance(Point(marker, Vector2.one * .5f), screen) < 1,
+                "A numbered route marker did not follow its projected part in " + canvas.name);
         }
 
         private static void Near(float actual, float expected, string message) => Require(Mathf.Abs(actual - expected) < .00001f, message + $" ({actual} vs {expected})");

@@ -44,6 +44,8 @@ namespace Protobot.Simulation {
         public static bool IsActive => instance != null && instance.active;
         public static bool HasPreview => instance != null && instance.simulation != null;
         public static bool IsRouting => instance?.RouteEditor != null;
+        internal static bool HasPendingRoutePick => instance?.RouteEditor?.HasPendingPick == true;
+        internal static bool IsRouteBackdrop(GameObject hit) => instance?.RouteEditor?.Backdrop == hit;
         public static bool CapturesSelection => IsRouting || IsActive || consumedFrame == Time.frameCount;
         public static bool BlocksCamera => consumedFrame == Time.frameCount || IsActive && instance.simulation != null &&
             (!instance.animation || instance.IsTypingRotation || instance.simulation.DriverRotates && MoveRotation.SlashPressed(Keyboard.current));
@@ -319,7 +321,7 @@ namespace Protobot.Simulation {
 
         private void LateUpdate() {
             if (RouteEditor != null) {
-                if (!Application.isFocused) CancelRouting(); else RouteEditor.Refresh();
+                if (!Application.isFocused) CancelRouting(); else RouteEditor.UpdateAfterCamera();
                 return;
             }
             if (!active) return;

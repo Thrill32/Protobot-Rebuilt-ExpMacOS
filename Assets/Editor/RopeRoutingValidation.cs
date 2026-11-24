@@ -17,6 +17,9 @@ using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
+using InputEvent = Protobot.InputEvents.InputEvent;
+using static ProtobotEditorTools.CameraNavigationValidation;
+using static ProtobotEditorTools.InteractionOverhaulValidation;
 
 namespace ProtobotEditorTools {
     public static class RopeRoutingValidation {
@@ -52,7 +55,7 @@ namespace ProtobotEditorTools {
             SessionState.SetBool(SmokeKey, false);
             try {
                 await Check();
-                Debug.Log("Rope routing smoke passed: Main route controls, attachment picking, signed wraps, ordered pulleys, 48-inch/variable budgets, undo/redo, endpoint restoration, 1/8-inch tube, complete P/clipboard/Alt copies, and .pbb save/reopen.");
+                Debug.Log("Rope routing smoke passed: camera input with picks armed, marker projection, panel focus/scrolling, rebound camera release, picks after moving, Apply/Cancel, signed wraps, budgets, undo/redo, copies and .pbb save/reopen.");
                 EditorApplication.Exit(0);
             }
             catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
@@ -61,6 +64,9 @@ namespace ProtobotEditorTools {
         private static async Task Check() {
             GameObject.Find("Launch Canvas")?.SetActive(false);
             GameObject.Find("Splash Screen")?.SetActive(false);
+            FocusRouteGameView();
+            await Frames();
+            Require(Application.isFocused, "Rope routing input checks require a focused Game View.");
             SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
             var tool = Object.FindFirstObjectByType<SimulationTool>();
             var selection = (SelectionManager)typeof(SimulationTool).GetField("selectionManager", PrivateInstance).GetValue(tool);
@@ -80,8 +86,43 @@ namespace ProtobotEditorTools {
             var editor = tool.RouteEditor;
             var length = CanvasObject().GetComponentsInChildren<InputField>().Single();
             Require(length.text == "48" && !editor.IsValid, "The kit length or unset attachment guard is wrong.");
-            Click("Pick Drum"); Pick(origin + Vector3.left * .50f);
-            Click("Pick End"); Pick(hole.transform.position);
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+            await Frames();
+            var drumPoint = origin + Vector3.left * .50f;
+            AimPick(drumPoint);
+            await RouteClick(Button("Pick Drum"));
+            var pending = Status();
+            Require(pending.Contains("Click the winch drum"), "Click did not arm the drum pick.");
+            await CheckRouteNavigation(CanvasObject(), () => {
+                Require(tool.RouteEditor == editor && Status() == pending, "Camera input consumed the drum pick.");
+                CheckRouteMarker(CanvasObject(), 1, drum.GetComponent<RopeGroove>().Center);
+            });
+            AimPick(drumPoint);
+            var beforePan = ScreenPoint(drumPoint);
+            await RouteMouse(beforePan, MouseButton.Middle);
+            await RouteMouse(beforePan + Vector2.right * 12, MouseButton.Middle, Vector2.right * 12);
+            await RouteMouse(beforePan);
+            Require(Vector2.Distance(beforePan, ScreenPoint(drumPoint)) > 1 && Status() == pending, "Pan did not move the target or disarmed the drum pick.");
+            await Pick(drumPoint);
+            Require(Status().Contains("Pick both attachments"), "The drum point was not picked from the moved view: " + Status());
+
+            var endPoint = hole.transform.position;
+            AimPick(endPoint);
+            await RouteClick(Button("Pick End"));
+            pending = Status();
+            var orbit = Object.FindObjectsByType<InputEvent>(FindObjectsSortMode.None).Single(action => action.name == "Orbit");
+            orbit.defaultAction.ApplyBindingOverride("<Mouse>/leftButton");
+            try {
+                var point = ScreenPoint(endPoint);
+                var rotation = PivotCamera.Main.transform.rotation;
+                await RouteMouse(point, MouseButton.Left);
+                await RouteMouse(point + Vector2.right * 12, MouseButton.Left, Vector2.right * 12);
+                Require(Quaternion.Angle(rotation, PivotCamera.Main.transform.rotation) > .1f, "Rebound left-button orbit did not move the camera.");
+                await RouteMouse(ScreenPoint(endPoint));
+                Require(Status() == pending, "Releasing left-button orbit picked the rope end attachment.");
+                await Pick(endPoint);
+            }
+            finally { orbit.defaultAction.RemoveBindingOverride(0); }
             Require(editor.IsValid, "Single-pulley route is invalid: " + Status());
             CheckPreview();
             const float drumRadius = .4210216f, pulleyRadius = .3625f;
@@ -97,7 +138,27 @@ namespace ProtobotEditorTools {
             CheckPreview();
             plate.transform.position = platePosition;
             ClickRow("Rope point 2", "Wrap");
-            Click("Add Pulley"); Pick(second.transform.position + Vector3.down * .3f);
+            var pulleyPoint = second.transform.position + Vector3.down * .3f;
+            AimPick(pulleyPoint);
+            await RouteClick(Button("Add Pulley"));
+            pending = Status();
+            await RouteMouse(ScreenPoint(pulleyPoint), wheel: 120);
+            Require(Status() == pending, "Wheel zoom consumed the pulley pick.");
+            var noclip = Object.FindObjectsByType<InputEvent>(FindObjectsSortMode.None).Single(action => action.name == "Noclip Camera");
+            noclip.defaultAction.ApplyBindingOverride("<Mouse>/leftButton");
+            try {
+                var point = ScreenPoint(pulleyPoint);
+                await RouteMouse(point, MouseButton.Left);
+                Require(!InputEvent.IsNoclipMovementCaptured, "A stationary pick press locked the cursor.");
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.W));
+                await Frames();
+                Require(InputEvent.IsNoclipMovementCaptured, "The rebound free-fly binding did not start when movement began.");
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+                await RouteMouse(ScreenPoint(pulleyPoint));
+                Require(!InputEvent.IsNoclipMovementCaptured && Status() == pending, "Releasing rebound free-fly picked a pulley.");
+                await Pick(pulleyPoint);
+            }
+            finally { noclip.defaultAction.RemoveBindingOverride(0); }
             Require(editor.IsValid && CanvasObject().GetComponentsInChildren<RectTransform>().Count(row => row.name.StartsWith("Rope point ")) >= 4,
                 "A second pulley did not appear in numbered order: " + Status());
             Click("Reverse"); Require(!editor.IsValid, "An obstructed reversed route was accepted.");
@@ -117,7 +178,9 @@ namespace ProtobotEditorTools {
             CheckPreview();
             length.text = "24.5";
             Require(editor.IsValid && Status().Contains("Routed") && Status().Contains("remaining"), "Variable-length rope status is missing.");
-            Click("Apply");
+            await RouteClick(length);
+            Require(length.isFocused, "The routing length field did not receive focus.");
+            await RouteClick(Button("Apply"));
             var rope = RopeRoute.Find(Id(drum));
             Require(rope != null && tool.RouteEditor == null, "Apply did not create and close the rope route.");
             var original = rope.Data;
@@ -141,7 +204,8 @@ namespace ProtobotEditorTools {
 
             tool.EditRopeRoute();
             CanvasObject().GetComponentInChildren<InputField>().text = "9";
-            Click("Cancel");
+            await Frames();
+            await RouteClick(Button("Cancel"));
             Near(rope.Data.availableLength, 31.25f, "Cancel changed the rope");
             tool.EditRopeRoute();
             Click("Remove");
@@ -244,11 +308,20 @@ namespace ProtobotEditorTools {
         private static void Press(Button button) => ExecuteEvents.Execute(button.gameObject,
             new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left }, ExecuteEvents.pointerClickHandler);
 
-        private static void Pick(Vector3 point) {
-            var camera = PivotCamera.Main.camera;
-            camera.transform.SetPositionAndRotation(point + Vector3.forward * 8, Quaternion.LookRotation(Vector3.back, Vector3.up));
-            InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(point));
-            Click("Input capture");
+        private static Vector2 ScreenPoint(Vector3 world) => PivotCamera.Main.camera.WorldToScreenPoint(world);
+
+        private static void AimPick(Vector3 world) {
+            var pivot = PivotCamera.Main;
+            var rotation = new Vector3(0, 180, 0);
+            pivot.SetTransform(world, rotation, -8);
+            var viewPoint = new Vector3(Screen.width * .31f, pivot.camera.pixelRect.center.y, 8);
+            pivot.SetTransform(2 * world - pivot.camera.ScreenToWorldPoint(viewPoint), rotation, -8);
+        }
+
+        private static Task Pick(Vector3 world) {
+            var point = ScreenPoint(world);
+            Require(Hit(point) == CanvasObject().transform.Find("Input capture").gameObject, "The fixture's pick fell outside the exposed viewport.");
+            return RouteClick(point);
         }
 
         private static void CheckPreview() => CheckTube(GameObject.Find("Rope route preview"));

@@ -22,6 +22,7 @@ namespace Protobot.Simulation {
         private readonly RopeRoutingDraft rope;
         private RopeRoutingDraft.Pick pick;
         private string pickError;
+        private bool viewportClick, navigatedDuringPress;
         private readonly List<RectTransform> markers = new();
         private readonly ChainLoop original;
         private readonly Action closed;
@@ -30,6 +31,8 @@ namespace Protobot.Simulation {
             routeVersion = 1, wraps = wraps.ToArray() };
         public bool IsValid => valid;
         public bool IsRope => rope != null;
+        internal bool HasPendingPick => pick != RopeRoutingDraft.Pick.None;
+        internal GameObject Backdrop { get; }
         public ChainRoutingPanel(IReadOnlyList<SimulationPart> selection, Action closed) : this(selection, null, closed) { }
 
         internal ChainRoutingPanel(RopeRoutingDraft rope, Action closed) : this(null, rope, closed) { }
@@ -69,13 +72,14 @@ namespace Protobot.Simulation {
             scaler.referenceResolution = new Vector2(1600, 900); scaler.matchWidthOrHeight = .5f;
             var backdrop = Rect("Input capture", canvasObject.transform, Vector2.zero, Vector2.zero, Vector2.zero);
             backdrop.anchorMax = Vector2.one; backdrop.sizeDelta = Vector2.zero;
+            Backdrop = backdrop.gameObject;
             var background = Background(backdrop, new Color(0, 0, 0, .04f));
             if (IsRope) {
                 var pickButton = backdrop.gameObject.AddComponent<Button>();
                 pickButton.targetGraphic = background;
                 pickButton.transition = Selectable.Transition.None;
                 pickButton.navigation = new Navigation { mode = Navigation.Mode.None };
-                pickButton.onClick.AddListener(PickPart);
+                pickButton.onClick.AddListener(() => viewportClick = true);
             }
             var panel = Rect("Route editor", canvasObject.transform, new Vector2(1, .5f), new Vector2(1, .5f), new Vector2(-18, 0), new Vector2(540, 620));
             Background(panel, new Color(.055f, .065f, .08f, .98f));
@@ -132,16 +136,32 @@ namespace Protobot.Simulation {
             Refresh();
         }
 
-        private void PickPart() {
-            if (pick == RopeRoutingDraft.Pick.None) return;
+        internal void UpdateAfterCamera() {
+            if (IsRope && MouseInput.CurrentMouse is { } mouse) {
+                // The click dispatch and camera controllers run in Update. Keep
+                // ownership of a camera gesture through the matching click release.
+                if (mouse.leftButton.wasPressedThisFrame) navigatedDuringPress = false;
+                if (mouse.leftButton.isPressed || viewportClick)
+                    navigatedDuringPress |= InputEvents.InputEvent.IsNoclipMovementCaptured || PivotCamera.Main?.NavigatedThisFrame == true;
+
+                bool clicked = viewportClick;
+                viewportClick = false;
+                if (clicked && !navigatedDuringPress && PickPart()) return;
+            }
+            Refresh();
+        }
+
+        private bool PickPart() {
+            if (pick == RopeRoutingDraft.Pick.None) return false;
             var camera = PivotCamera.Main?.camera;
-            if (camera == null) return;
+            if (camera == null) return false;
             Physics.SyncTransforms();
             Physics.Raycast(camera.ScreenPointToRay(MouseInput.Position), out var hit, Mathf.Infinity,
                 LayerMask.GetMask("Default", "HoleCollisions"), QueryTriggerInteraction.Ignore);
-            if (!rope.Attach(pick, hit, out pickError)) { Refresh(); return; }
+            if (!rope.Attach(pick, hit, out pickError)) return false;
             pick = RopeRoutingDraft.Pick.None;
             Rebuild();
+            return true;
         }
 
         public void Move(int index, int delta) {

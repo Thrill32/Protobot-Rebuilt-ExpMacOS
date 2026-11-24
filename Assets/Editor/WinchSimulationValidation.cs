@@ -128,16 +128,18 @@ namespace ProtobotEditorTools {
                     await peer.JoinAsync("Winch observer");
                 }
 
+                CameraNavigationValidation.FocusRouteGameView();
+                await InteractionOverhaulValidation.Frames();
                 SelectRoute();
                 tool.EditRopeRoute();
                 Require(tool.RouteEditor?.IsRope == true, "Main could not open the rope editor.");
                 Click("Rope Routing", "Pick Drum");
                 var groove = Body(drumId).GetComponent<RopeGroove>();
-                PickDrum(Body(drumId), groove.Center);
+                await PickDrum(Body(drumId), groove.Center);
                 Require(!Label("Rope Routing", "Route status").Contains("Click"), "The editor did not accept the drum attachment.");
                 Click("Rope Routing", "Pick End");
                 var end = Body(loadId).GetComponentsInChildren<HoleCollider>().First();
-                Pick(Body(loadId), end.transform.position, Vector3.forward);
+                await Pick(Body(loadId), end.transform.position, Vector3.forward);
                 Require(tool.RouteEditor.IsValid, "Initial route failed: " + Label("Rope Routing", "Route status"));
                 Require(CollaborationSession.SaveSnapshot().ropes.Length == 0, "Draft was saved before Apply.");
                 await Change(() => Click("Rope Routing", "Apply"));
@@ -411,7 +413,7 @@ namespace ProtobotEditorTools {
             return Vector3.Distance(exit, vertices[^1]);
         }
 
-        private static void PickDrum(GameObject drum, Vector3 center) {
+        private static async Task PickDrum(GameObject drum, Vector3 center) {
             var collision = drum.GetComponent<MeshCollider>();
             var attempts = new List<string>();
             foreach (var direction in new[] { Vector3.up, Vector3.right, Vector3.left, new Vector3(0, 1, 1).normalized })
@@ -423,17 +425,17 @@ namespace ProtobotEditorTools {
                         attempts.Add($"{direction}/{offset} {hit?.name ?? "none"} (direct {direct})");
                         continue;
                     }
-                    Click("Rope Routing", "Input capture");
+                    await CameraNavigationValidation.RouteClick(MouseInput.Position);
                     return;
                 }
             throw new InvalidOperationException($"No visible drum surface at {center}. Collider {collision.bounds} on layer {drum.layer}, near {PivotCamera.Main.camera.nearClipPlane}. " + string.Join(", ", attempts));
         }
 
-        private static void Pick(GameObject body, Vector3 point, Vector3 normal) {
+        private static async Task Pick(GameObject body, Vector3 point, Vector3 normal) {
             var shape = Aim(point, normal);
             Require(shape?.GetComponentInParent<SavedObject>()?.gameObject == body,
                 $"Fixture ray for {body.name} hit {shape?.name ?? "nothing"} at world point {point}.");
-            Click("Rope Routing", "Input capture");
+            await CameraNavigationValidation.RouteClick(MouseInput.Position);
         }
 
         private static Collider Aim(Vector3 point, Vector3 normal) {
