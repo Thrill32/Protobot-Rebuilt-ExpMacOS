@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
-using Protobot.Transformations;
 using Protobot.SelectionSystem;
 
 namespace Protobot {
@@ -24,25 +21,33 @@ namespace Protobot {
         }
 
         public void StartMoving() {
-            TryStartMoving(objectLink.obj, objectLink.individual, null, false, null, null);
+            TryStartMoving(objectLink.obj, objectLink.individual, null, null, null, null);
         }
 
-        public bool StartHoleMove(ISelection selection, Action started, Action denied) {
-            var anchor = selection is HoleSelection hole ? SelectedHoleAnchor.From(hole) :
-                (selection as MultiSelection)?.placementHole;
-            return TryStartMoving(selection?.gameObject, selection?.individual == true, anchor, true, started, denied);
+        public bool StartGrabMove(ISelection selection, Action started, Action denied) {
+            var anchor = GetSourceHole(selection);
+            return TryStartMoving(selection?.gameObject, selection?.individual == true, anchor,
+                () => CanMoveFromGrab(selection, anchor), started, denied);
         }
 
-        public static bool HasConcreteSourceHole(ISelection selection) {
-            var anchor = selection is HoleSelection hole ? SelectedHoleAnchor.From(hole) :
-                (selection as MultiSelection)?.placementHole;
-            return AnchorBelongsToSelection(selection?.gameObject, selection?.individual == true, anchor);
+        public bool CanMoveFromGrab(ISelection selection) => CanMoveFromGrab(selection, GetSourceHole(selection));
+
+        private static SelectedHoleAnchor GetSourceHole(ISelection selection) =>
+            selection is HoleSelection hole ? SelectedHoleAnchor.From(hole) : (selection as MultiSelection)?.placementHole;
+
+        private bool CanMoveFromGrab(ISelection selection, SelectedHoleAnchor anchor) {
+            var source = selection?.gameObject;
+            if (source == null || !source.activeInHierarchy) return false;
+            if (selection is ObjectSelection)
+                return !source.IsDeleted() && source.TryGetComponent<SavedObject>(out var part) && !string.IsNullOrEmpty(part.id) &&
+                    placement.SupportsBodySnap(new GameObjectPlacementData(source, placement.transform, selection.individual));
+            return AnchorBelongsToSelection(source, selection.individual, anchor);
         }
 
-        private bool TryStartMoving(GameObject source, bool individual, SelectedHoleAnchor anchor, bool requireHole,
+        private bool TryStartMoving(GameObject source, bool individual, SelectedHoleAnchor anchor, Func<bool> sourceIsValid,
             Action started, Action denied) {
             if (placement.placing || source == null || !source.activeInHierarchy || Tools.KeyboardTransformTool.IsCapturingInput ||
-                requireHole && !AnchorBelongsToSelection(source, individual, anchor)) {
+                sourceIsValid?.Invoke() == false) {
                 denied?.Invoke();
                 return false;
             }
@@ -54,9 +59,9 @@ namespace Protobot {
                 }
                 CollaborationSession.ReservePose(bodies, () => {
                     if (source == objectLink.obj && !placement.placing &&
-                        (!requireHole || AnchorBelongsToSelection(source, individual, anchor)) &&
+                        sourceIsValid?.Invoke() != false &&
                         CollaborationSession.HasPoseReservation(source.GetConnectedObjects(true, false, !individual)))
-                        TryStartMoving(source, individual, anchor, requireHole, started, denied);
+                        TryStartMoving(source, individual, anchor, sourceIsValid, started, denied);
                     else {
                         CollaborationSession.CancelPose();
                         denied?.Invoke();

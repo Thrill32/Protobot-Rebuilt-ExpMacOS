@@ -29,6 +29,11 @@ namespace Protobot {
             return false;
         }
 
+        internal override bool SupportsBodySnap(PlacementData source) => TryGetHardwareData(source, out _);
+
+        private bool TryGetHardwareData(PlacementData source, out PartData data) =>
+            source.TryGetPartData(out data) && IsIdAllowed(source);
+
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             CollaborationScene.Read(HoverObj);
             if (currentHoleFace.gameObject.activeInHierarchy) CollaborationScene.Read(currentHoleFace.hole?.part);
@@ -44,19 +49,17 @@ namespace Protobot {
                 displacement = null;
                 return false;
             }
-            if (placementData.TryGetPartData(out PartData partData)) {
-                if (HoverObj != null && IsIdAllowed(placementData)) {
-                    if (currentHoleFace.direction != Vector3.zero && currentHoleFace.gameObject.activeInHierarchy) {
-                        var offset = currentHoleFace.direction * (partData.PrimaryHoleDepth / 2);
-                        displacement = new Displacement(currentHoleFace.position + offset, currentHoleFace.LookRotation);
-                        return true;
-                    }
-                    else if (HoverObj.CompareTag("Screw")) {
-                        Screw screw = HoverObj.GetComponent<Screw>();
-                        var offset = HoverObj.transform.forward * (partData.PrimaryHoleDepth / 2);
-                        displacement = new Displacement(screw.GetLowestPoint() - offset, HoverObj.GetAlignmentRotation());
-                        return true;
-                    }
+            if (HoverObj != null && TryGetHardwareData(placementData, out var partData)) {
+                if (currentHoleFace.direction != Vector3.zero && currentHoleFace.gameObject.activeInHierarchy) {
+                    var offset = currentHoleFace.direction * (partData.PrimaryHoleDepth / 2);
+                    displacement = new Displacement(currentHoleFace.position + offset, currentHoleFace.LookRotation);
+                    return true;
+                }
+                else if (HoverObj.CompareTag("Screw")) {
+                    Screw screw = HoverObj.GetComponent<Screw>();
+                    var offset = HoverObj.transform.forward * (partData.PrimaryHoleDepth / 2);
+                    displacement = new Displacement(screw.GetLowestPoint() - offset, HoverObj.GetAlignmentRotation());
+                    return true;
                 }
             }
 

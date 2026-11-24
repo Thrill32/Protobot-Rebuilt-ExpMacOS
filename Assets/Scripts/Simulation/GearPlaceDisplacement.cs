@@ -9,6 +9,9 @@ namespace Protobot.Simulation {
         public override bool ModifyRotation => true;
         public override Pose GetRotationAnchor(Displacement displacement) => anchor;
 
+        internal override bool SupportsBodySnap(PlacementData source) => source is GameObjectPlacementData moving &&
+            moving.GetGameObject().TryGetComponent<SimulationPart>(out var gear) && GearSnapping.SupportsSource(gear.kind);
+
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             displacement = null;
             SimulationPart gear;

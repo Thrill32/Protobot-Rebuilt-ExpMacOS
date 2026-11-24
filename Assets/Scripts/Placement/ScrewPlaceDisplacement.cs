@@ -7,12 +7,13 @@ namespace Protobot {
     public class ScrewPlaceDisplacement : PlaceDisplacement {
         [SerializeField] private HoleFace currentHoleFace;
         public override bool ModifyRotation => true;
+        internal override bool SupportsBodySnap(PlacementData source) =>
+            source.objectId.Contains("SCRW") || source.objectId.Contains("RBMP");
 
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             displacement = null;
             if (currentHoleFace.direction == Vector3.zero || !currentHoleFace.gameObject.activeInHierarchy ||
-                currentHoleFace.hole?.part == null ||
-                !(placementData.objectId.Contains("SCRW") || placementData.objectId.Contains("RBMP"))) return false;
+                currentHoleFace.hole?.part == null || !SupportsBodySnap(placementData)) return false;
 
             FixedFastener fixedFastener = null;
             if (placementData is PartPlacementData part && part.partGenerator is ScrewPartGenerator { UsesTwoParams: false }) {

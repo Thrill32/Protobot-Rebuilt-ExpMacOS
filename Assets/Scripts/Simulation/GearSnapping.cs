@@ -86,9 +86,13 @@ namespace Protobot.Simulation {
             return new Pose(center + rotation * (pivot.position - source.center), rotation * pivot.rotation);
         }
 
+        internal static bool SupportsSource(DriveKind kind) =>
+            kind is DriveKind.Spur or DriveKind.Bevel or DriveKind.Worm or DriveKind.WormWheel or DriveKind.Rack;
+
         public static bool TrySnap(Ray ray, Source source, Pose pivot, Func<Transform, bool> ignore,
             out Pose pose, out Pose anchor, bool bypass = false) {
             pose = anchor = default;
+            if (!SupportsSource(source.kind)) return false;
             var visible = Physics.RaycastAll(ray, Mathf.Infinity, LayerMask.GetMask("Default", "HoleCollisions"), QueryTriggerInteraction.Ignore)
                 .OrderBy(hit => hit.distance).FirstOrDefault(hit => !Excluded(hit.collider.transform, ignore));
             SimulationPart candidate = null;

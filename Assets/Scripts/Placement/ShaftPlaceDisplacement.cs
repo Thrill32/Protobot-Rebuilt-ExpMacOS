@@ -8,10 +8,11 @@ namespace Protobot {
         [SerializeField] private HoleFace currentHoleFace;
         [SerializeField] private MouseCast mouseCast;
         public override bool ModifyRotation => true;
+        internal override bool SupportsBodySnap(PlacementData source) => source.objectId.Contains("SHFT");
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
             displacement = null;
             
-            if (!placementData.objectId.Contains("SHFT")) return false;
+            if (!SupportsBodySnap(placementData)) return false;
             
             bool currentHoleActive = currentHoleFace.direction != Vector3.zero &&
                                      currentHoleFace.gameObject.activeInHierarchy;

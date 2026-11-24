@@ -257,17 +257,17 @@ namespace Protobot.Tools {
                 moveTool == null || moveToolManager == null) return;
 
             var requestedSelection = selection;
-            bool hasSourceHole = MoveToolManager.HasConcreteSourceHole(requestedSelection);
+            bool canStartMove = moveToolManager.CanMoveFromGrab(requestedSelection);
             // Discard the uncommitted grab (including Alt copies) before using
             // the same placement path as tool 2. The toolbar is intentionally
             // untouched, so the user's prior tool remains selected.
-            FinishInternal(false, hasSourceHole);
+            FinishInternal(false, canStartMove);
             finishedFrame = -1;
             try {
-                if (!hasSourceHole) return;
+                if (!canStartMove) return;
                 moveHandoffSelection = requestedSelection;
                 moveHandoffWaiting = true;
-                if (!moveToolManager.StartHoleMove(requestedSelection,
+                if (!moveToolManager.StartGrabMove(requestedSelection,
                     () => moveHandoffWaiting = false, EndMoveHandoff))
                     EndMoveHandoff();
             }
@@ -537,7 +537,7 @@ namespace Protobot.Tools {
         private void MaintainMoveHandoff() {
             if (moveHandoffSelection == null) return;
             bool valid = selectionManager.current == moveHandoffSelection &&
-                MoveToolManager.HasConcreteSourceHole(moveHandoffSelection);
+                moveToolManager.CanMoveFromGrab(moveHandoffSelection);
             if (!valid) {
                 if (placement.placing) placement.CancelPlacement();
                 EndMoveHandoff();
@@ -569,7 +569,7 @@ namespace Protobot.Tools {
             string snap = numericInput.IsOpen ? "Exact entry" : TransformSnapping.Active ? "Snap on" : "Snap off";
             string holeKey = holeSnapInput != null ? holeSnapInput.GetCurrentKeybind() : "H";
             string help = "X/Y/Z: axis    /: type value";
-            if (!rotating && MoveToolManager.HasConcreteSourceHole(selection)) help += $"    {holeKey}: Move selected hole";
+            if (!rotating && moveToolManager != null && moveToolManager.CanMoveFromGrab(selection)) help += $"    {holeKey}: Move";
             return $"{(rotating ? "Rotate" : "Grab")} · {ConstraintLabel} · {snap}\n" +
                 help + "\nClick / Enter: confirm    Esc / Right click: cancel";
         }

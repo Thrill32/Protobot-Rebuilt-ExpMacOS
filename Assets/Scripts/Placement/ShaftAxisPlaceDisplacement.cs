@@ -11,6 +11,7 @@ namespace Protobot {
         [SerializeField] private InputEvent flipInput;
         private GameObject HoverObj => mouseCast.gameObject;
         public override bool ModifyRotation => true;
+        internal override bool SupportsBodySnap(PlacementData source) => source.objectId.Contains("Hole") || GetOffset(source) > 0;
         
 
         public bool IsMotionObject(PlacementData placementData) {
@@ -41,7 +42,7 @@ namespace Protobot {
         }
 
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
-            if (HoverObj != null && (placementData.objectId.Contains("Hole") || GetOffset(placementData) > 0)) {
+            if (HoverObj != null && SupportsBodySnap(placementData)) {
                 if (HoverObj.tag.Contains("Shaft")) {
                     CollaborationScene.Read(HoverObj);
                     ConnectingPart connectingPart = HoverObj.GetComponent<ConnectingPart>();

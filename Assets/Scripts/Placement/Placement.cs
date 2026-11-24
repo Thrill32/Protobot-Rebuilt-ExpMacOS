@@ -92,6 +92,8 @@ namespace Protobot {
 
         [SerializeField] private List<PlaceDisplacement> placePositions;
 
+        internal bool SupportsBodySnap(GameObjectPlacementData source) => placePositions.Any(rule => rule.SupportsBodySnap(source));
+
         [Space(5)]
 
         [SerializeField] private InputEvent placeInput;

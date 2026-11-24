@@ -60,7 +60,7 @@ namespace ProtobotEditorTools {
                     GameObject.Find("Splash Screen")?.SetActive(false);
                     Check();
                     if (SessionState.GetBool(Key + ".Mechanisms", false)) MechanismValidation.Check();
-                Debug.Log("Simulation smoke passed: generated motor/shafts/collars/gears, ratio propagation, stationary housings/bearings, reverse/large-time evaluation, reset/cancel, click commit, undo/redo, preview-safe saves, wrapped mouse scrubbing, timeline controls, unbound/rebound actions, Move gear snapping and body-only G/H denial.");
+                    Debug.Log("Simulation smoke passed: generated motor/shafts/collars/gears, ratio propagation, stationary housings/bearings, reverse/large-time evaluation, reset/cancel, click commit, undo/redo, preview-safe saves, wrapped mouse scrubbing, timeline controls, unbound/rebound actions and G/H body gear snapping.");
                     if (!SessionState.GetBool(Key + ".Render", false)) { Finish(0); return; }
                     checkedRender = true; frames = 0;
                     GameObject.Find("Splash Screen")?.SetActive(false);
@@ -452,6 +452,7 @@ namespace ProtobotEditorTools {
         private static void CheckKeyboardGear(SimulationPart source, SimulationPart target, SelectionManager manager) {
             var tool = Object.FindFirstObjectByType<Protobot.Tools.KeyboardTransformTool>();
             var placement = Get<Placement>(tool, "placement");
+            var move = Get<MoveToolManager>(tool, "moveToolManager");
             var rule = placement.GetComponent<GearPlaceDisplacement>();
             var cast = Get<MouseCast>(rule, "mouseCast");
             var oldCamera = Get<Camera>(tool, "refCamera"); var oldCastCamera = Get<Camera>(cast, "camera");
@@ -467,14 +468,28 @@ namespace ProtobotEditorTools {
                 Set(tool, "refCamera", camera); Set(cast, "camera", camera); Set(placement, "refCamera", camera);
                 manager.SetCurrent(new ObjectSelection { gameObject = source.gameObject, individual = true }, true, true);
                 Physics.SyncTransforms(); Point(camera.WorldToScreenPoint(point));
+                move.StartMoving();
+                Require(placement.placing, "Ordinary gear Move did not start.");
+                Invoke(placement, "Update");
+                placement.transform.DOComplete();
+                Require(Get<Pose?>(placement, "rotationAnchor").HasValue, "Ordinary Move did not snap the gear body.");
+                var expected = new Pose(placement.transform.position, placement.transform.rotation);
+                placement.CancelPlacement();
+
+                Point(camera.WorldToScreenPoint(point + target.Tooth * 3));
                 Invoke(tool, "BeginSelection", false); Invoke(tool, "MoveFromGrab");
-                Require(!placement.placing && !Get<bool>(tool, "active"),
-                    "Body-only G/H fell through to free/gear Move without a concrete source hole.");
-                Near(source.transform.position, movedStart.position, "Denied G/H lost the starting gear position");
-                Near(source.transform.rotation, movedStart.rotation, "Denied G/H lost the starting gear rotation");
+                Require(placement.placing && !Get<bool>(tool, "active"), "G/H did not start Move for a body-selected gear.");
+                Point(camera.WorldToScreenPoint(point));
+                Invoke(placement, "Update");
+                placement.transform.DOComplete();
+                Near(placement.transform.position, expected.position, "G/H used a different gear snap position from ordinary Move");
+                Near(placement.transform.rotation, expected.rotation, "G/H used a different gear snap rotation from ordinary Move");
+                Near(source.transform.position, movedStart.position, "The Move preview changed the starting gear position");
+                Near(source.transform.rotation, movedStart.rotation, "The Move preview changed the starting gear rotation");
             }
             finally {
                 placement.CancelPlacement();
+                Invoke(tool, "MaintainMoveHandoff");
                 source.transform.SetPositionAndRotation(start.position, start.rotation);
                 Set(tool, "refCamera", oldCamera); Set(cast, "camera", oldCastCamera); Set(placement, "refCamera", oldPlacementCamera);
                 obj.SetActive(false);
