@@ -65,7 +65,7 @@ namespace Protobot {
             objs = null;
             if (!Live(obj)) return false;
             var visited = new HashSet<GameObject>();
-            var seats = new Dictionary<Shaft, (GameObject left, GameObject right)>();
+            var retained = new Dictionary<Shaft, HashSet<GameObject>>();
             var pending = new Stack<GameObject>();
             pending.Push(obj);
             while (pending.Count > 0) {
@@ -75,17 +75,21 @@ namespace Protobot {
                     foreach (var next in neighbours) if (Live(next)) pending.Push(next);
 
                 foreach (var shaft in NearbyShafts(current)) {
-                    if (!Live(shaft.gameObject) || !Graph.ContainsKey(shaft.gameObject)) continue;
-                    if (!seats.TryGetValue(shaft, out var walls)) {
-                        walls = shaft.GetSeatedWalls();
-                        if (!Live(walls.left) || !Live(walls.right) || !ShareFixedFrame(walls.left, walls.right)) walls = default;
-                        seats.Add(shaft, walls);
+                    if (!Live(shaft.gameObject)) continue;
+                    if (!retained.TryGetValue(shaft, out var attachments)) {
+                        attachments = new HashSet<GameObject>();
+                        foreach (var (first, second, collar) in shaft.GetFrameRetentionCandidates()) {
+                            if (collar == null ? !Graph.ContainsKey(shaft.gameObject) : !Live(collar)) continue;
+                            if (!Live(first) || !Live(second) || !ShareFixedFrame(first, second)) continue;
+                            attachments.Add(first);
+                            attachments.Add(second);
+                            if (collar != null) attachments.Add(collar);
+                        }
+                        retained.Add(shaft, attachments);
                     }
-                    if (walls.left == null) continue;
                     if (current == shaft.gameObject) {
-                        pending.Push(walls.left);
-                        pending.Push(walls.right);
-                    } else if (current == walls.left || current == walls.right) pending.Push(shaft.gameObject);
+                        foreach (var attached in attachments) pending.Push(attached);
+                    } else if (attachments.Contains(current)) pending.Push(shaft.gameObject);
                 }
             }
             if (visited.Count < 2) return false;
@@ -96,7 +100,7 @@ namespace Protobot {
         private static IEnumerable<Shaft> NearbyShafts(GameObject body) {
             if (body.TryGetComponent(out Shaft shaft)) yield return shaft;
             foreach (var hole in body.GetComponentsInChildren<HoleCollider>()) {
-                if (hole.holeType != HoleCollider.HoleType.Normal || hole.holeData?.part != body) continue;
+                if (hole.holeType == HoleCollider.HoleType.Threaded || hole.holeData?.part != body) continue;
                 foreach (var detector in hole.detectors)
                     if (detector != null && detector.Owner is Shaft owner && owner != null) yield return owner;
             }

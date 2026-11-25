@@ -54,6 +54,7 @@ namespace ProtobotEditorTools {
                 GameObject.Find("Launch Canvas")?.SetActive(false);
                 GameObject.Find("Add Parts Menu")?.SetActive(false);
                 await CheckShaftRetention();
+                await CheckMotorShaftRetention();
                 EditorApplication.Exit(0);
             }
             catch (Exception exception) {
@@ -297,6 +298,133 @@ namespace ProtobotEditorTools {
 
         private static string PartIds(List<GameObject> parts) => parts == null ? "" :
             string.Join(", ", parts.Select(part => part.GetComponent<SavedObject>().id));
+
+        private static async Task CheckMotorShaftRetention() {
+            var oldSimulation = Physics.simulationMode;
+            var builds = Object.FindFirstObjectByType<BuildsManager>();
+            var path = Path.Combine(Path.GetTempPath(), $"protobot-motor-shaft-{Guid.NewGuid():N}.pbb");
+            var rotation = Quaternion.Euler(18, 42, 11);
+            var axis = rotation * Vector3.forward;
+            var center = new Vector3(95, 80, 85);
+            try {
+                Physics.simulationMode = SimulationMode.Script;
+                foreach (var (wattage, strength, variant, flipped) in new[] {
+                    ("11W", "Normal", "CLMP-Normal-Normal", false),
+                    ("5.5W", "Normal", "CLMP-Clamping-Normal", true),
+                    ("11W", "High Strength", "CLMP-Clamping-Low Profile HS", false),
+                    ("5.5W", "High Strength", "CLMP-Clamping-High Strength", true)
+                }) {
+                    SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
+                    await StepPhysics();
+                    var motor = Generate("MOTR-" + wattage, center).GetComponent<Motor>();
+                    var socket = motor.ShaftHole;
+                    var motorMount = NearestHole(motor.gameObject, socket.transform.position, HoleCollider.HoleType.Threaded);
+                    var motorFace = motorMount.transform.position + axis * motorMount.holeData.depth * .5f;
+                    var spacerA = Generate("SPCR-Nylon-1/2in", motorFace + axis * .25f);
+                    var spacerB = Generate("SPCR-Nylon-1/2in", motorFace + axis * .75f);
+                    var wall = Generate("BRNG-" + strength, socket.transform.position);
+                    var wallBore = NearestHole(wall, socket.transform.position);
+                    var wallMount = NearestHole(wall, motorFace);
+                    wall.transform.position += Vector3.ProjectOnPlane(socket.transform.position - wallBore.transform.position, axis) +
+                        Vector3.Project(motorFace + axis * (1f + wallMount.holeData.depth * .5f) - wallMount.transform.position, axis);
+                    var screw = Generate("SCRW-1.50in", wallMount.transform.position + axis * wallMount.holeData.depth * .5f);
+                    var insertion = motor.GetShaftDisplacement(4, strength == "High Strength");
+                    Require(insertion != null, "The motor socket must be open before inserting the shaft.");
+                    var shaftBody = PartsManager.GeneratePart($"SHFT-{strength}-4", insertion.translation.Position,
+                        flipped ? rotation * Quaternion.Euler(0, 180, 0) : rotation);
+                    var shaft = shaftBody.GetComponent<Shaft>();
+                    var collar = Generate(variant, wallBore.transform.position);
+                    var clamp = NearestHole(collar, wallBore.transform.position, HoleCollider.HoleType.Clamp);
+                    var seatedCenter = wallBore.transform.position - axis * ((wallBore.holeData.depth + clamp.holeData.depth) * .5f);
+                    collar.transform.position += seatedCenter - clamp.transform.position;
+                    var fixedParts = new[] { motor.gameObject, wall, spacerA, spacerB, screw };
+                    var all = fixedParts.Append(shaftBody).Append(collar).ToArray();
+                    await StepPhysics();
+                    Debug.Log($"Motor shaft retention {wattage}/{strength}: socket={shaft.holeDetector.holes.Contains(socket)}, " +
+                        $"wall={shaft.holeDetector.holes.Contains(wallBore)}, clamp={shaft.holeDetector.holes.Contains(clamp)}; " +
+                        $"fixed screw attachments: {PartIds(screw.GetComponent<Screw>().GetAttachedParts())}.");
+                    Require(shaft.holeDetector.holes.Contains(socket) && shaft.holeDetector.holes.Contains(wallBore) &&
+                        shaft.holeDetector.holes.Contains(clamp) &&
+                        new HashSet<GameObject>(screw.GetComponent<Screw>().GetAttachedParts() ?? new List<GameObject>()).SetEquals(fixedParts.Where(part => part != screw)),
+                        "The catalog fixture must detect its socket, collar and wall, with the wall rigidly fastened to the motor.");
+                    if (wattage == "5.5W" && strength == "High Strength") {
+                        Disconnected("The 5.5 W motor's standard bore retained a high-strength shaft.");
+                        Members(motor.gameObject, fixedParts);
+                        continue;
+                    }
+                    Members(motor.gameObject, all);
+                    Members(shaftBody, all);
+                    Members(collar, all);
+
+                    var tool = Object.FindFirstObjectByType<SimulationTool>();
+                    var poses = all.ToDictionary(part => part, part => new Pose(part.transform.position, part.transform.rotation));
+                    Require(tool.Begin(motor.gameObject), "The retained shaft did not pick up the motor drive in Tool 5.");
+                    tool.Seek(1);
+                    foreach (var part in new[] { shaftBody, collar })
+                        Require(Quaternion.Angle(poses[part].rotation, part.transform.rotation) > 1f, "Tool 5 did not turn: " + part.name);
+                    foreach (var part in fixedParts)
+                        Require(Vector3.Distance(part.transform.position, poses[part].position) < .001f &&
+                            Quaternion.Angle(part.transform.rotation, poses[part].rotation) < .01f, "Tool 5 moved a fixed part: " + part.name);
+                    tool.Cancel();
+
+                    if (wattage != "11W" || strength != "Normal") continue;
+                    shaftBody.transform.position += axis * .025f;
+                    Disconnected("A shaft short of the bottom of the socket grouped with the frame.");
+                    shaftBody.transform.position -= axis * .05f;
+                    Disconnected("A shaft extending past the socket floor grouped with the frame.");
+                    shaftBody.transform.position = poses[shaftBody].position;
+                    Members(motor.gameObject, all);
+
+                    var socketPosition = socket.transform.position;
+                    socket.transform.position += rotation * Vector3.up * .02f;
+                    Disconnected("An off-axis motor socket retained the shaft.");
+                    socket.transform.position = socketPosition;
+                    Members(collar, all);
+
+                    collar.transform.position -= axis * .025f;
+                    Disconnected("A collar with a gap at the wall grouped with the frame.");
+                    collar.transform.position = poses[collar].position + axis * (wallBore.holeData.depth + clamp.holeData.depth);
+                    await StepPhysics();
+                    Require(shaft.holeDetector.holes.Contains(clamp), "The wrong-face collar must still grip the shaft.");
+                    Disconnected("A collar on the far face of the wall grouped with the frame.");
+                    collar.transform.position = poses[collar].position;
+                    await StepPhysics();
+                    Members(collar, all);
+
+                    screw.SetActive(false);
+                    Disconnected("A motor and wall on separate frames retained the shaft.");
+                    screw.SetActive(true);
+                    await StepPhysics();
+                    Members(collar, all);
+                    collar.SetActive(false);
+                    Disconnected("The motor socket alone retained the shaft.");
+                    collar.SetActive(true);
+                    await StepPhysics();
+                    Members(collar, all);
+
+                    var ids = all.Select(part => part.GetComponent<SavedObject>().ConnectionId).ToHashSet();
+                    builds.buildPath = path;
+                    Require(await (Task<bool>)Invoke(builds, "SaveAsync", false) && await builds.OpenPathAsync(path),
+                        "Could not reopen a motor-retained shaft assembly.");
+                    await StepPhysics();
+                    var loaded = PartsManager.FindLoadedObjects();
+                    Require(loaded.Count == all.Length && loaded.All(part => !all.Contains(part) &&
+                        ids.Contains(part.GetComponent<SavedObject>().ConnectionId)), "Opening the build did not restore the saved motor assembly.");
+                    Members(loaded.Single(part => part.TryGetComponent<Motor>(out _)), loaded.ToArray());
+
+                    void Disconnected(string message) {
+                        Require(!shaftBody.TryGetGroup(out List<GameObject> _) && !collar.TryGetGroup(out List<GameObject> _), message);
+                    }
+                }
+                Debug.Log("Motor shaft retention passed: catalog motor mounts, both shaft orientations, normal and high-strength shafts, socket fit and depth, collar seating and direction, shared frame, single stop, Tool 5, and file reopen.");
+            }
+            finally {
+                Physics.simulationMode = oldSimulation;
+                if (File.Exists(path)) File.Delete(path);
+            }
+
+            GameObject Generate(string id, Vector3 position) => PartsManager.GeneratePart(id, position, rotation);
+        }
 
         private static async Task StepPhysics() {
             for (int i = 0; i < 4; i++) {
