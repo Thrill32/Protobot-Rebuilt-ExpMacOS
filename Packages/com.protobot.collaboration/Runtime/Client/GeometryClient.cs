@@ -97,17 +97,19 @@ namespace Protobot.Collaboration {
             }
             finally { transferGate.Release(); }
         }
-        private async Task<Transaction> PrepareAssetsAsync(Transaction transaction, CancellationToken cancellation) {
+        private async Task<byte[]> PrepareEditPayloadAsync(Transaction transaction, int maximum, CancellationToken cancellation) {
             var assets = DocumentModel.AssetWrites(transaction);
-            foreach (var asset in assets) if (GeometryTransfer.HasGeometry(asset)) await UploadAssetAsync(asset, cancellation).ConfigureAwait(false);
-            // Clone metadata only; large geometry never enters pending operations or ordinary messages.
+            // Freeze reference-only metadata and check its wire size before uploading any geometry.
             var refs = assets.Select(GeometryTransfer.Reference).ToArray();
-            // Do not mutate the caller's transaction while converting it to the wire shape.
             var metadata = new Transaction { protocol = transaction.protocol, generation = transaction.generation, operationId = transaction.operationId,
                 sequence = transaction.sequence, kind = transaction.kind, lease = transaction.lease, expectedRevision = transaction.expectedRevision,
                 expected = transaction.expected, writes = transaction.writes, deletes = transaction.deletes, expectedChains = transaction.expectedChains,
                 chainWrites = transaction.chainWrites, chainDeletes = transaction.chainDeletes, assetWrites = refs };
-            return WireJson.Clone(metadata);
+            byte[] payload;
+            try { payload = LocalJson.Encode(metadata, maximum, cancellation); }
+            catch (CollaborationException error) when (error.Code == "local-serialization-limit") { throw new CollaborationException("edit-byte-limit"); }
+            foreach (var asset in assets) if (GeometryTransfer.HasGeometry(asset)) await UploadAssetAsync(asset, cancellation).ConfigureAwait(false);
+            return payload;
         }
         private async Task<byte[]> TransferAsync(HttpMethod method, string hash, byte[] content, CancellationToken cancellation, Action<long, long?, int> progress = null, IProgress<ConnectionProgress> retryProgress = null) {
             DocumentModel.Require(DocumentModel.ValidAssetHash(hash), "invalid-asset-hash");

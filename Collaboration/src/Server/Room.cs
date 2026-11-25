@@ -12,7 +12,7 @@ namespace Protobot.Collaboration.Server {
     // Every room transition is serialized under one gate, including snapshot/event handoff.
     public sealed partial class Room {
         private sealed class Member : StoredMember {
-            public long lastSeen;
+            public long lastSeen, nextPreviewAt = long.MinValue;
             public string accessHash, sessionGeneration;
             public Dictionary<string, Receipt> receipts = new Dictionary<string, Receipt>();
             public List<StoredHistory> history = new List<StoredHistory>();
@@ -21,9 +21,10 @@ namespace Protobot.Collaboration.Server {
         }
         private sealed class Lease {
             public string token, author;
-            public string[] ids;
+            public HashSet<string> ids;
             public long expires;
             public Preview preview;
+            public int previewBytes;
         }
         private readonly object gate = new object();
         private readonly CatalogManifest catalog;
@@ -166,19 +167,20 @@ namespace Protobot.Collaboration.Server {
                 Expire(); var member = Editor(token);
                 DocumentModel.Require(request?.ids != null && request.ids.Length > 0, "invalid-reservation");
                 DocumentModel.Require(request.ids.Length <= DocumentModel.MaxReservedParts, "reservation-part-limit");
-                DocumentModel.Require(request.ids.Distinct(StringComparer.Ordinal).Count() == request.ids.Length, "invalid-reservation");
-                DocumentModel.Require(request.ids.All(id => document.parts.Any(p => p.id == id)), "missing-entity");
+                var ids = request.ids.ToHashSet(StringComparer.Ordinal);
+                DocumentModel.Require(ids.Count == request.ids.Length, "invalid-reservation");
+                DocumentModel.Require(ids.IsSubsetOf(document.parts.Select(part => part.id)), "missing-entity");
                 if (!string.IsNullOrEmpty(request.token)) {
                     var old = OwnedLease(member, request.token);
                     // Set changes are all-or-none and use a fresh fencing token.
-                    if (request.ids.OrderBy(x => x).SequenceEqual(old.ids.OrderBy(x => x))) {
+                    if (old.ids.SetEquals(ids)) {
                         old.expires = clock() + LeaseMilliseconds;
                         return new LeaseResponse { token = old.token, lifetimeMilliseconds = LeaseMilliseconds };
                     }
                 }
-                DocumentModel.Require(!leases.Values.Any(l => l.token != request.token && l.ids.Intersect(request.ids).Any()), "parts-reserved");
+                DocumentModel.Require(!leases.Values.Any(l => l.token != request.token && l.ids.Overlaps(ids)), "parts-reserved");
                 if (!string.IsNullOrEmpty(request.token)) leases.Remove(request.token);
-                var lease = new Lease { author = member.participant.id, ids = request.ids.ToArray(), token = Incarnation + "_" + NewToken(), expires = clock() + LeaseMilliseconds };
+                var lease = new Lease { author = member.participant.id, ids = ids, token = Incarnation + "_" + NewToken(), expires = clock() + LeaseMilliseconds };
                 leases.Add(lease.token, lease); Pulse();
                 return new LeaseResponse { token = lease.token, lifetimeMilliseconds = LeaseMilliseconds };
             }
@@ -201,8 +203,12 @@ namespace Protobot.Collaboration.Server {
                 DocumentModel.Require(preview.sequence > 0, "invalid-preview-sequence");
                 var lease = OwnedLease(member, preview.lease);
                 if (lease.preview != null && preview.sequence <= lease.preview.sequence) return;
-                DocumentModel.Require(preview.parts != null && preview.parts.Length == lease.ids.Length &&
-                    preview.parts.Select(p => p?.id).OrderBy(x => x).SequenceEqual(lease.ids.OrderBy(x => x)), "preview-set-mismatch");
+                long now = clock();
+                if (now < member.nextPreviewAt) return;
+                int count = CollaborationProtocol.PreviewPartCount(lease.ids.Count);
+                DocumentModel.Require(preview.parts != null && preview.parts.Length == count, "preview-set-mismatch");
+                var ids = preview.parts.Select(part => part?.id).ToHashSet(StringComparer.Ordinal);
+                DocumentModel.Require(ids.Count == count && ids.IsSubsetOf(lease.ids), "preview-set-mismatch");
                 foreach (var part in preview.parts) {
                     if (part.catalogId == null) DocumentModel.ValidatePose(part);
                     else {
@@ -210,12 +216,23 @@ namespace Protobot.Collaboration.Server {
                         DocumentModel.Require(part.catalogId != "CUSTOM" || DocumentModel.Assets(document).Any(asset => asset.hash == part.assetHash), "missing-asset");
                     }
                 }
-                lease.preview = new Preview {
-                    sequence = preview.sequence, author = member.participant.id,
-                    parts = preview.parts.Select(p => new Part { id = p.id, position = p.position.ToArray(), rotation = p.rotation.ToArray() }).ToArray()
-                };
+                var sample = CopyPreview(preview, member.participant.id);
+                int bytes = WireJson.Encode(sample).Length;
+                member.nextPreviewAt = now + CollaborationProtocol.PreviewIntervalMilliseconds(lease.ids.Count);
+                if (leases.Values.Sum(held => held.previewBytes) - lease.previewBytes + bytes + 1 > CollaborationProtocol.MaxRoomPreviewBytes) return;
+                lease.preview = sample;
+                lease.previewBytes = bytes + 1; // Include the array separator in the room budget.
                 Pulse();
             }
+        }
+
+        private static Preview CopyPreview(Preview preview, string author) => new Preview {
+            sequence = preview.sequence, author = author,
+            parts = preview.parts.Select(part => new Part { id = part.id, position = part.position.ToArray(), rotation = part.rotation.ToArray() }).ToArray()
+        };
+
+        internal void AuthorizeEdit(string token) {
+            lock (gate) Editor(token);
         }
 
         public Receipt Commit(string token, Transaction transaction) {
@@ -247,7 +264,7 @@ namespace Protobot.Collaboration.Server {
                         DocumentModel.Require(inverse.chainIds.All(id => DocumentModel.SameChain(DocumentModel.Chains(document).FirstOrDefault(c => c.id == id),
                             expectedChains.FirstOrDefault(c => c.id == id))), "stale-history");
                         var inverseLeaseIds = inverse.ids.Concat(inverse.chainsBefore.Concat(inverse.chainsAfter).SelectMany(c => c.members)).Distinct().ToArray();
-                        DocumentModel.Require(!leases.Values.Any(l => l.ids.Intersect(inverseLeaseIds).Any()), "parts-reserved");
+                        DocumentModel.Require(!leases.Values.Any(l => l.ids.Overlaps(inverseLeaseIds)), "parts-reserved");
                         var restore = undo ? inverse.before : inverse.after;
                         var restoreChains = undo ? inverse.chainsBefore : inverse.chainsAfter;
                         command = new Transaction { protocol = transaction.protocol, operationId = transaction.operationId, sequence = transaction.sequence,
@@ -275,15 +292,18 @@ namespace Protobot.Collaboration.Server {
                     GeometryTransfer.RequireSceneBudget(next, hash => assetArrayBytes[hash]);
                     var changedPartIds = command.writes.Select(p => p.id).Concat(command.deletes).ToArray();
                     var changedChainIds = DocumentModel.ChainWrites(command).Select(c => c.id).Concat(DocumentModel.ChainDeletes(command)).ToArray();
-                    var changedIds = changedPartIds.Concat(changedChainIds).ToArray();
-                    var before = document.parts.Where(p => changedPartIds.Contains(p.id)).ToArray();
-                    var after = next.parts.Where(p => changedPartIds.Contains(p.id)).ToArray();
-                    var chainsBefore = DocumentModel.Chains(document).Where(c => changedChainIds.Contains(c.id)).ToArray();
-                    var chainsAfter = DocumentModel.Chains(next).Where(c => changedChainIds.Contains(c.id)).ToArray();
+                    var partIds = changedPartIds.ToHashSet(StringComparer.Ordinal);
+                    var routeIds = changedChainIds.ToHashSet(StringComparer.Ordinal);
+                    var changedIds = partIds.Concat(routeIds).ToHashSet(StringComparer.Ordinal);
+                    var before = document.parts.Where(p => partIds.Contains(p.id)).ToArray();
+                    var after = next.parts.Where(p => partIds.Contains(p.id)).ToArray();
+                    var chainsBefore = DocumentModel.Chains(document).Where(c => routeIds.Contains(c.id)).ToArray();
+                    var chainsAfter = DocumentModel.Chains(next).Where(c => routeIds.Contains(c.id)).ToArray();
                     int transactionBytes = WireJson.Encode(command).Length + (inverse == null ? WireJson.Encode(before).Length + WireJson.Encode(after).Length +
                         WireJson.Encode(chainsBefore).Length + WireJson.Encode(chainsAfter).Length : 0);
                     DocumentModel.Require(historyBytes + transactionBytes <= 64 * 1024 * 1024, "alpha-history-limit");
-                    var existing = changedPartIds.Where(id => document.parts.Any(p => p.id == id));
+                    var existingPartIds = document.parts.Select(p => p.id).ToHashSet(StringComparer.Ordinal);
+                    var existing = changedPartIds.Where(existingPartIds.Contains);
                     var chainMembers = DocumentModel.ChainWrites(command).SelectMany(c => c.members)
                         .Concat(DocumentModel.ChainWrites(command).Where(c => DocumentModel.Chains(document).Any(old => old.id == c.id))
                             .SelectMany(c => DocumentModel.Chains(document).First(old => old.id == c.id).members))
@@ -292,7 +312,6 @@ namespace Protobot.Collaboration.Server {
                     // reserved yet. Existing endpoints still require the ordinary
                     // lease, while the reducer restricts new chains to endpoints
                     // created by that same atomic transaction.
-                    var existingPartIds = document.parts.Select(p => p.id).ToHashSet(StringComparer.Ordinal);
                     var mirrorSources = command.kind == "MirrorAndCopy"
                         ? command.expected.Select(source => source.id).Where(existingPartIds.Contains)
                         : Enumerable.Empty<string>();
@@ -304,10 +323,12 @@ namespace Protobot.Collaboration.Server {
                     }
                     var accepted = WireJson.Clone(command); accepted.lease = null;
                     var edit = new AcceptedEdit { revision = next.revision, author = member.participant.id, transaction = accepted, hash = DocumentModel.Hash(next) };
+                    var editBytes = WireJson.Encode(edit);
+                    DocumentModel.Require(editBytes.Length <= CollaborationProtocol.MaxReliableEditBytes, "edit-byte-limit");
                     var entry = inverse == null ? new StoredHistory { ids = changedPartIds, before = WireJson.Clone(before), after = WireJson.Clone(after),
                         chainIds = changedChainIds, chainsBefore = WireJson.Clone(chainsBefore), chainsAfter = WireJson.Clone(chainsAfter) } : null;
                     var blocked = members.Values.Where(m => m != member).SelectMany(m => m.history.Select((h, i) => (member: m.participant.id, index: i, entry: h)))
-                        .Where(h => !h.entry.blocked && h.entry.ids.Concat(h.entry.chainIds ?? Array.Empty<string>()).Intersect(changedIds).Any()).Select(h => (h.member, h.index)).ToArray();
+                        .Where(h => !h.entry.blocked && (h.entry.ids.Any(changedIds.Contains) || h.entry.chainIds?.Any(changedIds.Contains) == true)).ToArray();
                     var recorded = member.Record(); recorded.sequence = transaction.sequence;
                     recorded.historyCursor = inverse != null ? member.historyCursor + (undo ? -1 : 1) : member.historyCursor + 1;
                     // Reserve process capacity before disk publication; roll it back on a failed commit.
@@ -315,14 +336,13 @@ namespace Protobot.Collaboration.Server {
                     using var capacity = processBudget?.Reserve(0, 0, Math.Max(0, sceneDelta));
                     receipt.accepted = true; receipt.revision = next.revision;
                     // Commit document journal, receipt, identity sequence and undo state together before publication/acknowledgment.
-                    Persist(() => store.Commit(recorded, receipt, edit, next, entry, member.historyCursor, blocked, transactionBytes, historyBytes + transactionBytes));
+                    Persist(() => store.Commit(recorded, receipt, editBytes, next, entry, member.historyCursor, blocked.Select(h => (h.member, h.index)).ToArray(), transactionBytes, historyBytes + transactionBytes));
                     document = next; diagnosticHash = edit.hash; capacity?.Commit();
                     if (sceneDelta < 0) { using var release = processBudget?.Reserve(0, 0, sceneDelta); release?.Commit(); }
                     historyBytes += transactionBytes;
                     // Only the authority supplies inverse content. Another participant touching any of its
                     // entities permanently fences an older inverse, even if they later restore equal values.
-                    foreach (var other in members.Values.Where(m => m != member))
-                        foreach (var item in other.history.Where(h => h.ids.Concat(h.chainIds ?? Array.Empty<string>()).Intersect(changedIds).Any())) item.blocked = true;
+                    foreach (var item in blocked) item.entry.blocked = true;
                     if (inverse != null) member.historyCursor += undo ? -1 : 1;
                     else {
                         member.history.RemoveRange(member.historyCursor, member.history.Count - member.historyCursor);
@@ -427,9 +447,7 @@ namespace Protobot.Collaboration.Server {
 
         private EventBatch Batch(long after) => new EventBatch {
             edits = events.Where(e => e.revision > after).Take(1).ToArray(),
-            previews = leases.Values.Where(l => l.preview != null).Select(l => {
-                var preview = WireJson.Clone(l.preview); preview.lease = null; return preview;
-            }).ToArray(), participants = members.Values.Where(m => !m.revoked && clock() - m.lastSeen < 60000).Select(m => m.participant).ToArray(), transientVersion = transientVersion
+            previews = leases.Values.Where(l => l.preview != null).Select(l => CopyPreview(l.preview, l.author)).ToArray(), participants = members.Values.Where(m => !m.revoked && clock() - m.lastSeen < 60000).Select(m => m.participant).ToArray(), transientVersion = transientVersion
         };
         private Member Authenticate(string token, bool touch = true, bool allowRetired = false) {
             Healthy();

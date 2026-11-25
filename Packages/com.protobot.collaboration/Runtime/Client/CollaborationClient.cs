@@ -41,7 +41,7 @@ namespace Protobot.Collaboration {
         private long sequence;
         private long connectionEpoch;
         private int joining;
-        private readonly Dictionary<string, Transaction> pending = new Dictionary<string, Transaction>();
+        private readonly HashSet<string> pending = new HashSet<string>(StringComparer.Ordinal);
         public Participant Participant { get; private set; }
         public bool IsConnected { get; private set; }
         public bool IsDurable { get; private set; }
@@ -49,9 +49,20 @@ namespace Protobot.Collaboration {
         public bool IsMembershipRevoked { get; private set; }
         public bool RequiresResynchronization { get; private set; }
         public bool SupportsRoomReplacement { get; private set; }
-        public bool SupportsLargeEdits { get; private set; }
-        public int ReservationPartLimit => SupportsLargeEdits ? DocumentModel.MaxReservedParts : DocumentModel.LegacyEditLimit;
-        public int TransactionMutationLimit => SupportsLargeEdits ? DocumentModel.MaxMutations : DocumentModel.LegacyEditLimit;
+        private int largeEditsVersion;
+        public bool SupportsLargeEdits => largeEditsVersion != 0;
+        public int ReservationPartLimit => largeEditsVersion switch {
+            CollaborationProtocol.LargeEditsVersion => DocumentModel.MaxReservedParts,
+            CollaborationProtocol.PreviousLargeEditsVersion => DocumentModel.PreviousReservationPartLimit,
+            _ => DocumentModel.LegacyEditLimit
+        };
+        public int TransactionMutationLimit => largeEditsVersion switch {
+            CollaborationProtocol.LargeEditsVersion => DocumentModel.MaxMutations,
+            CollaborationProtocol.PreviousLargeEditsVersion => DocumentModel.PreviousTransactionMutationLimit,
+            _ => DocumentModel.LegacyEditLimit
+        };
+        public int EditRequestByteLimit => largeEditsVersion == CollaborationProtocol.LargeEditsVersion
+            ? CollaborationProtocol.MaxEditRequestBytes : WireJson.MaxMessageBytes;
         public int GeometryAssetByteLimit { get; private set; } = GeometryTransfer.LegacyMaxAssetBytes;
         public string ActiveTransport { get; private set; }
         public CollaborationTransport Transport { get; }
@@ -131,7 +142,9 @@ namespace Protobot.Collaboration {
                 GeometryAssetByteLimit = GeometryTransfer.ServerAssetLimit(capabilities);
                 AppearanceVersion = capabilities.customAppearanceVersion;
                 SupportsMirror = capabilities.mirrorVersion == CollaborationProtocol.MirrorVersion;
-                SupportsLargeEdits = capabilities.largeEditsVersion == CollaborationProtocol.LargeEditsVersion;
+                DocumentModel.Require(capabilities.largeEditsVersion >= 0 &&
+                    capabilities.largeEditsVersion <= CollaborationProtocol.LargeEditsVersion, "server-version-mismatch");
+                largeEditsVersion = capabilities.largeEditsVersion;
                 IsDurable = capabilities.durable;
                 SupportsParticipantAdministration = capabilities.participantAdministration;
                 SupportsDiagnostics = capabilities.diagnosticsVersion == DiagnosticExport.Version;
@@ -153,7 +166,7 @@ namespace Protobot.Collaboration {
                 var joined = await Post<JoinRequest, JoinResponse>("join", new JoinRequest {
                     room = room, catalogHash = catalog.hash, name = name, password = password, ownerCredential = ownerCredential, viewer = viewer,
                     resumeToken = resumeToken, expectedGeneration = capabilities.generation, roomIdentity = capabilities.roomIdentity,
-                    resynchronizeFromGeneration = replaced ? previousGeneration : null
+                    resynchronizeFromGeneration = replaced ? previousGeneration : null, largeEditsVersion = largeEditsVersion
                 }, CancellationToken.None, 10000).ConfigureAwait(false);
                 DocumentModel.Validate(joined.document, catalog);
                 DocumentModel.Require(capabilities.geometryTransfer && joined.document.schema == 2, "geometry-transfer-required");
@@ -174,7 +187,7 @@ namespace Protobot.Collaboration {
                 string[] unresolved;
                 var recovery = new List<string>();
                 string unresolvedGeneration;
-                lock (gate) { unresolved = pending.Keys.ToArray(); unresolvedGeneration = pendingGeneration; }
+                lock (gate) { unresolved = pending.ToArray(); unresolvedGeneration = pendingGeneration; }
                 for (int i = 0; i < unresolved.Length; i++) {
                     Check(); DiagnosticProgress(new ConnectionProgress(ConnectionStage.RecoveringEdits, i, unresolved.Length), progress);
                     string operation = unresolved[i];
@@ -189,12 +202,11 @@ namespace Protobot.Collaboration {
                 string candidateHash = DocumentModel.Hash(GeometryTransfer.References(joined.document));
                 lock (gate) {
                     Check();
-                    var resolved = unresolved.ToDictionary(id => id, id => pending[id]);
-                    foreach (string id in unresolved) pending.Remove(id);
+                    pending.ExceptWith(unresolved);
                     string previousPendingGeneration = pendingGeneration; if (pending.Count == 0) pendingGeneration = null;
                     bool previousResyncRequired = RequiresResynchronization; RequiresResynchronization = false;
                     try { SaveRecovery(joined.document.generation); }
-                    catch { foreach (var pair in resolved) pending[pair.Key] = pair.Value; pendingGeneration = previousPendingGeneration; RequiresResynchronization = previousResyncRequired; throw; }
+                    catch { pending.UnionWith(unresolved); pendingGeneration = previousPendingGeneration; RequiresResynchronization = previousResyncRequired; throw; }
                     geometryCache = candidateGeometry; document = candidateDocument; diagnosticHash = candidateHash; RequiresResynchronization = false;
                     RecoveryMessages = recovery.ToArray(); transient = -1; IsConnected = true;
                     lifetime = new CancellationTokenSource(); var connectionLifetime = lifetime;
@@ -234,7 +246,7 @@ namespace Protobot.Collaboration {
                         RequiresResynchronization = saved.schema == 2 && saved.resynchronizationRequired;
                         pendingGeneration = saved.pendingIds.Length == 0 ? null : saved.schema == 1 ? saved.generation : saved.pendingGeneration;
                         DocumentModel.Require(saved.pendingIds.Length == 0 || DocumentModel.ValidId(pendingGeneration), "invalid-session-recovery-file");
-                        foreach (var id in saved.pendingIds) pending[id] = new Transaction { operationId = id, generation = pendingGeneration };
+                        pending.UnionWith(saved.pendingIds);
                     }
                     loadedRecovery = true;
                 }
@@ -247,7 +259,7 @@ namespace Protobot.Collaboration {
             RecoveryFiles.Write(recoveryPath, new RecoveryState { origin = endpoint.GetLeftPart(UriPartial.Authority), room = room,
                 catalogHash = catalog.hash, generation = generation ?? document.generation, roomIdentity = membershipRoomIdentity,
                 pendingGeneration = pendingGeneration, resynchronizationRequired = RequiresResynchronization,
-                resumeToken = resumeToken, sequence = sequence, pendingIds = pending.Keys.ToArray() });
+                resumeToken = resumeToken, sequence = sequence, pendingIds = pending.ToArray() });
         }
         public static void ForgetRecovery(string path) {
             if (!File.Exists(path)) return;
@@ -311,19 +323,21 @@ namespace Protobot.Collaboration {
             DocumentModel.Require(SupportsMirror || (transaction.kind != "MirrorParts" && transaction.kind != "MirrorAndCopy" &&
                 !(transaction.writes ?? Array.Empty<Part>()).Any(part => part?.mirrored == true)), "mirror-server-required");
             long epoch = ConnectionEpoch;
-            transaction = await PrepareAssetsAsync(transaction, cancellation).ConfigureAwait(false);
+            string operationId = transaction.operationId, generation = transaction.generation;
+            int byteLimit = EditRequestByteLimit;
+            var payload = await Task.Run(() => PrepareEditPayloadAsync(transaction, byteLimit, cancellation), cancellation).ConfigureAwait(false);
             try {
                 lock (gate) {
                     DocumentModel.Require(ConnectionEpoch == epoch && IsConnected && !disposed, "client-connection-changed");
-                    DocumentModel.Require(transaction.generation == document.generation, "generation-mismatch");
-                    DocumentModel.Require(pending.Count < 256 || pending.ContainsKey(transaction.operationId), "pending-operation-limit");
+                    DocumentModel.Require(generation == document.generation, "generation-mismatch");
+                    DocumentModel.Require(pending.Count < 256 || pending.Contains(operationId), "pending-operation-limit");
                     DocumentModel.Require(pending.Count == 0 || pendingGeneration == document.generation, "unresolved-previous-generation-operations");
                     if (pending.Count == 0) pendingGeneration = document.generation;
-                    pending[transaction.operationId] = WireJson.Clone(transaction); SaveRecovery();
+                    pending.Add(operationId); SaveRecovery();
                 }
-                var receipt = await Post<Transaction, Receipt>("commit", transaction, cancellation).ConfigureAwait(false);
+                var receipt = await Request<Receipt>(HttpMethod.Post, new Uri(endpoint, "rooms/" + room + "/commit"), payload, cancellation).ConfigureAwait(false);
                 if (receipt.accepted) await WaitForRevisionAsync(receipt.revision, cancellation).ConfigureAwait(false);
-                lock (gate) { pending.Remove(transaction.operationId); if (pending.Count == 0) pendingGeneration = null; SaveRecovery(); }
+                lock (gate) { pending.Remove(operationId); if (pending.Count == 0) pendingGeneration = null; SaveRecovery(); }
                 return receipt;
             }
             catch { if (ConnectionEpoch == epoch) Freeze("Connection interrupted; pending outcome must be resolved by reconnecting."); throw; }

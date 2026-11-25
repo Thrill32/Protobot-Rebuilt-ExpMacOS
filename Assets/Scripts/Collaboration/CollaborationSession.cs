@@ -31,9 +31,10 @@ namespace Protobot {
         private readonly Dictionary<string, GameObject> ghosts = new Dictionary<string, GameObject>();
         private Document committed;
         private bool busy, applying, reserving, submitting, sendingPreview;
-        private bool broadcastReservationPreview;
+        private bool broadcastReservationPreview, renewingLease;
         private string lease;
         private string[] reserved = Array.Empty<string>();
+        private HashSet<string> previewIds;
         private VersionRef[] reservedVersions = Array.Empty<VersionRef>();
         private int reservationGeneration;
         private Task releasePending = Task.CompletedTask;
@@ -409,7 +410,9 @@ namespace Protobot {
                     releasePending = Release(result.token); denied?.Invoke(); return;
                 }
                 lease = result.token; reserved = ids; reservedVersions = versions; broadcastReservationPreview = sendPreviews;
-                nextRenew = Time.realtimeSinceStartup + 3; previewSequence = 0;
+                if (sendPreviews) previewIds = ids.OrderBy(id => id, StringComparer.Ordinal)
+                    .Take(CollaborationProtocol.PreviewPartCount(ids.Length)).ToHashSet(StringComparer.Ordinal);
+                nextRenew = Time.realtimeSinceStartup + 3; nextPreview = Time.realtimeSinceStartup; previewSequence = 0;
                 reserving = false;
                 status = "Editing reserved parts"; granted();
             }
@@ -423,7 +426,7 @@ namespace Protobot {
             if (instance.submitting && instance.client.IsConnected) return;
             instance.reservationGeneration++; instance.reserving = false;
             var token = instance.lease; instance.lease = null; instance.reserved = Array.Empty<string>(); instance.reservedVersions = Array.Empty<VersionRef>();
-            instance.broadcastReservationPreview = false;
+            instance.broadcastReservationPreview = false; instance.previewIds = null;
             if (token != null) instance.releasePending = instance.Release(token);
         }
         private async Task Release(string token) { var connection = client; try { if (connection != null) await connection.ReleaseAsync(token); } catch { } }
@@ -791,7 +794,7 @@ namespace Protobot {
             var owned = host; host = null; hostShutdown = LeaveAndStop(previous, owned);
             hostedRoom = null;
             committed = null; participants = Array.Empty<Participant>(); ClearGhosts(); status = "Continuing offline.";
-            submitting = reserving = sendingPreview = false;
+            submitting = reserving = sendingPreview = renewingLease = false;
             lastSubmittedRevision = 0;
             selectAfterApply.Clear();
             StateSystems.StateSystem.instance?.ResetStates();
@@ -815,7 +818,7 @@ namespace Protobot {
                 if (host != null && !host.IsRunning) await host.RestartAsync(attempt.Token);
                 await client.JoinAsync(displayName, cancellation: attempt.Token, progress: attempt, acceptReplacement: acceptReplacement);
                 attempt.Token.ThrowIfCancellationRequested();
-                submitting = reserving = sendingPreview = false;
+                submitting = reserving = sendingPreview = renewingLease = false;
                 lock (queueGate) { main.Clear(); queuedBytes = 0; latestPresence = null; presenceClient = null; }
                 committed = client.Snapshot;
                 if (acceptReplacement) selectAfterApply.Clear();
@@ -845,26 +848,30 @@ namespace Protobot {
             EventBatch presence; CollaborationClient source;
             lock (queueGate) { presence = latestPresence; source = presenceClient; latestPresence = null; }
             if (source == client && client?.IsConnected == true && presence != null) { participants = presence.participants; DrawGhosts(presence.previews); }
-            if (lease == null || !client.IsConnected || submitting) return;
-            if (Time.realtimeSinceStartup >= nextRenew) { nextRenew = Time.realtimeSinceStartup + 3; _ = Renew(); }
-            if (broadcastReservationPreview && !sendingPreview && Time.realtimeSinceStartup >= nextPreview) {
-                nextPreview = Time.realtimeSinceStartup + .1f; _ = SendPreview();
+            if (lease == null || !client.IsConnected) return;
+            // A confirmed edit may still be uploading when its original lease would expire.
+            if (!renewingLease && Time.realtimeSinceStartup >= nextRenew) { nextRenew = Time.realtimeSinceStartup + 3; _ = Renew(); }
+            if (!submitting && broadcastReservationPreview && !sendingPreview && Time.realtimeSinceStartup >= nextPreview) {
+                nextPreview = Time.realtimeSinceStartup + CollaborationProtocol.PreviewIntervalMilliseconds(reserved.Length) / 1000f;
+                _ = SendPreview();
             }
         }
         private async Task Renew() {
+            renewingLease = true;
             var connection = client; var renewing = lease;
             long epoch = connection.ConnectionEpoch;
             try { await connection.ReserveAsync(reserved, renewing); }
             catch (Exception error) { if (client == connection && connection.ConnectionEpoch == epoch && lease == renewing && !submitting) { CancelSharedPreview(); Report(error); } }
+            finally { if (client == connection && connection.ConnectionEpoch == epoch) renewingLease = false; }
         }
         private async Task SendPreview() {
             sendingPreview = true;
             var connection = client; var sending = lease;
             long epoch = connection.ConnectionEpoch;
             try {
-                var ids = reserved.ToHashSet(StringComparer.Ordinal);
+                var ids = previewIds;
                 bool compact = connection.SupportsLargeEdits;
-                var preview = FindFirstObjectByType<Placement>()?.SharedMovePreview(compact) ?? PartsManager.FindLoadedObjects()
+                var preview = FindFirstObjectByType<Placement>()?.SharedMovePreview(compact, ids) ?? PartsManager.FindLoadedObjects()
                     .Where(body => ids.Contains(body.GetComponent<SavedObject>().ConnectionId))
                     .Select(body => CollaborationScene.CapturePreview(body, Simulation.SimulationTool.SavedPose(body), compact)).ToArray();
                 await connection.PreviewAsync(new Preview { lease = sending, sequence = ++previewSequence, parts = preview });
@@ -909,6 +916,7 @@ namespace Protobot {
             "asset-room-quota" or "asset-client-quota" or "asset-materialization-quota" => "The room's custom geometry budget is full. Save your accepted build before starting a new room.",
             "asset-byte-limit" or "local-serialization-limit" => $"This model exceeds the shared room's {CustomGeometryByteLimit / (1024 * 1024)} MiB encoded geometry limit. " +
                 (CustomGeometryByteLimit < GeometryTransfer.MaxAssetBytes ? "Update the collaboration server to share larger models." : "Reduce mesh detail and import again; OBJ/STL file size can differ."),
+            "edit-byte-limit" => "The encoded edit exceeds this room's network size limit. Reduce the selection and try again.",
             "geometry-limits-client-required" => "Update this player to join a server that supports larger custom models.",
             "geometry-limits-unsupported" => "This server advertises unsupported model limits. Update the player and collaboration server together.",
             "appearance-client-required" => "Update this player to join a server that preserves imported model appearance.",

@@ -8,7 +8,22 @@ namespace Protobot.Collaboration {
         public const string Version = "0.9.0-alpha";
         public const int ShortPollingVersion = 1;
         public const int MirrorVersion = 1;
-        public const int LargeEditsVersion = 1;
+        public const int PreviousLargeEditsVersion = 1;
+        public const int LargeEditsVersion = 2;
+
+        // An event can carry one reliable edit alongside the aggregate preview and the participant list.
+        public const int MaxReliableEditBytes = 3 * 1024 * 1024;
+        public const int MaxEditRequestBytes = MaxReliableEditBytes - 1024;
+        public const int MaxLeaseRequestBytes = 192 * 1024;
+        public const int MaxPreviewRequestBytes = 256 * 1024;
+        public const int MaxRoomPreviewBytes = 768 * 1024;
+        public const int LargePreviewParts = 128;
+
+        public static int PreviewPartCount(int reservedParts) =>
+            reservedParts > DocumentModel.PreviousReservationPartLimit ? LargePreviewParts : reservedParts;
+
+        public static int PreviewIntervalMilliseconds(int reservedParts) =>
+            reservedParts > DocumentModel.PreviousReservationPartLimit ? 500 : 100;
     }
     // Public fields and arrays are deliberate: this schema is also consumed by Unity.
     [Serializable] public sealed class Part {

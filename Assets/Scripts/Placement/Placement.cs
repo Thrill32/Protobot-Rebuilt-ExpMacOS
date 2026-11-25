@@ -108,13 +108,13 @@ namespace Protobot {
 
         private Displacement currentDisplacement;
         private VersionRef[] targetDependencies = System.Array.Empty<VersionRef>();
-        public Part[] SharedMovePreview(bool compact) {
+        public Part[] SharedMovePreview(bool compact, HashSet<string> ids) {
             if (!placing || currentPlacementData is not GameObjectPlacementData moving) return null;
             var source = moving.GetGameObject();
             var bodies = CollaborationScene.Bodies(source.GetConnectedObjects(true, false, !moving.individual));
             var delta = currentDisplacement.rotation.Orientation * Quaternion.Inverse(source.transform.rotation);
             var origin = source.transform.position;
-            return bodies.Select(body => {
+            return bodies.Where(body => ids.Contains(body.GetComponent<SavedObject>().ConnectionId)).Select(body => {
                 var position = currentDisplacement.translation.Position + delta * (body.transform.position - origin);
                 var rotation = delta * body.transform.rotation;
                 return CollaborationScene.CapturePreview(body, new Pose(position, rotation), compact);

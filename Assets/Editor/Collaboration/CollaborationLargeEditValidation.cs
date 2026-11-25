@@ -164,16 +164,6 @@ namespace ProtobotEditorTools {
                 DocumentModel.Chains(copied).Length == 2 * DocumentModel.Chains(initial).Length,
                 "The compound edit did not publish all copies and routes together.");
             CheckScene(before, offset * 2);
-            var overLimit = PartsManager.FindLoadedObjects().Take(DocumentModel.MaxReservedParts + 1).ToList();
-            selection.SetCurrent(new MultiSelection(null, overLimit) { individual = true }, true, true);
-            Invoke(keyboard, "BeginSelection", false);
-            var message = Get<string>(session, "status");
-            Require(message.Contains($"reserve {overLimit.Count} unique parts") && message.Contains($"limit is {DocumentModel.MaxReservedParts}") &&
-                Notification() == message && !Get<bool>(keyboard, "active") && !CollaborationSession.HasReservation &&
-                client.Snapshot.revision == copied.revision,
-                "The over-limit gesture did not report both counts before reserving or previewing.");
-            CheckScene(before, offset * 2);
-
             var sprockets = new[] {
                 new Part { id = "boundary-sprocket-a", catalogId = "SPKT-Normal-10T", position = new double[] { 100, 30, -50 } },
                 new Part { id = "boundary-sprocket-b", catalogId = "SPKT-Normal-40T", position = new double[] { 104, 30, -50 } }
@@ -182,24 +172,83 @@ namespace ProtobotEditorTools {
             var seeded = await peer.SubmitAsync(peer.CreateTransaction("AddParts", sprockets, chainWrites: new[] { route }));
             Require(seeded.accepted, "Could not seed a chain for the mutation boundary check.");
             await Applied(peer, initial.revision + 7);
-            var parts = PartsManager.FindLoadedObjects();
-            var atLeaseLimit = parts.Where(body => route.members.Contains(body.GetComponent<SavedObject>().ConnectionId))
-                .Concat(parts.Where(body => !route.members.Contains(body.GetComponent<SavedObject>().ConnectionId)).Take(DocumentModel.MaxReservedParts - 2)).ToList();
-            selection.SetCurrent(new MultiSelection(null, atLeaseLimit) { individual = true }, true, true);
+            var whole = PartsManager.FindLoadedObjects();
+            int originalRoutes = DocumentModel.Chains(peer.Snapshot).Length;
+            int wholeCount = whole.Count;
+            Require(wholeCount > 800, "The enlarged Unity fixture did not exceed 800 bodies.");
+            var wholeBaseline = peer.Snapshot.parts.ToDictionary(part => part.id, Position);
+            var wholePreview = new TaskCompletionSource<Preview>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var stableSample = wholeBaseline.Keys.OrderBy(id => id, StringComparer.Ordinal)
+                .Take(CollaborationProtocol.LargePreviewParts).ToHashSet(StringComparer.Ordinal);
+            peer.Presence += batch => {
+                var sample = batch.previews.FirstOrDefault(item => item.parts.Length == stableSample.Count &&
+                    item.parts.All(part => stableSample.Contains(part.id) && Close(Position(part), wholeBaseline[part.id] + offset)));
+                if (sample != null) wholePreview.TrySetResult(sample);
+            };
+            selection.SetCurrent(new MultiSelection(null, whole) { individual = true }, true, true);
+            Invoke(keyboard, "BeginSelection", false);
+            await Until(() => Get<bool>(keyboard, "active"));
+            Require(Get<string[]>(session, "reserved").ToHashSet().SetEquals(wholeBaseline.Keys),
+                "The sampled preview reduced the scope of the real reservation.");
+            Set(session, "submitting", true);
+            try {
+                Set(session, "nextRenew", 0f);
+                Invoke(session, "Update");
+                Require(Get<bool>(session, "renewingLease"), "A pending confirmation did not renew its whole-robot reservation.");
+                await Until(() => !Get<bool>(session, "renewingLease"));
+            }
+            finally { Set(session, "submitting", false); }
+            Set(keyboard, "displayedOffset", offset);
+            Invoke(keyboard, "ApplyDisplayedTransform");
+            CheckScene(wholeBaseline, offset);
+            await Until(() => wholePreview.Task.IsCompleted);
+            int sampleBytes = WireJson.Encode(await wholePreview.Task).Length;
+            Require(sampleBytes < CollaborationProtocol.MaxPreviewRequestBytes &&
+                CollaborationSession.SaveSnapshot().parts.All(part => Close(
+                    new Vector3((float)part.xPos, (float)part.yPos, (float)part.zPos), wholeBaseline[part.connectionId])),
+                "The whole-robot preview escaped its byte budget or entered Save.");
+            Invoke(keyboard, "SetTarget", offset, Quaternion.identity);
+            Invoke(keyboard, "CompleteConfirmation");
+            await Applied(peer, seeded.revision + 1);
+            CheckScene(wholeBaseline, offset);
+            StateSystem.instance.Undo();
+            await Applied(peer, seeded.revision + 2);
+            CheckScene(wholeBaseline, Vector3.zero);
+            StateSystem.instance.Redo();
+            await Applied(peer, seeded.revision + 3);
+            CheckScene(wholeBaseline, offset);
+
+            selection.SetCurrent(new MultiSelection(null, PartsManager.FindLoadedObjects()) { individual = true }, true, true);
+            await HoldAlt(true);
+            Invoke(keyboard, "BeginSelection", false);
+            await Until(() => Get<bool>(keyboard, "active"));
+            await HoldAlt(false);
+            Require(PartsManager.FindLoadedObjects().Count == 2 * wholeCount, "Alt+G did not preview a complete whole-robot copy.");
+            Invoke(keyboard, "SetTarget", offset, Quaternion.identity);
+            Invoke(keyboard, "CompleteConfirmation");
+            await Applied(peer, seeded.revision + 4);
+            Require(peer.Snapshot.parts.Length == 2 * wholeCount &&
+                DocumentModel.Chains(peer.Snapshot).Length == 2 * originalRoutes,
+                "The whole-robot copy did not publish every part and copied route.");
+            CheckScene(wholeBaseline, offset * 2);
+
+            var originals = PartsManager.FindLoadedObjects().Where(body => wholeBaseline.ContainsKey(body.GetComponent<SavedObject>().ConnectionId)).ToList();
+            selection.SetCurrent(new MultiSelection(null, originals) { individual = true }, true, true);
             await HoldAlt(true);
             Invoke(keyboard, "BeginSelection", false);
             await HoldAlt(false);
-            message = Get<string>(session, "status");
-            Require(message.Contains($"{DocumentModel.MaxMutations + 1} mutations") && message.Contains($"limit is {DocumentModel.MaxMutations}") &&
+            var message = Get<string>(session, "status");
+            Require(message.Contains($"{3 * wholeCount} parts") && message.Contains($"limit is {DocumentModel.MaxParts}") &&
                 Notification() == message && !Get<bool>(keyboard, "active") && !CollaborationSession.HasReservation &&
-                PartsManager.FindLoadedObjects().Count == 2 * resolved + 2 && client.Snapshot.revision == seeded.revision,
-                "Alt+G did not count the copied route and refuse the edit before preview or duplication.");
-            CheckScene(before, offset * 2);
+                PartsManager.FindLoadedObjects().Count == 2 * wholeCount && client.Snapshot.revision == seeded.revision + 4,
+                "Alt+G beyond the live-room capacity did not report actual size before preview or duplication.");
             StateSystem.instance.Undo();
-            await Applied(peer, initial.revision + 8);
-            Require(PartsManager.FindLoadedObjects().Count == resolved + 2, "One undo did not remove the entire compound copy.");
-            CheckScene(before, offset);
-            Debug.Log($"Drivechain1 passed. The {resolved}-part peer preview encoded to {previewBytes} bytes. Move, copy, undo, redo and kill/restart recovered atomically.");
+            await Applied(peer, seeded.revision + 5);
+            Require(PartsManager.FindLoadedObjects().Count == wholeCount && DocumentModel.Chains(peer.Snapshot).Length == originalRoutes,
+                "One undo did not remove the entire whole-robot copy and its copied route.");
+            CheckScene(wholeBaseline, offset);
+            Debug.Log($"Drivechain1 passed. The original {resolved}-part preview encoded to {previewBytes} bytes. " +
+                $"The {wholeCount}-part move and copy committed atomically with a {stableSample.Count}-pose, {sampleBytes}-byte peer preview.");
             await peer.LeaveAsync();
             Invoke(session, "Detach");
             await Get<Task>(session, "hostShutdown");

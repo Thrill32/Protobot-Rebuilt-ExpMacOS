@@ -171,17 +171,27 @@ namespace Protobot.Collaboration.Server {
                 }
                 await Write(context, room.Join(await Read<JoinRequest>(context), requireGenerationProof: true));
             });
-            app.MapPost(path + "/lease", async context => await Write(context, Resolve(context).Reserve(Token(context), await Read<LeaseRequest>(context))));
+            app.MapPost(path + "/lease", async context => {
+                var room = Resolve(context); string token = Token(context);
+                room.AuthorizeEdit(token);
+                await Write(context, room.Reserve(token, await Read<LeaseRequest>(context, CollaborationProtocol.MaxLeaseRequestBytes,
+                    limitError: "reservation-byte-limit")));
+            });
             app.MapPost(path + "/release", async context => {
                 Resolve(context).Release(Token(context), (await Read<LeaseRequest>(context)).token); await Write(context, new WireError());
             });
             app.MapPost(path + "/preview", async context => {
-                Resolve(context).Preview(Token(context), await Read<Preview>(context)); await Write(context, new WireError());
+                var room = Resolve(context); string token = Token(context);
+                room.AuthorizeEdit(token);
+                room.Preview(token, await Read<Preview>(context, CollaborationProtocol.MaxPreviewRequestBytes, limitError: "preview-byte-limit"));
+                await Write(context, new WireError());
             });
             app.MapPost(path + "/commit", async context => {
-                var transaction = await Read<Transaction>(context);
+                var room = Resolve(context); string token = Token(context);
+                room.AuthorizeEdit(token);
+                var transaction = await Read<Transaction>(context, CollaborationProtocol.MaxEditRequestBytes, limitError: "edit-byte-limit");
                 foreach (var reference in DocumentModel.AssetWrites(transaction)) GeometryTransfer.ValidateReference(reference);
-                await Write(context, Resolve(context).Commit(Token(context), transaction));
+                await Write(context, room.Commit(token, transaction));
             });
             // One active transfer per room; refuse excess requests instead of queueing unbounded bodies.
             app.MapMethods(path + "/assets/{hash}", new[] { "PUT", "GET", "HEAD" }, async context => {
@@ -318,13 +328,15 @@ namespace Protobot.Collaboration.Server {
             DocumentModel.Require(auth != null && auth.StartsWith("Bearer ", StringComparison.Ordinal) && auth.Length < 270, "invalid-session");
             return auth.Substring(7);
         }
-        private static async Task<T> Read<T>(HttpContext context, int maximum = WireJson.MaxMessageBytes, CancellationToken cancellation = default) {
+        private static async Task<T> Read<T>(HttpContext context, int maximum = WireJson.MaxMessageBytes, CancellationToken cancellation = default,
+            string limitError = "message-too-large") {
+            DocumentModel.Require(context.Request.ContentLength.GetValueOrDefault() <= maximum, limitError);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation, context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(30)); cancellation = timeout.Token;
             using var stream = new MemoryStream();
             var buffer = new byte[8192]; int count;
             while ((count = await context.Request.Body.ReadAsync(buffer, cancellation)) > 0) {
-                DocumentModel.Require(stream.Length + count <= maximum, "message-too-large");
+                DocumentModel.Require(stream.Length + count <= maximum, limitError);
                 stream.Write(buffer, 0, count);
             }
             return LocalJson.Decode<T>(stream.ToArray(), maximum);

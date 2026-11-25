@@ -216,10 +216,10 @@ namespace Protobot.Collaboration.Server {
         internal void RecordReceipt(string member, Receipt receipt) {
             using var transaction = db.BeginTransaction(); SaveReceipt(member, receipt, transaction); Finish(transaction, "receipt");
         }
-        internal void Commit(StoredMember member, Receipt receipt, AcceptedEdit edit, Document next, StoredHistory entry,
+        internal void Commit(StoredMember member, Receipt receipt, byte[] edit, Document next, StoredHistory entry,
             int entryIndex, (string member, int index)[] blocked, long cost, long totalBytes) {
             using var transaction = db.BeginTransaction();
-            Execute("INSERT INTO journal VALUES($revision,$data,$cost)", transaction, ("$revision", edit.revision), ("$data", WireJson.Encode(edit)), ("$cost", cost));
+            Execute("INSERT INTO journal VALUES($revision,$data,$cost)", transaction, ("$revision", next.revision), ("$data", edit), ("$cost", cost));
             SaveMember(member, transaction); SaveReceipt(member.participant.id, receipt, transaction);
             if (entry != null) {
                 Execute("DELETE FROM history WHERE member=$member AND position >= $index", transaction, ("$member", member.participant.id), ("$index", entryIndex));
@@ -247,7 +247,8 @@ namespace Protobot.Collaboration.Server {
         private void Finish(SqliteTransaction transaction, string stage) { BeforeCommit?.Invoke(stage); transaction.Commit(); AfterCommit?.Invoke(stage); }
         private void RequireCount(string table, int maximum) => DocumentModel.Require(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM " + table)) <= maximum, "room-storage-limit");
         // A history entry holds two bounded snapshots plus its list of changed IDs.
-        private const int MaxHistoryEntryBytes = WireJson.MaxMessageBytes + 128 * 1024;
+        private const int MaxHistoryEntryBytes = 2 * DocumentModel.MaxSnapshotBytes +
+            DocumentModel.MaxMutations * (DocumentModel.MaxEntityIdLength + 3) + 1024;
 
         private static byte[] ReadBytes(SqliteDataReader reader, int column, int maximum = WireJson.MaxMessageBytes) {
             DocumentModel.Require(reader.GetBytes(column, 0, null, 0, 0) <= maximum, "room-storage-limit");

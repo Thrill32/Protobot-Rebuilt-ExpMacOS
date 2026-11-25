@@ -8,7 +8,7 @@ namespace Protobot.Collaboration {
         private static readonly HashSet<string> Codes = new HashSet<string>(StringComparer.Ordinal) {
             "room-directory-disabled", "room-directory-unavailable",
             "geometry-limits-client-required", "geometry-limits-unsupported", "appearance-client-required", "appearance-helper-required",
-            "large-edits-client-required", "reservation-part-limit",
+            "large-edits-client-required", "reservation-part-limit", "reservation-byte-limit", "edit-byte-limit", "preview-byte-limit",
             "mirror-client-required", "mirror-server-required", "copy-map-mismatch", "invalid-mirror",
             "appearance-version-unsupported", "appearance-texture-dimensions", "appearance-texture-budget", "invalid-appearance", "invalid-appearance-texture",
             "alpha-history-limit", "asset-already-exists", "asset-byte-limit", "asset-hash-mismatch", "asset-materialization-quota",

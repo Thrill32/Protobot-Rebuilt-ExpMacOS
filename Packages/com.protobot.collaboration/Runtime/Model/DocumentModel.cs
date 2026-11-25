@@ -12,9 +12,14 @@ namespace Protobot.Collaboration {
         public const int MaxAssets = 256;
         public const int MaxMountsPerPart = 4096;
         public const int LegacyEditLimit = 256;
-        public const int MaxReservedParts = 512;
-        public const int MaxMutations = 1024;
+        public const int PreviousReservationPartLimit = 512;
+        public const int PreviousTransactionMutationLimit = 1024;
+        public const int MaxReservedParts = MaxParts;
+        public const int MaxMutations = MaxParts + MaxChains + MaxAssets;
         public const int MaxRouteMembers = 256;
+        public const int MaxEntityIdLength = 80;
+        public const int MaxSnapshotBytes = 2 * 1024 * 1024;
+        private const int MaxDependencies = 2 * MaxParts;
 
         public static void Validate(Document document, CatalogManifest catalog) {
             Require(document != null && catalog != null && (document.schema == 1 || document.schema == 2) && catalog.protocol == 1, "schema-mismatch");
@@ -44,7 +49,7 @@ namespace Protobot.Collaboration {
                 "duplicate-chain");
             foreach (var tombstone in ChainTombstones(document))
                 Require(tombstone != null && ValidId(tombstone.id) && tombstone.version > 0 && ids.Add(tombstone.id), "invalid-chain-tombstone");
-            Require(WireJson.Encode(document.schema == 2 ? GeometryTransfer.References(document) : document).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
+            Require(WireJson.Encode(document.schema == 2 ? GeometryTransfer.References(document) : document).Length <= MaxSnapshotBytes, "snapshot-byte-limit");
         }
 
         public static int MutationCount(Transaction tx) =>
@@ -58,7 +63,7 @@ namespace Protobot.Collaboration {
             var chainWrites = ChainWrites(tx); var chainDeletes = ChainDeletes(tx); var expectedChains = ExpectedChains(tx); var assetWrites = AssetWrites(tx);
             int mutations = MutationCount(tx);
             Require(tx.expected != null && tx.writes != null && tx.deletes != null && mutations > 0 && mutations <= MaxMutations &&
-                tx.expected.Length <= MaxMutations * 2 && expectedChains.Length <= MaxMutations * 2, "write-set-limit");
+                tx.expected.Length <= MaxDependencies && expectedChains.Length <= MaxDependencies, "write-set-limit");
             Require(tx.kind == "AddParts" || tx.kind == "SetPoses" || tx.kind == "SetParts" || tx.kind == "SetCustomMounts" ||
                 tx.kind == "DeleteParts" || tx.kind == "TransformAndCopy" || tx.kind == "SetChains" || tx.kind == "RestoreParts" ||
                 tx.kind == "MirrorParts" || tx.kind == "MirrorAndCopy",
@@ -188,7 +193,7 @@ namespace Protobot.Collaboration {
                 chainTombstones = chainTombstones.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new VersionRef { id = c.Key, version = c.Value }).ToArray(),
                 assets = assets.Values.OrderBy(a => a.hash, StringComparer.Ordinal).ToArray()
             };
-            Require(WireJson.Encode(next.schema == 2 ? GeometryTransfer.References(next) : next).Length <= 2 * 1024 * 1024, "snapshot-byte-limit");
+            Require(WireJson.Encode(next.schema == 2 ? GeometryTransfer.References(next) : next).Length <= MaxSnapshotBytes, "snapshot-byte-limit");
             return next;
         }
 
@@ -467,7 +472,7 @@ namespace Protobot.Collaboration {
             var sign = value[3] != 0 ? Math.Sign(value[3]) : value[2] != 0 ? Math.Sign(value[2]) : value[1] != 0 ? Math.Sign(value[1]) : Math.Sign(value[0]);
             return value.Select(v => v == 0 ? 0.0 : v * sign).ToArray();
         }
-        public static bool ValidId(string id) => id != null && id.Length >= 1 && id.Length <= 80 && id.All(c =>
+        public static bool ValidId(string id) => id != null && id.Length >= 1 && id.Length <= MaxEntityIdLength && id.All(c =>
             c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-');
         public static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
         public static void Require(bool value, string error) { if (!value) throw new CollaborationException(error); }
