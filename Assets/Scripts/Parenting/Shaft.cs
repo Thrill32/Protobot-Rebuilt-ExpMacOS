@@ -4,9 +4,11 @@ using System.Linq;
 
 namespace Protobot {
     public class Shaft : ConnectingPart {
-        private const float SeatTolerance = .002f;
+        internal const float SeatTolerance = .002f;
 
         public float ShaftLength => transform.localScale.z;
+        private float HalfLength => transform.TransformVector(Vector3.forward).magnitude * .5f;
+        internal bool IsHighStrength => GetComponent<SavedObject>()?.id?.StartsWith("SHFT-High Strength-", System.StringComparison.Ordinal) == true;
         public override bool CanFormConnection => holeDetector.GetOrderedHoles()
             .Where(holeDetector.IsTargetHole).Select(hole => hole.holeData.part).Distinct().Count() >= 2;
 
@@ -33,8 +35,8 @@ namespace Protobot {
             if (clamps.Length == 0) yield break;
             var left = clamps[0];
             var right = clamps[^1];
-            bool highStrength = GetComponent<SavedObject>()?.id?.StartsWith("SHFT-High Strength-", System.StringComparison.Ordinal) == true;
-            float shaftHalfLength = transform.TransformVector(Vector3.forward).magnitude * .5f;
+            bool highStrength = IsHighStrength;
+            float shaftHalfLength = HalfLength;
 
             if (left.holeData.part != right.holeData.part && FitsClamp(left) && FitsClamp(right)) {
                 var leftWall = SeatedWall(left, -1);
@@ -44,24 +46,17 @@ namespace Protobot {
 
             // Match the tip position used by catalog shaft insertion.
             foreach (var socket in holes) {
-                if (socket.holeType != HoleCollider.HoleType.Normal || !socket.holeData.part.TryGetComponent(out Motor motor) ||
-                    !motor.isActiveAndEnabled || motor.ShaftHole != socket ||
-                    !FitsBore(socket) || !IsCoaxial(socket)) continue;
-                float side = Mathf.Sign(Vector3.Dot(transform.forward, socket.transform.forward));
-                var shaftTip = transform.position - transform.forward * (side * shaftHalfLength);
-                if ((motor.ShaftSeat(highStrength) - shaftTip).sqrMagnitude > SeatTolerance * SeatTolerance) continue;
+                if (!TryGetSeatedMotor(socket, highStrength, out var motor, out float side)) continue;
 
                 float socketPosition = side * Position(socket);
                 foreach (var clamp in clamps) {
                     if (!FitsClamp(clamp) || side * Position(clamp) - clamp.WorldHalfDepth < socketPosition - SeatTolerance) continue;
                     var wall = SeatedWall(clamp, side);
-                    if (wall != null && FitsBore(wall)) yield return (motor.gameObject, wall.holeData.part, clamp.holeData.part);
+                    if (wall != null && FitsBore(wall.holeData, highStrength)) yield return (motor.gameObject, wall.holeData.part, clamp.holeData.part);
                 }
             }
 
             bool FitsClamp(HoleCollider hole) => IsCoaxial(hole) && hole.holeData.IsHighStrength() == highStrength;
-            bool FitsBore(HoleCollider hole) => Mathf.Min(hole.holeData.size.x, hole.holeData.size.y) + SeatTolerance >=
-                (highStrength ? .25f : .125f);
 
             HoleCollider SeatedWall(HoleCollider clamp, float side) {
                 float collarFace = side * Position(clamp) + clamp.WorldHalfDepth;
@@ -76,10 +71,40 @@ namespace Protobot {
             }
         }
 
+        internal bool TryGetSeatedMotor(out Motor motor) {
+            motor = null;
+            if (!isActiveAndEnabled || holeDetector == null || !holeDetector.CanDetect) return false;
+            bool highStrength = IsHighStrength;
+            foreach (var socket in holeDetector.GetOrderedHoles()) {
+                if (!TryGetSeatedMotor(socket, highStrength, out var seated, out _)) continue;
+                if (motor != null) {
+                    motor = null;
+                    return false;
+                }
+                motor = seated;
+            }
+            return motor != null;
+        }
+
+        private bool TryGetSeatedMotor(HoleCollider socket, bool highStrength, out Motor motor, out float side) {
+            motor = null;
+            side = 0;
+            if (socket.holeType != HoleCollider.HoleType.Normal || !socket.holeData.part.TryGetComponent(out motor) ||
+                !motor.isActiveAndEnabled || motor.ShaftHole != socket || !FitsBore(socket.holeData, highStrength) || !IsCoaxial(socket)) return false;
+            side = Mathf.Sign(Vector3.Dot(transform.forward, socket.transform.forward));
+            var shaftTip = transform.position - transform.forward * (side * HalfLength);
+            return (motor.ShaftSeat(highStrength) - shaftTip).sqrMagnitude <= SeatTolerance * SeatTolerance;
+        }
+
         private float Position(HoleCollider hole) => Vector3.Dot(hole.transform.position - transform.position, transform.forward);
 
-        internal bool IsCoaxial(HoleCollider hole) =>
-            Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.forward)) > .9999f &&
-            (hole.transform.position - transform.position - transform.forward * Position(hole)).sqrMagnitude <= SeatTolerance * SeatTolerance;
+        internal static bool FitsBore(HoleData hole, bool highStrength) => Mathf.Min(hole.size.x, hole.size.y) + SeatTolerance >=
+            (highStrength ? .25f : .125f);
+
+        internal bool IsCoaxial(HoleCollider hole) => IsCoaxial(transform.position, transform.forward, hole.transform);
+
+        internal static bool IsCoaxial(Vector3 origin, Vector3 axis, Transform bore) =>
+            Mathf.Abs(Vector3.Dot(bore.forward, axis)) > .9999f &&
+            Vector3.ProjectOnPlane(bore.position - origin, axis).sqrMagnitude <= SeatTolerance * SeatTolerance;
     }
 }

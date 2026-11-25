@@ -605,11 +605,17 @@ namespace Protobot {
         }
         public static void ReplacePart(GameObject original, PartGenerator generator, Vector3? anchor, Vector3? localHole) {
             if (!IsShared || !CanEdit) return;
-            var replacement = PartParameterEditing.Replace(original, generator, anchor, localHole);
+            CollaborationScene.BeginReads();
+            GameObject replacement;
+            VersionRef[] dependencies;
+            try {
+                CollaborationScene.Read(original);
+                replacement = PartParameterEditing.Replace(original, generator, anchor, localHole);
+            } finally { dependencies = CollaborationScene.EndReads(); }
             if (replacement == null) return;
             var write = CollaborationScene.Capture(replacement);
             ObjectDuplicator.DiscardCopies(new List<GameObject> { replacement });
-            _ = instance.ChangeParts(new[] { write });
+            _ = instance.ChangeParts(new[] { write }, dependencies: dependencies);
         }
         // Frozen results from local-only tools use a scoped reservation, without broadcasting their private preview.
         public static Task<bool> CommitResolvedPosesAsync(Part[] writes, VersionRef[] dependencies, long expectedRevision) {

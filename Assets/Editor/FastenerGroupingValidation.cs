@@ -53,6 +53,7 @@ namespace ProtobotEditorTools {
                 GameObject.Find("Splash Screen")?.SetActive(false);
                 GameObject.Find("Launch Canvas")?.SetActive(false);
                 GameObject.Find("Add Parts Menu")?.SetActive(false);
+                await CheckChannelMotorRetention();
                 await CheckShaftRetention();
                 await CheckMotorShaftRetention();
                 EditorApplication.Exit(0);
@@ -298,6 +299,175 @@ namespace ProtobotEditorTools {
 
         private static string PartIds(List<GameObject> parts) => parts == null ? "" :
             string.Join(", ", parts.Select(part => part.GetComponent<SavedObject>().id));
+
+        private static async Task CheckChannelMotorRetention() {
+            var oldSimulation = Physics.simulationMode;
+            var placement = Object.FindFirstObjectByType<Placement>();
+            var shaftRule = placement.GetComponent<ShaftPlaceDisplacement>();
+            var cast = Get<MouseCast>(shaftRule, "mouseCast");
+            var face = Get<HoleFace>(shaftRule, "currentHoleFace");
+            var hover = GameObject.Find("Hover Hole Selection Manager").GetComponent<HoverSelector>();
+            var camera = cast.GetComponent<Camera>();
+            var cameraPose = new Pose(camera.transform.position, camera.transform.rotation);
+            var rotation = Quaternion.Euler(18, 42, 11);
+            var center = new Vector3(130, 80, 85);
+            try {
+                Physics.simulationMode = SimulationMode.Script;
+                SceneBuild.GenerateBuild(SceneBuild.DefaultBuild);
+                await StepPhysics();
+                var channel = PartsManager.GeneratePart("CCHL-1x5-5", center, rotation);
+                var outerNormal = channel.transform.up;
+                var shaftAxis = -outerNormal;
+                var mount = NearestHole(channel, channel.transform.TransformPoint(new Vector3(0, 1.22f, -.25f)));
+                Aim(mount.transform.position, outerNormal, mount.transform.up);
+                Require(face.gameObject.activeInHierarchy && face.hole == mount.holeData, "The motor preview did not target the channel mount.");
+                var motor = Place("MOTR-11W").GetComponent<Motor>();
+                var socket = motor.ShaftHole;
+                var mountHoles = motor.GetComponentsInChildren<HoleCollider>().Where(hole => hole.holeType == HoleCollider.HoleType.Threaded);
+                var screws = new List<GameObject>();
+                foreach (var motorMount in mountHoles) {
+                    var hole = NearestHole(channel, motorMount.transform.position);
+                    Aim(hole.transform.position, shaftAxis, hole.transform.up, .6f);
+                    Require(face.gameObject.activeInHierarchy && face.hole == hole.holeData, "The mounting screw did not target the channel inside face.");
+                    screws.Add(Place("SCRW-1/2in"));
+                }
+
+                await StepPhysics();
+                var wallBores = channel.GetComponentsInChildren<HoleCollider>()
+                    .Where(hole => Mathf.Abs(Vector3.Dot(hole.transform.forward, shaftAxis)) > .9999f &&
+                        Vector3.ProjectOnPlane(hole.transform.position - socket.transform.position, shaftAxis).magnitude < .001f)
+                    .OrderBy(hole => Vector3.Dot(hole.transform.position - socket.transform.position, shaftAxis)).ToArray();
+                Require(wallBores.Length == 2, "The shaft should pass through both channel walls.");
+                var near = wallBores[0];
+                var far = wallBores[1];
+                Aim(near.transform.position, shaftAxis, near.transform.up, .6f);
+                Require(face.gameObject.activeInHierarchy && face.hole == near.holeData, "The shaft preview did not target the channel bore.");
+                var inserted = motor.GetShaftDisplacement(4, false);
+                Require(inserted != null, "The motor shaft bore must be free after mounting the motor.");
+
+                var shaftGenerator = PartsManager.GetPartType("SHFT").GetComponent<PartGenerator>();
+                PartParameterEditing.Load(shaftGenerator, "SHFT-Normal-4");
+                var shaftData = new PartPlacementData(shaftGenerator, shaftGenerator.GetComponent<PartType>(), placement.transform);
+                Require(shaftRule.TryGetDisplacement(shaftData, out var nearInsertion) &&
+                    Vector3.Distance(nearInsertion.translation.Position, inserted.translation.Position) < .001f,
+                    "The near wall bore did not target its mounted motor.");
+                Aim(far.transform.position, shaftAxis, far.transform.up);
+                Require(face.gameObject.activeInHierarchy && face.hole == far.holeData, "The shaft preview did not target the far wall bore.");
+                var shaft = Place("SHFT-Normal-4").GetComponent<Shaft>();
+                Require(Vector3.Distance(shaft.transform.position, inserted.translation.Position) < .001f,
+                    "Catalog placement through the far wall missed the seated position in the motor.");
+                Aim(far.transform.position - shaftAxis * (far.holeData.depth * .5f + .23f), -channel.transform.forward, outerNormal);
+                Require(cast.gameObject == shaft.gameObject, "Collar placement did not hit the shaft.");
+                var collar = Place("CLMP-Normal-Normal");
+                var clamp = NearestHole(collar, far.transform.position, HoleCollider.HoleType.Clamp);
+                var all = screws.Concat(new[] { channel, motor.gameObject, shaft.gameObject, collar }).ToArray();
+                await StepPhysics();
+                var detector = shaft.holeDetector;
+                var seatError = clamp.transform.position + shaftAxis * ((clamp.holeData.depth + far.holeData.depth) * .5f) - far.transform.position;
+                Debug.Log($"Channel motor retention: socket={detector.holes.Contains(socket)}, " +
+                    $"near wall={detector.holes.Contains(wallBores[0])}, far wall={detector.holes.Contains(far)}, " +
+                    $"clamp={detector.holes.Contains(clamp)}, seat error={seatError:F5}, " +
+                    $"screws={string.Join(" / ", screws.Select(screw => PartIds(screw.GetComponent<Screw>().GetAttachedParts())))}.");
+                Require(seatError.magnitude < .001f, "The catalog collar did not seat against the far channel wall.");
+                Members(channel, all);
+                Members(shaft.gameObject, all);
+                Members(collar, all);
+
+                // Match the saved examples: the collar is seated while the shaft has been pushed too far into the motor.
+                shaft.transform.rotation *= Quaternion.Euler(0, 180, 90);
+                shaft.transform.position -= shaftAxis * .1635f;
+                await StepPhysics();
+                Require(socket.IsOccupiedBy(shaft.holeDetector), "The over-inserted shaft must still own its motor socket.");
+                Require(!shaft.gameObject.TryGetGroup(out List<GameObject> _) && motor.GetShaftDisplacement(4, false) == null,
+                    "The over-inserted shaft grouped or its motor accepted another shaft.");
+                var beforeReseat = new Pose(shaft.transform.position, shaft.transform.rotation);
+                StateSystem.instance.ResetStates();
+                CompleteShaftMove(shaft, placement, inserted.translation.Position, beforeReseat.rotation,
+                    () => Aim(near.transform.position, shaftAxis, near.transform.up, .6f));
+                await StepPhysics();
+                Members(shaft.gameObject, all);
+                var beforeUndo = StateSystem.curIndex;
+                StateSystem.instance.Undo();
+                shaft.transform.DOComplete();
+                await StepPhysics();
+                Require(StateSystem.curIndex == beforeUndo - 1 &&
+                    Vector3.Distance(shaft.transform.position, beforeReseat.position) < .001f &&
+                    !shaft.gameObject.TryGetGroup(out List<GameObject> _), "Undo did not restore the unseated shaft.");
+                StateSystem.instance.Redo();
+                shaft.transform.DOComplete();
+                await StepPhysics();
+                Members(collar, all);
+
+                var ui = Object.FindFirstObjectByType<AddPropertiesUI>();
+                var manager = Get<SelectionManager>(ui, "selectionManager");
+                manager.SetCurrent(new ObjectSelection { gameObject = shaft.gameObject, individual = true }, true, true);
+                Invoke(ui, "ObserveSelection");
+                ui.UpdateParam2("4.5");
+                var resized = manager.current.gameObject.GetComponent<Shaft>();
+                Require(resized != shaft && Mathf.Abs(resized.ShaftLength - 4.5f) < .001f &&
+                    Vector3.Distance(resized.transform.position, inserted.translation.Position + shaftAxis * .25f) < .001f &&
+                    Quaternion.Angle(resized.transform.rotation, beforeReseat.rotation) < .03f, "Resizing moved the motor end or changed the shaft roll.");
+                Members(collar, all.Select(part => part == shaft.gameObject ? resized.gameObject : part).ToArray());
+                StateSystem.instance.Undo();
+                Members(collar, all);
+
+                Invoke(ui, "ObserveSelection");
+                ui.UpdateParam2("3");
+                var shortened = manager.current.gameObject.GetComponent<Shaft>();
+                Require(shortened != shaft && Mathf.Abs(shortened.ShaftLength - 3f) < .001f &&
+                    Vector3.Distance(shortened.transform.position, inserted.translation.Position - shaftAxis * .5f) < .001f &&
+                    !shortened.gameObject.TryGetGroup(out List<GameObject> _), "Shortening must keep the socket end seated and release an out-of-reach collar.");
+                StateSystem.instance.Undo();
+                Members(collar, all);
+                Debug.Log("Channel motor retention passed: catalog placement through both walls, both mounting screws, over-insertion rejection, Move into the owned socket with original roll, and socket-anchored lengthening and shortening with undo.");
+            }
+            finally {
+                placement.CancelPlacement();
+                camera.transform.SetPositionAndRotation(cameraPose.position, cameraPose.rotation);
+                Physics.simulationMode = oldSimulation;
+            }
+
+            void Aim(Vector3 point, Vector3 normal, Vector3 up, float distance = 4) {
+                camera.transform.SetPositionAndRotation(point + normal * distance, Quaternion.LookRotation(-normal, up));
+                InputSystem.Update();
+                InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(point));
+                Physics.SyncTransforms();
+                hover.Update();
+            }
+
+            GameObject Place(string id) {
+                var generator = PartsManager.GetPartType(id).GetComponent<PartGenerator>();
+                PartParameterEditing.Load(generator, id);
+                var before = PartsManager.FindLoadedObjects();
+                placement.StartPlacing(new PartPlacementData(generator, generator.GetComponent<PartType>(), placement.transform));
+                Invoke(placement, "UpdatePosition");
+                Invoke(placement, "Place");
+                placement.CancelPlacement();
+                return PartsManager.FindLoadedObjects().Single(part => !before.Contains(part));
+            }
+        }
+
+        private static void CompleteShaftMove(Shaft shaft, Placement placement, Vector3 expectedPosition, Quaternion expectedRotation, Action aim) {
+            var keyboard = Object.FindFirstObjectByType<KeyboardTransformTool>();
+            var manager = Get<SelectionManager>(keyboard, "selectionManager");
+            var move = Get<MoveToolManager>(keyboard, "moveToolManager");
+            manager.SetCurrent(new ObjectSelection { gameObject = shaft.gameObject, individual = true }, true, true);
+            move.StartMoving();
+            Require(placement.placing, "Move did not start on the shaft.");
+            aim();
+            Invoke(placement, "UpdatePosition");
+            var preview = Get<Displacement>(placement, "currentDisplacement");
+            Require(Vector3.Distance(preview.translation.Position, expectedPosition) < .001f &&
+                Quaternion.Angle(preview.rotation.Orientation, expectedRotation) < .03f, "Move preview missed the shaft seat or changed its roll.");
+            Invoke(placement, "Place");
+            var movement = Get<MovementManager>(placement, "movementManager");
+            Get<Pivot>(movement, "movementPivot").transform.DOComplete();
+            Invoke(movement, "Update");
+            placement.CancelPlacement();
+            manager.ClearCurrent(false, true, true);
+            Require(Vector3.Distance(shaft.transform.position, expectedPosition) < .001f &&
+                Quaternion.Angle(shaft.transform.rotation, expectedRotation) < .03f, "Move commit changed the seated shaft pose.");
+        }
 
         private static async Task CheckMotorShaftRetention() {
             var oldSimulation = Physics.simulationMode;

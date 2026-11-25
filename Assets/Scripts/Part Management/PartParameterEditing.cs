@@ -67,6 +67,14 @@ namespace Protobot {
                     .OrderBy(candidate => (replacement.transform.InverseTransformPoint(candidate.transform.position) - localHole.Value).sqrMagnitude)
                     .FirstOrDefault();
                 if (hole != null) replacement.transform.position += holeAnchor.Value - hole.transform.position;
+            } else if (original.TryGetComponent(out Shaft shaft) && replacement.TryGetComponent(out Shaft resized) &&
+                       shaft.ShaftLength != resized.ShaftLength && shaft.IsHighStrength == resized.IsHighStrength &&
+                       shaft.TryGetSeatedMotor(out var motor)) {
+                var insertion = motor.GetShaftDisplacement(resized.ShaftLength, resized.IsHighStrength, shaft);
+                if (insertion != null) {
+                    CollaborationScene.Read(motor.gameObject);
+                    replacement.transform.SetPositionAndRotation(insertion.translation.Position, insertion.rotation.Orientation);
+                }
             }
             replacement.GetComponent<SavedObject>().state = original.GetComponent<SavedObject>().state;
             replacement.GetComponent<SavedObject>().ConnectionId = original.GetComponent<SavedObject>().ConnectionId;

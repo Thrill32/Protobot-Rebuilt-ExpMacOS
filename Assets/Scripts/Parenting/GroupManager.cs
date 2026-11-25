@@ -108,7 +108,7 @@ namespace Protobot {
 
         // Resolve seating against the live fastener graph. Shaft edges cannot establish a frame,
         // and a change in face contact need not produce a trigger enter or exit.
-        private static bool ShareFixedFrame(GameObject left, GameObject right) {
+        internal static bool ShareFixedFrame(GameObject left, GameObject right) {
             var visited = new HashSet<GameObject>();
             var pending = new Stack<GameObject>();
             pending.Push(left);
