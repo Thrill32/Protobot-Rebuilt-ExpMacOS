@@ -34,18 +34,18 @@ namespace Protobot {
             var left = clamps[0];
             var right = clamps[^1];
             bool highStrength = GetComponent<SavedObject>()?.id?.StartsWith("SHFT-High Strength-", System.StringComparison.Ordinal) == true;
-            if (left.holeData.part == right.holeData.part || !Coaxial(left) || !Coaxial(right) ||
+            if (left.holeData.part == right.holeData.part || !IsCoaxial(left) || !IsCoaxial(right) ||
                 left.holeData.IsHighStrength() != highStrength || right.holeData.IsHighStrength() != highStrength) return default;
 
             return (SeatedWall(left, -1), SeatedWall(right, 1));
 
             GameObject SeatedWall(HoleCollider clamp, int side) {
-                float collarFace = side * Position(clamp) + HalfDepth(clamp);
+                float collarFace = side * Position(clamp) + clamp.WorldHalfDepth;
                 float shaftEnd = transform.TransformVector(Vector3.forward).magnitude * .5f;
                 foreach (var hole in holes) {
-                    if (hole.holeType != HoleCollider.HoleType.Normal || !Coaxial(hole)) continue;
+                    if (hole.holeType != HoleCollider.HoleType.Normal || !IsCoaxial(hole)) continue;
                     float center = side * Position(hole);
-                    float halfDepth = HalfDepth(hole);
+                    float halfDepth = hole.WorldHalfDepth;
                     if (center > collarFace && center + halfDepth <= shaftEnd + SeatTolerance &&
                         Mathf.Abs(center - halfDepth - collarFace) <= SeatTolerance) return hole.holeData.part;
                 }
@@ -55,12 +55,8 @@ namespace Protobot {
 
         private float Position(HoleCollider hole) => Vector3.Dot(hole.transform.position - transform.position, transform.forward);
 
-        private bool Coaxial(HoleCollider hole) =>
+        internal bool IsCoaxial(HoleCollider hole) =>
             Mathf.Abs(Vector3.Dot(hole.transform.forward, transform.forward)) > .9999f &&
             (hole.transform.position - transform.position - transform.forward * Position(hole)).sqrMagnitude <= SeatTolerance * SeatTolerance;
-
-        // Use authored mating faces. Some hole colliders overhang those faces for picking.
-        private static float HalfDepth(HoleCollider hole) => hole.holeData.depth * .5f *
-            hole.transform.parent.TransformVector(hole.transform.localRotation * Vector3.forward).magnitude;
     }
 }

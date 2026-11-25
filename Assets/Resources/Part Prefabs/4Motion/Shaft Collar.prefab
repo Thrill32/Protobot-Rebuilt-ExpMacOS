@@ -1075,7 +1075,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   holeData:
     shape: {fileID: -22725266747507458, guid: 8c1cf58699f03f04f956b59e833806d6, type: 3}
-    depth: 0.5
+    depth: 0.25
     size: {x: 0.25, y: 0.25}
     part: {fileID: 8175000386473230291}
     position: {x: 0, y: 0, z: 0}
@@ -1220,7 +1220,7 @@ MonoBehaviour:
 
     size=0.25
 
-    depth=0.5
+    depth=0.25
 
     type=clamp
 
@@ -1243,7 +1243,7 @@ MonoBehaviour:
 
     hole=(0,-0.25,
     0)'
-  primaryHole: {fileID: 7221011380131625254}
+  primaryHole: {fileID: 4353542236217479961}
   allowCenterInserts: 0
 --- !u!114 &7221011379262856434
 MonoBehaviour:

@@ -10,6 +10,10 @@ namespace Protobot {
 
         public HoleData holeData;
 
+        // Authored mating faces can be shallower than the collider used for picking.
+        internal float WorldHalfDepth => holeData.depth * .5f *
+            transform.parent.TransformVector(transform.localRotation * Vector3.forward).magnitude;
+
         public Action<HoleDetector> OnSetDetector;
 
         public enum HoleType { 

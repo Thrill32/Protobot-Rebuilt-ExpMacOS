@@ -9,9 +9,14 @@ namespace Protobot {
     public class ShaftAxisPlaceDisplacement : PlaceDisplacement {
         [SerializeField] private MouseCast mouseCast;
         [SerializeField] private InputEvent flipInput;
-        private GameObject HoverObj => mouseCast.gameObject;
+        private const float SeatSnapDistance = .325f;
+        private Pose? collarRotationAnchor;
         public override bool ModifyRotation => true;
-        internal override bool SupportsBodySnap(PlacementData source) => source.objectId.Contains("Hole") || GetOffset(source) > 0;
+        internal override bool SupportsBodySnap(PlacementData source) => IsCollar(source) || source.objectId.Contains("Hole") || GetOffset(source) > 0;
+        public override Pose GetRotationAnchor(Displacement displacement) => collarRotationAnchor ?? base.GetRotationAnchor(displacement);
+
+        private static bool IsCollar(PlacementData source) => source.objectId == "CLMP" ||
+            source.objectId.StartsWith("CLMP-", System.StringComparison.Ordinal);
         
 
         public bool IsMotionObject(PlacementData placementData) {
@@ -42,15 +47,17 @@ namespace Protobot {
         }
 
         public override bool TryGetDisplacement(PlacementData placementData, out Displacement displacement) {
-            if (HoverObj != null && SupportsBodySnap(placementData)) {
-                if (HoverObj.tag.Contains("Shaft")) {
-                    CollaborationScene.Read(HoverObj);
-                    ConnectingPart connectingPart = HoverObj.GetComponent<ConnectingPart>();
-                    Transform shaftTransform = HoverObj.transform;
+            collarRotationAnchor = null;
+            var hover = mouseCast.hit;
+            if (hover.collider != null && SupportsBodySnap(placementData)) {
+                var hovered = hover.collider.gameObject;
+                if (hovered.CompareTag("Shaft")) {
+                    CollaborationScene.Read(hovered);
+                    Transform shaftTransform = hovered.transform;
+                    Vector3 shaftMousePos = shaftTransform.position + Vector3.Project(hover.point - shaftTransform.position, shaftTransform.forward);
 
-                    Vector3 mouseDirPos = Vector3.Project(mouseCast.hit.point, shaftTransform.forward); //the position on the shaft of mouse only in forward direction
-                    Vector3 shaftDirPos = Vector3.Project(shaftTransform.position, shaftTransform.forward); //the position of the shaft only in its forward direction
-                    Vector3 shaftMousePos = shaftTransform.position - shaftDirPos + mouseDirPos;
+                    if (IsCollar(placementData) && hovered.TryGetComponent(out Shaft shaft))
+                        return TryPlaceCollar(placementData, shaft, shaftMousePos, out displacement);
 
                     var rayForward = new Ray(shaftMousePos, shaftTransform.forward);
                     var rayBackward = new Ray(shaftMousePos, -shaftTransform.forward);
@@ -66,13 +73,13 @@ namespace Protobot {
                     if (forwardCast) CollaborationScene.Read(forwardHit.collider.gameObject);
                     if (backwardCast) CollaborationScene.Read(backwardHit.collider.gameObject);
 
-                    Vector3 offset = shaftTransform.forward * (GetOffset(placementData) + GetInsertsOffset(placementData, HoverObj));
+                    Vector3 offset = shaftTransform.forward * (GetOffset(placementData) + GetInsertsOffset(placementData, hovered));
 
                     var rotation = shaftTransform.GetAlignmentRotation(flipInput.IsPressed);
                     var nut = placementData is PartPlacementData part && part.partType.id == "NUT" ? part : null;
                     if (nut != null) {
-                        RaycastHit? mountingHit = forwardDistance < backwardDistance && forwardDistance < 0.325f ? forwardHit :
-                            backwardDistance < forwardDistance && backwardDistance < 0.325f ? backwardHit : null;
+                        RaycastHit? mountingHit = forwardDistance < backwardDistance && forwardDistance < SeatSnapDistance ? forwardHit :
+                            backwardDistance < forwardDistance && backwardDistance < SeatSnapDistance ? backwardHit : null;
                         if (mountingHit.HasValue) {
                             var hit = mountingHit.Value;
                             var hole = hit.collider.GetComponent<HoleCollider>();
@@ -83,7 +90,7 @@ namespace Protobot {
                         return true;
                     }
 
-                    if (forwardDistance < backwardDistance && forwardDistance < 0.325f) {
+                    if (forwardDistance < backwardDistance && forwardDistance < SeatSnapDistance) {
                         if (placementData.objectId.Contains("Hole")) {
                             rotation = Quaternion.LookRotation(forwardHit.normal, shaftTransform.up);
                         }
@@ -91,7 +98,7 @@ namespace Protobot {
                         return true;
                     }
 
-                    if (backwardDistance < forwardDistance && backwardDistance < 0.325f) {
+                    if (backwardDistance < forwardDistance && backwardDistance < SeatSnapDistance) {
                         if (placementData.objectId.Contains("Hole")) {
                             rotation = Quaternion.LookRotation(backwardHit.normal, shaftTransform.up);
                         }
@@ -106,6 +113,54 @@ namespace Protobot {
 
             displacement = null;
             return false;
+        }
+
+        private bool TryPlaceCollar(PlacementData source, Shaft shaft, Vector3 pointer, out Displacement displacement) {
+            displacement = null;
+            var initialRotation = Quaternion.identity;
+            Pose localBore;
+            float halfDepth;
+            if (source is PartPlacementData part) {
+                initialRotation = part.initialRotation;
+                localBore = new Pose(part.attachmentPose.position, part.attachmentPose.rotation * Quaternion.Inverse(initialRotation));
+                halfDepth = part.attachmentDepth * .5f;
+            } else if (source is GameObjectPlacementData moving) {
+                var body = moving.GetGameObject();
+                var bore = body.GetComponentsInChildren<HoleCollider>().FirstOrDefault(hole => hole.holeType == HoleCollider.HoleType.Clamp);
+                if (bore == null) return false;
+                var root = body.transform;
+                var inverse = Quaternion.Inverse(root.rotation);
+                localBore = new Pose(inverse * (bore.transform.position - root.position), inverse * bore.transform.rotation);
+                halfDepth = bore.WorldHalfDepth;
+            } else return false;
+
+            var axis = shaft.transform.forward;
+            var center = pointer;
+            float nearest = SeatSnapDistance;
+            HoleCollider seat = null;
+            FindSeat(axis);
+            FindSeat(-axis);
+            if (seat != null) CollaborationScene.Read(seat.gameObject);
+
+            var shaftRotation = shaft.transform.GetAlignmentRotation(flipInput.IsPressed);
+            var bodyRotation = shaftRotation * Quaternion.Inverse(localBore.rotation);
+            collarRotationAnchor = new Pose(center, shaftRotation);
+            // Placement applies the catalog's initial rotation to the returned orientation.
+            displacement = new Displacement(center - bodyRotation * localBore.position, bodyRotation * Quaternion.Inverse(initialRotation));
+            return true;
+
+            void FindSeat(Vector3 direction) {
+                foreach (var hit in Physics.RaycastAll(pointer, direction, SeatSnapDistance, HoleCollider.HOLE_COLLISIONS_MASK,
+                             QueryTriggerInteraction.Ignore)) {
+                    if (!hit.collider.TryGetComponent(out HoleCollider hole) || !hole.isActiveAndEnabled ||
+                        hole.holeData?.part == null || MoveTargeting.Excluded(hole.transform) || !shaft.IsCoaxial(hole)) continue;
+                    float distance = Vector3.Dot(hole.transform.position - pointer, direction) - hole.WorldHalfDepth;
+                    if (distance < 0 || distance >= nearest) continue;
+                    nearest = distance;
+                    seat = hole;
+                    center = pointer + direction * (distance - halfDepth);
+                }
+            }
         }
     }
 }

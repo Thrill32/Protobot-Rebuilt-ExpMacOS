@@ -91,7 +91,7 @@ namespace Protobot {
             return false;
         }
 
-        private static bool Excluded(Transform transform) {
+        internal static bool Excluded(Transform transform) {
             for (var current = transform; current != null; current = current.parent)
                 if (current.gameObject.layer == Placement.PLACEMENT_LAYER || current.gameObject.IsDeleted()) return true;
             return false;

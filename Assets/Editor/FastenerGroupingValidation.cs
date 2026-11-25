@@ -12,6 +12,7 @@ using Protobot.SelectionSystem;
 using Protobot.Simulation;
 using Protobot.StateSystems;
 using Protobot.Tools;
+using Protobot.Transformations;
 using Protobot.UI;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -51,6 +52,7 @@ namespace ProtobotEditorTools {
             try {
                 GameObject.Find("Splash Screen")?.SetActive(false);
                 GameObject.Find("Launch Canvas")?.SetActive(false);
+                GameObject.Find("Add Parts Menu")?.SetActive(false);
                 await CheckShaftRetention();
                 EditorApplication.Exit(0);
             }
@@ -73,6 +75,11 @@ namespace ProtobotEditorTools {
             var rotation = Quaternion.Euler(17, 32, 11);
             var axis = rotation * Vector3.forward;
             var center = new Vector3(75, 80, 85);
+            var placement = Object.FindFirstObjectByType<Placement>();
+            var shaftSnap = placement.GetComponent<ShaftAxisPlaceDisplacement>();
+            var cast = Get<MouseCast>(shaftSnap, "mouseCast");
+            var camera = cast.GetComponent<Camera>();
+            var cameraPose = new Pose(camera.transform.position, camera.transform.rotation);
             try {
                 Physics.simulationMode = SimulationMode.Script;
                 foreach (var (strength, leftVariant, rightVariant) in new[] {
@@ -121,6 +128,13 @@ namespace ProtobotEditorTools {
                     simulation.Cancel();
 
                     if (strength == "Normal") {
+                        // Reproduce the old snap pose with the part origin on the shaft axis.
+                        leftCollar.transform.position += Vector3.ProjectOnPlane(leftClamp.transform.position - leftCollar.transform.position, axis);
+                        CheckRepair(shaft, leftCollar, leftClamp, leftBore);
+                        await StepPhysics();
+                        Members(frame, all);
+                        baseline[leftCollar] = new Pose(leftCollar.transform.position, leftCollar.transform.rotation);
+
                         leftCollar.SetActive(false);
                         await StepPhysics();
                         Require(!shaft.gameObject.TryGetGroup(out List<GameObject> _), "A single collar retained the shaft.");
@@ -201,15 +215,40 @@ namespace ProtobotEditorTools {
                     }
 
                     (GameObject, HoleCollider) Collar(string id, HoleCollider wall, int side) {
-                        var collar = Generate(id, wall.transform.position);
+                        var generator = PartsManager.GetPartType(id).GetComponent<PartGenerator>();
+                        PartParameterEditing.Load(generator, id);
+                        var data = new PartPlacementData(generator, generator.GetComponent<PartType>(), placement.transform);
+                        var before = PartsManager.FindLoadedObjects();
+                        placement.StartPlacing(data);
+                        var barePoint = center + axis * 2.25f;
+                        AimAtShaft(shaft, barePoint);
+                        Invoke(placement, "UpdatePosition");
+                        var barePreview = Get<Displacement>(placement, "currentDisplacement");
+                        AimAtShaft(shaft, SeatPointer(wall, side));
+                        Set(placement, "attachmentTwist", side * 37f);
+                        Invoke(placement, "UpdatePosition");
+                        var preview = Get<Displacement>(placement, "currentDisplacement");
+                        Invoke(placement, "Place");
+                        placement.CancelPlacement();
+                        var collar = PartsManager.FindLoadedObjects().Single(part => !before.Contains(part));
                         var clamp = NearestHole(collar, wall.transform.position, HoleCollider.HoleType.Clamp);
-                        collar.transform.position += SeatCenter(wall, clamp, side) - clamp.transform.position;
+                        Require(Vector3.Distance(collar.transform.position, preview.translation.Position) < .001f &&
+                            Quaternion.Angle(collar.transform.rotation, preview.rotation.Orientation) < .03f,
+                            "Catalog collar commit differed from its preview: " + id);
+                        var boreOffset = Quaternion.Inverse(collar.transform.rotation) * (clamp.transform.position - collar.transform.position);
+                        Require(Vector3.Distance(barePreview.translation.Position + barePreview.rotation.Orientation * boreOffset, barePoint) < .001f,
+                            "Catalog collar did not align with the bare shaft: " + id);
+                        Require(Quaternion.Angle(preview.rotation.Orientation, barePreview.rotation.Orientation) > 36f,
+                            "The shaft placement preview did not apply a collar twist: " + id);
+                        CheckSeat(clamp, wall, side);
                         return (collar, clamp);
                     }
                 }
-                Debug.Log("Shaft retention passed: all four catalog collars on compatible shafts, shared frame, single stop, gap, offset bore, unbolted wall, Tool 5 rotation, variant replacement, undo and file reopen.");
+                Debug.Log("Shaft retention passed: all four catalog collars through shaft-hover preview, twist and commit, Move repair, shared frame, single stop, gap, offset bore, unbolted wall, Tool 5 rotation, variant replacement, undo and file reopen.");
             }
             finally {
+                placement.CancelPlacement();
+                camera.transform.SetPositionAndRotation(cameraPose.position, cameraPose.rotation);
                 Physics.simulationMode = oldSimulation;
                 if (File.Exists(path)) File.Delete(path);
             }
@@ -218,6 +257,42 @@ namespace ProtobotEditorTools {
                 PartsManager.GeneratePart(id, position, orientation ?? rotation);
             Vector3 SeatCenter(HoleCollider wall, HoleCollider clamp, int side) =>
                 wall.transform.position - axis * (side * (wall.holeData.depth + clamp.holeData.depth) * .5f);
+            Vector3 SeatPointer(HoleCollider wall, int side, float distance = .28f) =>
+                wall.transform.position - axis * (side * (wall.holeData.depth * .5f + distance));
+            void AimAtShaft(Shaft shaft, Vector3 point) {
+                camera.transform.SetPositionAndRotation(point - shaft.transform.right * 5,
+                    Quaternion.LookRotation(shaft.transform.right, shaft.transform.up));
+                InputSystem.Update();
+                InputState.Change(Mouse.current.position, (Vector2)camera.WorldToScreenPoint(point));
+                Physics.SyncTransforms();
+                Require(cast.gameObject == shaft.gameObject && !MouseInput.overUI,
+                    $"Placement pointer did not reach the shaft: hit={cast.gameObject}, overUI={MouseInput.overUI}.");
+            }
+            void CheckRepair(Shaft shaft, GameObject collar, HoleCollider clamp, HoleCollider wall) {
+                Require(!shaft.gameObject.GetConnectedObjects().Contains(wall.holeData.part), "The legacy off-axis pose still grouped with the frame.");
+                var keyboard = Object.FindFirstObjectByType<KeyboardTransformTool>();
+                var manager = Get<SelectionManager>(keyboard, "selectionManager");
+                var move = Get<MoveToolManager>(keyboard, "moveToolManager");
+                manager.SetCurrent(new ObjectSelection { gameObject = collar, individual = true }, true, true);
+                move.StartMoving();
+                Require(placement.placing, "Move did not start on the legacy collar.");
+                AimAtShaft(shaft, SeatPointer(wall, -1, .20f));
+                Invoke(placement, "UpdatePosition");
+                Invoke(placement, "Place");
+                var movement = Get<MovementManager>(placement, "movementManager");
+                Get<Pivot>(movement, "movementPivot").transform.DOComplete();
+                Invoke(movement, "Update");
+                placement.CancelPlacement();
+                CheckSeat(clamp, wall, -1);
+                manager.ClearCurrent(false, true, true);
+            }
+            void CheckSeat(HoleCollider clamp, HoleCollider wall, int side) {
+                var expected = SeatCenter(wall, clamp, side);
+                Require(Vector3.Distance(clamp.transform.position, expected) < .001f &&
+                    Mathf.Abs(Vector3.Dot(clamp.transform.forward, axis)) > .9999f,
+                    $"Shaft hover missed the collar bore seat on side {side} for {clamp.holeData.part.GetComponent<SavedObject>().id}. " +
+                    $"Bore displacement from seat: {(clamp.transform.position - expected):F5} in.");
+            }
         }
 
         private static string PartIds(List<GameObject> parts) => parts == null ? "" :
