@@ -420,6 +420,7 @@ namespace ProtobotEditorTools {
                 StateSystem.instance.Undo();
                 Members(collar, all);
                 Debug.Log("Channel motor retention passed: catalog placement through both walls, both mounting screws, over-insertion rejection, Move into the owned socket with original roll, and socket-anchored lengthening and shortening with undo.");
+                await CheckMotorRetainedStack(shaft, motor, near, clamp, all);
             }
             finally {
                 placement.CancelPlacement();
@@ -445,6 +446,99 @@ namespace ProtobotEditorTools {
                 placement.CancelPlacement();
                 return PartsManager.FindLoadedObjects().Single(part => !before.Contains(part));
             }
+        }
+
+        private static async Task CheckMotorRetainedStack(Shaft shaft, Motor motor, HoleCollider wall, HoleCollider farStop, GameObject[] assembly) {
+            var motorBody = motor.gameObject;
+            var shaftBody = shaft.gameObject;
+            var axis = motor.ShaftHole.transform.forward;
+            var rotation = Quaternion.LookRotation(axis, wall.transform.up);
+            var wallFace = wall.transform.position + axis * wall.holeData.depth * .5f;
+            var spacer = Add("SPCR-Nylon-1/4in", wallFace);
+            var gear = Add("GEAR-High Strength v2-36T", Face(spacer) + axis * .05f);
+            var lockBar = Add("LKBR-Metal", Face(gear));
+            var innerStop = Add("CLMP-Normal-Normal", Face(lockBar));
+            var gearBody = gear.holeData.part;
+            var innerCollar = innerStop.holeData.part;
+            var all = assembly.Concat(new[] { spacer.holeData.part, gearBody, lockBar.holeData.part, innerCollar }).ToArray();
+            await StepPhysics();
+            Require(new[] { wall, spacer, gear, lockBar, innerStop, farStop }.All(shaft.holeDetector.holes.Contains) &&
+                !shaft.GetAttachedParts().Contains(gearBody), "The gear stack must be detected outside the between-collars group.");
+            Members(gearBody, all);
+            Members(shaftBody, all);
+            Members(motorBody, all);
+
+            var tool = Object.FindFirstObjectByType<SimulationTool>();
+            var startingGear = gearBody.transform.rotation;
+            var startingWall = wall.holeData.part.transform.rotation;
+            Require(tool.Begin(motorBody), "The motor could not drive the captured gear stack in Tool 5.");
+            tool.Seek(1);
+            Require(Quaternion.Angle(startingGear, gearBody.transform.rotation) > 1f &&
+                Quaternion.Angle(startingWall, wall.holeData.part.transform.rotation) < .01f, "Tool 5 must spin the gear within its stationary wall.");
+            tool.Cancel();
+
+            var innerPosition = innerCollar.transform.position;
+            innerCollar.transform.position += axis * .025f;
+            Require(!InShaftGroup(), "Excess total endplay retained the gear stack.");
+            innerCollar.transform.position = innerPosition;
+            var spacerPosition = spacer.transform.position;
+            spacer.transform.position += rotation * Vector3.right * .025f;
+            Require(!InShaftGroup(), "An offset spacer bore retained the gear stack.");
+            spacer.transform.position = spacerPosition;
+            innerCollar.SetActive(false);
+            await StepPhysics();
+            Require(!InShaftGroup(), "Removing the inner stop retained the gear stack.");
+            innerCollar.SetActive(true);
+            await StepPhysics();
+            var farCollar = farStop.holeData.part;
+            var farPosition = farCollar.transform.position;
+            farCollar.transform.position -= axis * .025f;
+            Require(!InShaftGroup(), "A gap at the far wall let the motor retain the gear stack.");
+            farCollar.transform.position = farPosition;
+            Members(gearBody, all);
+
+            var ui = Object.FindFirstObjectByType<AddPropertiesUI>();
+            var selection = Get<SelectionManager>(ui, "selectionManager");
+            StateSystem.instance.ResetStates();
+            selection.SetCurrent(new ObjectSelection { gameObject = innerCollar, individual = true }, true, true);
+            Invoke(ui, "ObserveSelection");
+            ui.UpdateParam1("Clamping");
+            var changed = selection.current.gameObject;
+            var changedClamp = NearestHole(changed, Face(lockBar), HoleCollider.HoleType.Clamp);
+            Require(changed != innerCollar && changed.GetComponent<SavedObject>().id == "CLMP-Clamping-Normal",
+                "The inner collar did not change to the clamping variant.");
+            changed.transform.position += Face(lockBar) + axis * changedClamp.holeData.depth * .5f - changedClamp.transform.position;
+            await StepPhysics();
+            Members(gearBody, all.Select(part => part == innerCollar ? changed : part).ToArray());
+            StateSystem.instance.Undo();
+            await StepPhysics();
+            Members(gearBody, all);
+
+            var builds = Object.FindFirstObjectByType<BuildsManager>();
+            var path = Path.Combine(Path.GetTempPath(), $"protobot-motor-stack-{Guid.NewGuid():N}.pbb");
+            try {
+                builds.buildPath = path;
+                Require(await (Task<bool>)Invoke(builds, "SaveAsync", false) && await builds.OpenPathAsync(path),
+                    "The motor-retained gear stack could not be saved and reopened.");
+                await StepPhysics();
+                var loaded = PartsManager.FindLoadedObjects();
+                Require(loaded.Count == all.Length && !loaded.Contains(gearBody), "The gear stack build did not reopen.");
+                Members(loaded.Single(part => part.GetComponent<SavedObject>().id == "GEAR-High Strength v2-36T"), loaded.ToArray());
+            }
+            finally {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            Debug.Log("Motor-retained gear stack passed: catalog spacer, 36T gear and lock bar with .050 in of endplay, both stops, offset bore, Tool 5, collar variant, undo and reopen.");
+
+            HoleCollider Add(string id, Vector3 face) {
+                var part = PartsManager.GeneratePart(id, face, rotation);
+                var hole = NearestHole(part, face, id.StartsWith("CLMP-") ? HoleCollider.HoleType.Clamp : HoleCollider.HoleType.Normal);
+                part.transform.position += face + axis * hole.holeData.depth * .5f - hole.transform.position;
+                return hole;
+            }
+
+            Vector3 Face(HoleCollider hole) => hole.transform.position + axis * hole.holeData.depth * .5f;
+            bool InShaftGroup() => gearBody.TryGetGroup(out List<GameObject> group) && group.Contains(shaftBody);
         }
 
         private static void CompleteShaftMove(Shaft shaft, Placement placement, Vector3 expectedPosition, Quaternion expectedRotation, Action aim) {

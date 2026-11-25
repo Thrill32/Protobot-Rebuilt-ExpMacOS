@@ -78,12 +78,14 @@ namespace Protobot {
                     if (!Live(shaft.gameObject)) continue;
                     if (!retained.TryGetValue(shaft, out var attachments)) {
                         attachments = new HashSet<GameObject>();
-                        foreach (var (first, second, collar) in shaft.GetFrameRetentionCandidates()) {
-                            if (collar == null ? !Graph.ContainsKey(shaft.gameObject) : !Live(collar)) continue;
+                        foreach (var (first, second, motorStop) in shaft.GetFrameRetentionCandidates()) {
+                            if (motorStop == null ? !Graph.ContainsKey(shaft.gameObject) : !Live(motorStop.holeData.part)) continue;
                             if (!Live(first) || !Live(second) || !ShareFixedFrame(first, second)) continue;
                             attachments.Add(first);
                             attachments.Add(second);
-                            if (collar != null) attachments.Add(collar);
+                            if (motorStop == null) continue;
+                            attachments.Add(motorStop.holeData.part);
+                            attachments.UnionWith(shaft.GetMotorRetainedStack(first, motorStop));
                         }
                         retained.Add(shaft, attachments);
                     }
